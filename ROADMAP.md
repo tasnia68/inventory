@@ -16,12 +16,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Create README.md with setup instructions
 
 ### 1.2 Database & Multi-Tenancy Setup
-- [ ] Choose and configure primary database (PostgreSQL recommended)
-- [ ] Design multi-tenancy strategy (Schema-per-tenant vs Shared-schema with discriminator)
-- [ ] Implement tenant context holder and resolver
+- [x] Choose and configure primary database (PostgreSQL recommended)
+- [x] Design multi-tenancy strategy (Schema-per-tenant vs Shared-schema with discriminator)
+- [x] Implement tenant context holder and resolver
 - [ ] Configure dynamic datasource routing
-- [ ] Set up Flyway/Liquibase for database migrations
-- [ ] Create base audit entities (created_by, created_at, updated_by, updated_at, tenant_id)
+- [x] Set up Flyway/Liquibase for database migrations
+- [x] Create base audit entities (created_by, created_at, updated_by, updated_at, tenant_id)
 
 ### 1.3 Security & Authentication
 - [ ] Implement Spring Security configuration
