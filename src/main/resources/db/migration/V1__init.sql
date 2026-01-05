@@ -1,0 +1,3 @@
+-- Initial Flyway migration
+-- This file is intentionally left empty for now as we don't have tables yet.
+-- Tables will be added as we implement entities.
