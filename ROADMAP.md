@@ -25,13 +25,13 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 
 ### 1.3 Security & Authentication
 - [x] Implement Spring Security configuration
-- [ ] Set up JWT-based authentication
-- [ ] Create User, Role, Permission entities
-- [ ] Implement tenant-aware user authentication
-- [ ] Add password encryption (BCrypt)
-- [ ] Create login/logout/refresh token endpoints
-- [ ] Implement CORS configuration
-- [ ] Add rate limiting for APIs
+- [x] Set up JWT-based authentication
+- [x] Create User, Role, Permission entities
+- [x] Implement tenant-aware user authentication
+- [x] Add password encryption (BCrypt)
+- [x] Create login/logout/refresh token endpoints
+- [x] Implement CORS configuration
+- [x] Add rate limiting for APIs
 
 ### 1.4 Core Infrastructure
 - [ ] Set up global exception handling (@ControllerAdvice)

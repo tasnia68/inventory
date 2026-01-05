@@ -22,3 +22,22 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+
+app:
+  security:
+    jwt:
+      secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
+      expiration: 86400000 # 24 hours
+      refresh-token:
+        expiration: 604800000 # 7 days
+
+bucket4j:
+  enabled: true
+  filters:
+    - cache-name: rate-limit-bucket
+      url: /api/.*
+      rate-limits:
+        - bandwidths:
+            - capacity: 100
+              time: 1
+              unit: minutes
