@@ -1,0 +1,12 @@
+spring:
+  config:
+    activate:
+      on-profile: staging
+  datasource:
+    url: jdbc:postgresql://staging-db:5432/inventory_staging
+    username: staging_user
+    password: staging_password
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: false
