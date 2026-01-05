@@ -9,12 +9,10 @@ import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.hibernate.Session;
-import org.springframework.stereotype.Component;
 import org.springframework.util.StringUtils;
 
 import java.io.IOException;
 
-@Component
 public class TenantContextFilter implements Filter {
 
     public static final String TENANT_HEADER = "X-Tenant-ID";

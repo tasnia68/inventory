@@ -24,7 +24,7 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Create base audit entities (created_by, created_at, updated_by, updated_at, tenant_id)
 
 ### 1.3 Security & Authentication
-- [ ] Implement Spring Security configuration
+- [x] Implement Spring Security configuration
 - [ ] Set up JWT-based authentication
 - [ ] Create User, Role, Permission entities
 - [ ] Implement tenant-aware user authentication
