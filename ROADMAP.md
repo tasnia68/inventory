@@ -65,12 +65,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Add user activity logging
 
 ### 2.3 Tenant Settings & Customization
-- [ ] Design flexible settings schema (key-value store)
-- [ ] Create settings management endpoints
-- [ ] Implement business rules configuration
-- [ ] Build localization support (timezone, currency, language)
-- [ ] Create branding configuration (logo, colors, theme)
-- [ ] Implement notification preferences
+- [x] Design flexible settings schema (key-value store)
+- [x] Create settings management endpoints
+- [x] Implement business rules configuration
+- [x] Build localization support (timezone, currency, language)
+- [x] Create branding configuration (logo, colors, theme)
+- [x] Implement notification preferences
 
 ---
 
