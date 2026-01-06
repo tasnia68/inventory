@@ -3,7 +3,6 @@ package com.inventory.system.payload;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
-import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
 
@@ -41,5 +40,25 @@ public class ApiResponse<T> {
         this.data = data;
         this.timestamp = LocalDateTime.now();
         this.status = success ? 200 : 400;
+    }
+
+    public static <T> ApiResponse<T> success(T data) {
+        return ApiResponse.<T>builder()
+                .success(true)
+                .message("Success")
+                .data(data)
+                .status(200)
+                .timestamp(LocalDateTime.now())
+                .build();
+    }
+
+    public static <T> ApiResponse<T> success(T data, String message) {
+        return ApiResponse.<T>builder()
+                .success(true)
+                .message(message)
+                .data(data)
+                .status(200)
+                .timestamp(LocalDateTime.now())
+                .build();
     }
 }
