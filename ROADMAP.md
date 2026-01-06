@@ -56,13 +56,13 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [ ] Create tenant profile update endpoint (PATCH /api/v1/tenants/profile)
 
 ### 2.2 Tenant User Management
-- [ ] Create TenantUser entity with roles
-- [ ] Build user invitation system (email-based)
-- [ ] Implement user role assignment (Admin, Manager, User, Viewer)
-- [ ] Create user CRUD endpoints
-- [ ] Build permission management per user
-- [ ] Implement user profile endpoints
-- [ ] Add user activity logging
+- [x] Create TenantUser entity with roles
+- [x] Build user invitation system (email-based)
+- [x] Implement user role assignment (Admin, Manager, User, Viewer)
+- [x] Create user CRUD endpoints
+- [x] Build permission management per user
+- [x] Implement user profile endpoints
+- [x] Add user activity logging
 
 ### 2.3 Tenant Settings & Customization
 - [ ] Design flexible settings schema (key-value store)
