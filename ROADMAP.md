@@ -19,7 +19,7 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Choose and configure primary database (PostgreSQL recommended)
 - [x] Design multi-tenancy strategy (Schema-per-tenant vs Shared-schema with discriminator)
 - [x] Implement tenant context holder and resolver
-- [ ] Configure dynamic datasource routing
+- [x] Configure dynamic datasource routing
 - [x] Set up Flyway/Liquibase for database migrations
 - [x] Create base audit entities (created_by, created_at, updated_by, updated_at, tenant_id)
 
@@ -34,25 +34,25 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Add rate limiting for APIs
 
 ### 1.4 Core Infrastructure
-- [ ] Set up global exception handling (@ControllerAdvice)
-- [ ] Create standardized API response wrapper (ApiResponse<T>)
-- [ ] Configure logging (Logback/SLF4J with tenant context)
-- [ ] Set up request/response logging interceptor
-- [ ] Implement custom validation annotations
-- [ ] Configure Jackson for JSON serialization
-- [ ] Set up API versioning strategy (/api/v1/...)
+- [x] Set up global exception handling (@ControllerAdvice)
+- [x] Create standardized API response wrapper (ApiResponse<T>)
+- [x] Configure logging (Logback/SLF4J with tenant context)
+- [x] Set up request/response logging interceptor
+- [x] Implement custom validation annotations
+- [x] Configure Jackson for JSON serialization
+- [x] Set up API versioning strategy (/api/v1/...)
 
 ---
 
 ## Phase 2: Tenant Management Module
 
 ### 2.1 Tenant Registration & Onboarding
-- [ ] Create Tenant entity (name, subdomain, status, subscription_plan)
-- [ ] Build tenant registration endpoint (POST /api/v1/tenants/register)
-- [ ] Implement tenant database/schema provisioning
-- [ ] Create tenant activation/deactivation logic
-- [ ] Build tenant configuration entity (settings as JSON)
-- [ ] Implement tenant subscription management
+- [x] Create Tenant entity (name, subdomain, status, subscription_plan)
+- [x] Build tenant registration endpoint (POST /api/v1/tenants/register)
+- [x] Implement tenant database/schema provisioning
+- [x] Create tenant activation/deactivation logic
+- [x] Build tenant configuration entity (settings as JSON)
+- [x] Implement tenant subscription management
 - [ ] Create tenant profile update endpoint (PATCH /api/v1/tenants/profile)
 
 ### 2.2 Tenant User Management
