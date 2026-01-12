@@ -41,7 +41,7 @@ public class ProductEntityTest {
         ProductVariant variant = new ProductVariant();
         variant.setTemplate(template);
 
-        ProductService productService = new ProductServiceImpl();
+        ProductService productService = new ProductServiceImpl(null, null, null, null, null);
         String sku = productService.generateSku(variant);
 
         assertNotNull(sku);
