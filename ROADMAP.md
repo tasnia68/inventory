@@ -96,12 +96,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [ ] Create product versioning/history
 
 ### 3.3 Product Categories & Hierarchy
-- [ ] Create Category entity (hierarchical structure)
-- [ ] Build category tree CRUD endpoints
-- [ ] Implement category-attribute mapping
-- [ ] Create product-category relationships
-- [ ] Build category-based product filtering
-- [ ] Implement category permissions
+- [x] Create Category entity (hierarchical structure)
+- [x] Build category tree CRUD endpoints
+- [x] Implement category-attribute mapping
+- [x] Create product-category relationships
+- [x] Build category-based product filtering
+- [x] Implement category permissions
 
 ### 3.4 Units of Measure (UOM)
 - [ ] Create UOM entity (kg, lb, piece, dozen, etc.)

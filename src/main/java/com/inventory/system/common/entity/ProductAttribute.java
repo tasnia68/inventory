@@ -41,6 +41,9 @@ public class ProductAttribute extends BaseEntity {
     @JoinColumn(name = "group_id")
     private AttributeGroup group;
 
+    @jakarta.persistence.ManyToMany(mappedBy = "attributes", fetch = FetchType.LAZY)
+    private java.util.Set<Category> categories = new java.util.HashSet<>();
+
     public enum AttributeType {
         TEXT,
         NUMBER,
