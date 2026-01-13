@@ -1,6 +1,7 @@
 package com.inventory.system.controller;
 
 import com.inventory.system.payload.ApiResponse;
+import com.inventory.system.payload.ProductSearchDto;
 import com.inventory.system.payload.ProductVariantDto;
 import com.inventory.system.service.ProductService;
 import jakarta.validation.Valid;
@@ -20,6 +21,13 @@ import java.util.UUID;
 public class ProductController {
 
     private final ProductService productService;
+
+    @PostMapping("/search")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'USER', 'VIEWER')")
+    public ResponseEntity<ApiResponse<Page<ProductVariantDto>>> searchProducts(@RequestBody ProductSearchDto searchDto, Pageable pageable) {
+        Page<ProductVariantDto> products = productService.searchProducts(searchDto, pageable);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Products retrieved successfully", products), HttpStatus.OK);
+    }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")

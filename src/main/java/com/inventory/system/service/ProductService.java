@@ -4,6 +4,7 @@ import com.inventory.system.common.entity.ProductVariant;
 import com.inventory.system.payload.AttributeGroupDto;
 import com.inventory.system.payload.ProductAttributeDto;
 import com.inventory.system.payload.ProductTemplateDto;
+import com.inventory.system.payload.ProductSearchDto;
 import com.inventory.system.payload.ProductVariantDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -13,6 +14,8 @@ import java.util.UUID;
 
 public interface ProductService {
     String generateSku(ProductVariant variant);
+
+    Page<ProductVariantDto> searchProducts(ProductSearchDto searchDto, Pageable pageable);
 
     // Template
     ProductTemplateDto createTemplate(ProductTemplateDto productTemplateDto);
