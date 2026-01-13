@@ -115,11 +115,11 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 ## Phase 4: Inventory Core Module
 
 ### 4.1 Warehouse Management
-- [ ] Create Warehouse entity (name, location, type)
-- [ ] Build warehouse CRUD endpoints
-- [ ] Create StorageLocation entity (bins, racks, zones)
-- [ ] Implement warehouse-location hierarchy
-- [ ] Build location management endpoints
+- [x] Create Warehouse entity (name, location, type)
+- [x] Build warehouse CRUD endpoints
+- [x] Create StorageLocation entity (bins, racks, zones)
+- [x] Implement warehouse-location hierarchy
+- [x] Build location management endpoints
 - [ ] Add warehouse capacity tracking
 - [ ] Create warehouse transfer logic
 
