@@ -58,6 +58,11 @@ public class CategoryServiceImpl implements CategoryService {
             if (dto.getParentId().equals(id)) {
                 throw new IllegalArgumentException("Category cannot be its own parent");
             }
+            // Check for circular dependency
+            if (isDescendant(dto.getParentId(), id)) {
+                throw new IllegalArgumentException("Cannot set a descendant category as parent (circular dependency)");
+            }
+
             Category parent = categoryRepository.findById(dto.getParentId())
                     .orElseThrow(() -> new ResourceNotFoundException("Parent Category", "id", dto.getParentId()));
             category.setParent(parent);
@@ -105,6 +110,22 @@ public class CategoryServiceImpl implements CategoryService {
         return rootCategories.stream()
                 .map(cat -> mapToDto(cat, true))
                 .collect(Collectors.toList());
+    }
+
+    private boolean isDescendant(UUID potentialParentId, UUID categoryId) {
+        // Find the potential parent
+        Category potentialParent = categoryRepository.findById(potentialParentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Category", "id", potentialParentId));
+
+        // Check up the chain from potentialParent
+        Category current = potentialParent;
+        while (current != null) {
+            if (current.getId().equals(categoryId)) {
+                return true;
+            }
+            current = current.getParent();
+        }
+        return false;
     }
 
     private CategoryDto mapToDto(Category category, boolean includeChildren) {

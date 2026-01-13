@@ -104,11 +104,11 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Implement category permissions
 
 ### 3.4 Units of Measure (UOM)
-- [ ] Create UOM entity (kg, lb, piece, dozen, etc.)
-- [ ] Build UOM CRUD endpoints
-- [ ] Implement UOM conversion logic
-- [ ] Create base UOM configuration per tenant
-- [ ] Add UOM validation for products
+- [x] Create UOM entity (kg, lb, piece, dozen, etc.)
+- [x] Build UOM CRUD endpoints
+- [x] Implement UOM conversion logic
+- [x] Create base UOM configuration per tenant
+- [x] Add UOM validation for products
 
 ---
 
