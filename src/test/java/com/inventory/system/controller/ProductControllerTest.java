@@ -1,6 +1,7 @@
 package com.inventory.system.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.inventory.system.payload.ProductSearchDto;
 import com.inventory.system.payload.ProductVariantDto;
 import com.inventory.system.service.ProductService;
 import org.junit.jupiter.api.Test;
@@ -103,5 +104,26 @@ public class ProductControllerTest {
                 .header("X-Tenant-ID", "test-tenant"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true));
+    }
+
+    @Test
+    @WithMockUser(roles = "VIEWER")
+    public void searchProducts_ShouldReturnFilteredResults() throws Exception {
+        ProductSearchDto searchDto = new ProductSearchDto();
+        searchDto.setSku("TEST-SKU-123");
+
+        ProductVariantDto dto = new ProductVariantDto();
+        dto.setSku("TEST-SKU-123");
+        Page<ProductVariantDto> page = new PageImpl<>(Collections.singletonList(dto));
+
+        when(productService.searchProducts(any(ProductSearchDto.class), any(Pageable.class))).thenReturn(page);
+
+        mockMvc.perform(post("/api/v1/products/search")
+                .header("X-Tenant-ID", "test-tenant")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(searchDto)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.data.content[0].sku").value("TEST-SKU-123"));
     }
 }

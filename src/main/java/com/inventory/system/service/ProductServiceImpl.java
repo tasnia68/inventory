@@ -10,10 +10,13 @@ import com.inventory.system.repository.AttributeGroupRepository;
 import com.inventory.system.repository.ProductAttributeRepository;
 import com.inventory.system.repository.ProductAttributeValueRepository;
 import com.inventory.system.repository.ProductTemplateRepository;
+import com.inventory.system.payload.ProductSearchDto;
 import com.inventory.system.repository.ProductVariantRepository;
+import com.inventory.system.specification.ProductVariantSpecification;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -32,6 +35,12 @@ public class ProductServiceImpl implements ProductService {
     private final AttributeGroupRepository attributeGroupRepository;
     private final ProductVariantRepository productVariantRepository;
     private final ProductAttributeValueRepository productAttributeValueRepository;
+
+    @Override
+    public Page<ProductVariantDto> searchProducts(ProductSearchDto searchDto, Pageable pageable) {
+        Specification<ProductVariant> spec = ProductVariantSpecification.getSpecification(searchDto);
+        return productVariantRepository.findAll(spec, pageable).map(this::mapToDto);
+    }
 
     @Override
     public String generateSku(ProductVariant variant) {
