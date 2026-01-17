@@ -144,12 +144,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [ ] Create transaction approval workflow (optional)
 
 ### 4.4 Inventory Valuation
-- [ ] Implement valuation methods (FIFO, LIFO, Weighted Average)
-- [ ] Create valuation configuration per tenant
-- [ ] Build cost price tracking
-- [ ] Implement valuation calculation on transactions
-- [ ] Create inventory valuation reports
-- [ ] Add currency support for valuation
+- [x] Implement valuation methods (FIFO, LIFO, Weighted Average)
+- [x] Create valuation configuration per tenant
+- [x] Build cost price tracking
+- [x] Implement valuation calculation on transactions
+- [x] Create inventory valuation reports
+- [x] Add currency support for valuation
 
 ---
 

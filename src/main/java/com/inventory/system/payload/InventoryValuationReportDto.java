@@ -6,14 +6,13 @@ import java.math.BigDecimal;
 import java.util.UUID;
 
 @Data
-public class StockTransactionItemDto {
-    private UUID id;
+public class InventoryValuationReportDto {
     private UUID productVariantId;
     private String productVariantSku;
+    private String productName;
+    private UUID warehouseId;
+    private String warehouseName;
     private BigDecimal quantity;
-    private UUID sourceStorageLocationId;
-    private String sourceStorageLocationName;
-    private UUID destinationStorageLocationId;
-    private String destinationStorageLocationName;
     private BigDecimal unitCost;
+    private BigDecimal totalValue;
 }

@@ -36,6 +36,7 @@ public class StockServiceImpl implements StockService {
     private final ProductVariantRepository productVariantRepository;
     private final WarehouseRepository warehouseRepository;
     private final StorageLocationRepository storageLocationRepository;
+    private final InventoryValuationService valuationService;
 
     @Override
     @Transactional(readOnly = true)
@@ -64,7 +65,7 @@ public class StockServiceImpl implements StockService {
 
     @Override
     @Transactional
-    public StockDto adjustStock(StockAdjustmentDto dto) {
+    public StockMovementDto adjustStock(StockAdjustmentDto dto) {
         ProductVariant variant = productVariantRepository.findById(dto.getProductVariantId())
                 .orElseThrow(() -> new ResourceNotFoundException("ProductVariant", "id", dto.getProductVariantId()));
         Warehouse warehouse = warehouseRepository.findById(dto.getWarehouseId())
@@ -130,9 +131,64 @@ public class StockServiceImpl implements StockService {
         movement.setType(dto.getType());
         movement.setReason(dto.getReason());
         movement.setReferenceId(dto.getReferenceId());
+
+        // Handle Valuation
+        switch (dto.getType()) {
+            case IN:
+            case TRANSFER_IN:
+            case ADJUSTMENT:
+                // For positive adjustments/IN, we process inbound valuation
+                // ADJUSTMENT can be positive or negative?
+                // Typically ADJUSTMENT type is used for "Correction".
+                // If it's increasing stock, it's Inbound.
+                // The switch above updated stock quantity based on type.
+                // If ADJUSTMENT added quantity:
+                // But wait, ADJUSMENT logic above: stock.setQuantity(currentQuantity.add(quantityChange));
+                // quantityChange is from dto.getQuantity().
+                // If quantityChange is positive -> Inbound.
+                // If quantityChange is negative -> Outbound.
+
+                // Let's check quantity sign.
+                if (quantityChange.compareTo(BigDecimal.ZERO) >= 0) {
+                     valuationService.processInbound(movement, dto.getUnitCost());
+                } else {
+                     // For outbound, we need positive quantity for valuation processing?
+                     // My valuation service expects positive quantity in movement usually?
+                     // processOutbound uses movement.getQuantity() to reduce layers.
+                     // If movement.quantity is negative, logic breaks.
+                     // StockMovement quantity is "change".
+                     // For OUT type, quantityChange is passed to subtract.
+                     // But StockMovement.quantity usually stores the absolute amount?
+                     // Let's check existing implementation.
+                     // dto.getQuantity() is set to movement.setQuantity().
+                     // If type is OUT, adjustStock does: stock.setQuantity(currentQuantity.subtract(quantityChange));
+                     // So quantityChange is POSITIVE for OUT.
+                     // If type is ADJUSTMENT, quantityChange can be negative.
+
+                     if (dto.getType() == StockMovement.StockMovementType.ADJUSTMENT && quantityChange.compareTo(BigDecimal.ZERO) < 0) {
+                         // Convert to positive for valuation processing
+                         movement.setQuantity(quantityChange.abs());
+                         valuationService.processOutbound(movement);
+                         // Restore original signed quantity for movement record?
+                         // Usually movement records signed quantity or type indicates sign.
+                         // StockMovementType IN/OUT implies sign.
+                         // ADJUSTMENT might need sign.
+                         movement.setQuantity(quantityChange); // Restore
+                     } else {
+                         // Normal OUT/TRANSFER_OUT
+                         valuationService.processOutbound(movement);
+                     }
+                }
+                break;
+            case OUT:
+            case TRANSFER_OUT:
+                valuationService.processOutbound(movement);
+                break;
+        }
+
         stockMovementRepository.save(movement);
 
-        return mapToDto(stock);
+        return mapToDto(movement);
     }
 
     @Override
@@ -189,6 +245,8 @@ public class StockServiceImpl implements StockService {
             dto.setStorageLocationName(movement.getStorageLocation().getName());
         }
         dto.setQuantity(movement.getQuantity());
+        dto.setUnitCost(movement.getUnitCost());
+        dto.setTotalCost(movement.getTotalCost());
         dto.setType(movement.getType());
         dto.setReason(movement.getReason());
         dto.setReferenceId(movement.getReferenceId());

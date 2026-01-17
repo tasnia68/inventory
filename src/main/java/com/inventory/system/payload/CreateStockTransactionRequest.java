@@ -34,6 +34,8 @@ public class CreateStockTransactionRequest {
         @NotNull(message = "Quantity is required")
         private BigDecimal quantity;
 
+        private BigDecimal unitCost;
+
         private UUID sourceStorageLocationId;
         private UUID destinationStorageLocationId;
     }

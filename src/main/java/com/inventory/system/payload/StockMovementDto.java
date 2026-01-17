@@ -16,6 +16,8 @@ public class StockMovementDto {
     private UUID storageLocationId;
     private String storageLocationName;
     private BigDecimal quantity;
+    private BigDecimal unitCost;
+    private BigDecimal totalCost;
     private StockMovementType type;
     private String reason;
     private String referenceId;
