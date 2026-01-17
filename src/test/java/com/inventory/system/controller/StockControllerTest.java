@@ -69,9 +69,10 @@ public class StockControllerTest {
         inputDto.setQuantity(BigDecimal.valueOf(5));
         inputDto.setType(StockMovement.StockMovementType.IN);
 
-        StockDto outputDto = new StockDto();
+        StockMovementDto outputDto = new StockMovementDto();
         outputDto.setId(UUID.randomUUID());
-        outputDto.setQuantity(BigDecimal.valueOf(15));
+        outputDto.setQuantity(BigDecimal.valueOf(5));
+        outputDto.setType(StockMovement.StockMovementType.IN);
 
         when(stockService.adjustStock(any(StockAdjustmentDto.class))).thenReturn(outputDto);
 
@@ -81,7 +82,7 @@ public class StockControllerTest {
                 .content(objectMapper.writeValueAsString(inputDto)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
-                .andExpect(jsonPath("$.data.quantity").value(15));
+                .andExpect(jsonPath("$.data.quantity").value(5));
     }
 
     @Test

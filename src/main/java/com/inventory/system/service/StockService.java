@@ -11,6 +11,6 @@ import java.util.UUID;
 public interface StockService {
     Page<StockDto> getStocks(UUID warehouseId, UUID productVariantId, Pageable pageable);
     StockDto getStock(UUID id);
-    StockDto adjustStock(StockAdjustmentDto adjustmentDto);
+    StockMovementDto adjustStock(StockAdjustmentDto adjustmentDto);
     Page<StockMovementDto> getStockMovements(UUID warehouseId, UUID productVariantId, Pageable pageable);
 }

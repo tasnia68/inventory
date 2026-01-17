@@ -12,6 +12,7 @@ import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.CreateStockTransactionRequest;
 import com.inventory.system.payload.StockAdjustmentDto;
+import com.inventory.system.payload.StockMovementDto;
 import com.inventory.system.payload.StockTransactionDto;
 import com.inventory.system.payload.StockTransactionItemDto;
 import com.inventory.system.repository.ProductVariantRepository;
@@ -76,6 +77,7 @@ public class StockTransactionServiceImpl implements StockTransactionService {
             item.setProductVariant(variant);
 
             item.setQuantity(itemRequest.getQuantity());
+            item.setUnitCost(itemRequest.getUnitCost());
 
             if (itemRequest.getSourceStorageLocationId() != null) {
                 StorageLocation loc = storageLocationRepository.findById(itemRequest.getSourceStorageLocationId())
@@ -182,6 +184,7 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                         inbound.setStorageLocationId(item.getDestinationStorageLocation().getId());
                     }
                     inbound.setQuantity(item.getQuantity());
+                    inbound.setUnitCost(item.getUnitCost());
                     inbound.setType(StockMovement.StockMovementType.IN);
                     inbound.setReason("Transaction: " + transaction.getTransactionNumber());
                     inbound.setReferenceId(transaction.getId().toString());
@@ -214,7 +217,7 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                     transferOut.setType(StockMovement.StockMovementType.TRANSFER_OUT);
                     transferOut.setReason("Transfer: " + transaction.getTransactionNumber());
                     transferOut.setReferenceId(transaction.getId().toString());
-                    stockService.adjustStock(transferOut);
+                    StockMovementDto outResult = stockService.adjustStock(transferOut);
 
                     // In to Destination
                     StockAdjustmentDto transferIn = new StockAdjustmentDto();
@@ -224,6 +227,12 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                         transferIn.setStorageLocationId(item.getDestinationStorageLocation().getId());
                     }
                     transferIn.setQuantity(item.getQuantity());
+
+                    // Propagate calculated unit cost from OUT to IN
+                    if (outResult.getUnitCost() != null) {
+                        transferIn.setUnitCost(outResult.getUnitCost());
+                    }
+
                     transferIn.setType(StockMovement.StockMovementType.TRANSFER_IN);
                     transferIn.setReason("Transfer: " + transaction.getTransactionNumber());
                     transferIn.setReferenceId(transaction.getId().toString());
@@ -281,6 +290,7 @@ public class StockTransactionServiceImpl implements StockTransactionService {
         dto.setProductVariantId(item.getProductVariant().getId());
         dto.setProductVariantSku(item.getProductVariant().getSku());
         dto.setQuantity(item.getQuantity());
+        dto.setUnitCost(item.getUnitCost());
         if (item.getSourceStorageLocation() != null) {
             dto.setSourceStorageLocationId(item.getSourceStorageLocation().getId());
             dto.setSourceStorageLocationName(item.getSourceStorageLocation().getName());

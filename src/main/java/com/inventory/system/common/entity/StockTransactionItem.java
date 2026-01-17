@@ -35,4 +35,7 @@ public class StockTransactionItem extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "destination_storage_location_id")
     private StorageLocation destinationStorageLocation;
+
+    @Column(name = "unit_cost", precision = 19, scale = 6)
+    private BigDecimal unitCost;
 }

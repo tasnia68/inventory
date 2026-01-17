@@ -34,6 +34,12 @@ public class StockMovement extends BaseEntity {
     @Column(nullable = false, precision = 19, scale = 6)
     private BigDecimal quantity;
 
+    @Column(name = "unit_cost", precision = 19, scale = 6)
+    private BigDecimal unitCost;
+
+    @Column(name = "total_cost", precision = 19, scale = 6)
+    private BigDecimal totalCost;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private StockMovementType type;

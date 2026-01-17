@@ -36,9 +36,9 @@ public class StockController {
     }
 
     @PostMapping("/adjust")
-    public ResponseEntity<ApiResponse<StockDto>> adjustStock(@Valid @RequestBody StockAdjustmentDto adjustmentDto) {
-        StockDto stock = stockService.adjustStock(adjustmentDto);
-        return ResponseEntity.ok(ApiResponse.success(stock, "Stock adjusted successfully"));
+    public ResponseEntity<ApiResponse<StockMovementDto>> adjustStock(@Valid @RequestBody StockAdjustmentDto adjustmentDto) {
+        StockMovementDto movement = stockService.adjustStock(adjustmentDto);
+        return ResponseEntity.ok(ApiResponse.success(movement, "Stock adjusted successfully"));
     }
 
     @GetMapping("/movements")
