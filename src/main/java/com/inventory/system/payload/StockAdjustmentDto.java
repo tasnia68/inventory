@@ -19,6 +19,8 @@ public class StockAdjustmentDto {
     @NotNull(message = "Quantity is required")
     private BigDecimal quantity;
 
+    private UUID batchId;
+
     private BigDecimal unitCost;
 
     @NotNull(message = "Movement type is required")
