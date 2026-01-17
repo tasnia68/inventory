@@ -1,0 +1,24 @@
+package com.inventory.system.payload;
+
+import com.inventory.system.common.entity.StockMovement.StockMovementType;
+import lombok.Data;
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+@Data
+public class StockMovementDto {
+    private UUID id;
+    private UUID productVariantId;
+    private String productVariantSku;
+    private UUID warehouseId;
+    private String warehouseName;
+    private UUID storageLocationId;
+    private String storageLocationName;
+    private BigDecimal quantity;
+    private StockMovementType type;
+    private String reason;
+    private String referenceId;
+    private LocalDateTime createdAt;
+    private String createdBy;
+}

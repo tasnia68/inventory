@@ -124,10 +124,10 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [ ] Create warehouse transfer logic
 
 ### 4.2 Stock Management
-- [ ] Create Stock entity (product, warehouse, quantity, location)
-- [ ] Implement real-time stock level tracking
-- [ ] Build stock adjustment endpoints
-- [ ] Create stock movement history
+- [x] Create Stock entity (product, warehouse, quantity, location)
+- [x] Implement real-time stock level tracking
+- [x] Build stock adjustment endpoints
+- [x] Create stock movement history
 - [ ] Implement batch/lot tracking
 - [ ] Add serial number tracking
 - [ ] Create expiry date management
