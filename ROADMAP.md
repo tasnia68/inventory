@@ -134,13 +134,13 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [ ] Build stock alert thresholds (min/max levels)
 
 ### 4.3 Stock Transactions
-- [ ] Create StockTransaction entity (type, quantity, reference)
-- [ ] Implement stock-in (receiving) endpoints
-- [ ] Build stock-out (issuing) endpoints
-- [ ] Create stock transfer between warehouses
-- [ ] Implement stock adjustment with reasons
-- [ ] Add transaction reversal/cancellation
-- [ ] Build transaction audit trail
+- [x] Create StockTransaction entity (type, quantity, reference)
+- [x] Implement stock-in (receiving) endpoints
+- [x] Build stock-out (issuing) endpoints
+- [x] Create stock transfer between warehouses
+- [x] Implement stock adjustment with reasons
+- [x] Add transaction reversal/cancellation
+- [x] Build transaction audit trail
 - [ ] Create transaction approval workflow (optional)
 
 ### 4.4 Inventory Valuation
