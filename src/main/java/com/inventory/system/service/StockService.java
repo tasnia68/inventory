@@ -6,6 +6,7 @@ import com.inventory.system.payload.StockMovementDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
+import java.util.List;
 import java.util.UUID;
 
 public interface StockService {
@@ -13,4 +14,5 @@ public interface StockService {
     StockDto getStock(UUID id);
     StockMovementDto adjustStock(StockAdjustmentDto adjustmentDto);
     Page<StockMovementDto> getStockMovements(UUID warehouseId, UUID productVariantId, Pageable pageable);
+    List<StockMovementDto> getSerialNumberHistory(String serialNumber);
 }

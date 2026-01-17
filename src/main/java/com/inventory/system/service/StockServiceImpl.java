@@ -2,8 +2,11 @@ package com.inventory.system.service;
 
 import com.inventory.system.common.entity.Batch;
 import com.inventory.system.common.entity.ProductVariant;
+import com.inventory.system.common.entity.SerialNumber;
+import com.inventory.system.common.entity.SerialNumberStatus;
 import com.inventory.system.common.entity.Stock;
 import com.inventory.system.common.entity.StockMovement;
+import com.inventory.system.common.entity.StockMovementSerialNumber;
 import com.inventory.system.common.entity.StorageLocation;
 import com.inventory.system.common.entity.Warehouse;
 import com.inventory.system.common.exception.ResourceNotFoundException;
@@ -12,7 +15,9 @@ import com.inventory.system.payload.StockDto;
 import com.inventory.system.payload.StockMovementDto;
 import com.inventory.system.repository.BatchRepository;
 import com.inventory.system.repository.ProductVariantRepository;
+import com.inventory.system.repository.SerialNumberRepository;
 import com.inventory.system.repository.StockMovementRepository;
+import com.inventory.system.repository.StockMovementSerialNumberRepository;
 import com.inventory.system.repository.StockRepository;
 import com.inventory.system.repository.StorageLocationRepository;
 import com.inventory.system.repository.WarehouseRepository;
@@ -28,6 +33,7 @@ import java.math.BigDecimal;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -40,6 +46,8 @@ public class StockServiceImpl implements StockService {
     private final StorageLocationRepository storageLocationRepository;
     private final InventoryValuationService valuationService;
     private final BatchRepository batchRepository;
+    private final SerialNumberRepository serialNumberRepository;
+    private final StockMovementSerialNumberRepository stockMovementSerialNumberRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -94,6 +102,19 @@ public class StockServiceImpl implements StockService {
         }
         if (Boolean.FALSE.equals(variant.getTemplate().getIsBatchTracked()) && batch != null) {
             throw new IllegalArgumentException("Batch ID provided for non-batch-tracked product");
+        }
+
+        // Serial Number Logic
+        if (Boolean.TRUE.equals(variant.getTemplate().getIsSerialTracked())) {
+            if (dto.getSerialNumbers() == null || dto.getSerialNumbers().isEmpty()) {
+                throw new IllegalArgumentException("Serial numbers are required for this product");
+            }
+            if (dto.getQuantity().remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) != 0) {
+                 throw new IllegalArgumentException("Quantity must be an integer for serial tracked products");
+            }
+            if (BigDecimal.valueOf(dto.getSerialNumbers().size()).compareTo(dto.getQuantity().abs()) != 0) {
+                throw new IllegalArgumentException("Number of serial numbers must match the quantity");
+            }
         }
 
         Stock stock;
@@ -162,62 +183,84 @@ public class StockServiceImpl implements StockService {
         movement.setReferenceId(dto.getReferenceId());
 
         // Handle Valuation
-        switch (dto.getType()) {
-            case IN:
-            case TRANSFER_IN:
-            case ADJUSTMENT:
-                // For positive adjustments/IN, we process inbound valuation
-                // ADJUSTMENT can be positive or negative?
-                // Typically ADJUSTMENT type is used for "Correction".
-                // If it's increasing stock, it's Inbound.
-                // The switch above updated stock quantity based on type.
-                // If ADJUSTMENT added quantity:
-                // But wait, ADJUSMENT logic above: stock.setQuantity(currentQuantity.add(quantityChange));
-                // quantityChange is from dto.getQuantity().
-                // If quantityChange is positive -> Inbound.
-                // If quantityChange is negative -> Outbound.
-
-                // Let's check quantity sign.
-                if (quantityChange.compareTo(BigDecimal.ZERO) >= 0) {
-                     valuationService.processInbound(movement, dto.getUnitCost());
-                } else {
-                     // For outbound, we need positive quantity for valuation processing?
-                     // My valuation service expects positive quantity in movement usually?
-                     // processOutbound uses movement.getQuantity() to reduce layers.
-                     // If movement.quantity is negative, logic breaks.
-                     // StockMovement quantity is "change".
-                     // For OUT type, quantityChange is passed to subtract.
-                     // But StockMovement.quantity usually stores the absolute amount?
-                     // Let's check existing implementation.
-                     // dto.getQuantity() is set to movement.setQuantity().
-                     // If type is OUT, adjustStock does: stock.setQuantity(currentQuantity.subtract(quantityChange));
-                     // So quantityChange is POSITIVE for OUT.
-                     // If type is ADJUSTMENT, quantityChange can be negative.
-
-                     if (dto.getType() == StockMovement.StockMovementType.ADJUSTMENT && quantityChange.compareTo(BigDecimal.ZERO) < 0) {
-                         // Convert to positive for valuation processing
-                         movement.setQuantity(quantityChange.abs());
-                         valuationService.processOutbound(movement);
-                         // Restore original signed quantity for movement record?
-                         // Usually movement records signed quantity or type indicates sign.
-                         // StockMovementType IN/OUT implies sign.
-                         // ADJUSTMENT might need sign.
-                         movement.setQuantity(quantityChange); // Restore
-                     } else {
-                         // Normal OUT/TRANSFER_OUT
-                         valuationService.processOutbound(movement);
-                     }
-                }
-                break;
-            case OUT:
-            case TRANSFER_OUT:
-                valuationService.processOutbound(movement);
-                break;
+        if (quantityChange.compareTo(BigDecimal.ZERO) >= 0) {
+            // IN, TRANSFER_IN, positive ADJUSTMENT
+            valuationService.processInbound(movement, dto.getUnitCost());
+        } else {
+            // OUT, TRANSFER_OUT, negative ADJUSTMENT
+             if (dto.getType() == StockMovement.StockMovementType.ADJUSTMENT) {
+                 movement.setQuantity(quantityChange.abs());
+                 valuationService.processOutbound(movement);
+                 movement.setQuantity(quantityChange); // Restore
+             } else {
+                 valuationService.processOutbound(movement);
+             }
         }
 
         stockMovementRepository.save(movement);
 
+        // Process Serial Numbers
+        if (Boolean.TRUE.equals(variant.getTemplate().getIsSerialTracked())) {
+            processSerialNumbers(dto, variant, warehouse, location, batch, movement);
+        }
+
         return mapToDto(movement);
+    }
+
+    private void processSerialNumbers(StockAdjustmentDto dto, ProductVariant variant, Warehouse warehouse, StorageLocation location, Batch batch, StockMovement movement) {
+        boolean isInbound = dto.getType() == StockMovement.StockMovementType.IN ||
+                            dto.getType() == StockMovement.StockMovementType.TRANSFER_IN ||
+                            (dto.getType() == StockMovement.StockMovementType.ADJUSTMENT && dto.getQuantity().compareTo(BigDecimal.ZERO) > 0);
+
+        for (String sn : dto.getSerialNumbers()) {
+            SerialNumber serial = serialNumberRepository.findBySerialNumberAndProductVariantId(sn, variant.getId())
+                    .orElse(null);
+
+            if (isInbound) {
+                if (serial == null) {
+                    serial = new SerialNumber();
+                    serial.setSerialNumber(sn);
+                    serial.setProductVariant(variant);
+                }
+                serial.setWarehouse(warehouse);
+                serial.setStorageLocation(location);
+                serial.setBatch(batch);
+                serial.setStatus(SerialNumberStatus.AVAILABLE);
+            } else {
+                // Outbound
+                if (serial == null) {
+                    throw new IllegalArgumentException("Serial number not found: " + sn);
+                }
+                if (serial.getStatus() != SerialNumberStatus.AVAILABLE) {
+                    throw new IllegalArgumentException("Serial number not available: " + sn);
+                }
+                if (!serial.getWarehouse().getId().equals(warehouse.getId())) {
+                    throw new IllegalArgumentException("Serial number in different warehouse: " + sn);
+                }
+                // Update status based on type
+                switch (dto.getType()) {
+                    case OUT:
+                        serial.setStatus(SerialNumberStatus.SOLD);
+                        break;
+                    case TRANSFER_OUT:
+                        serial.setStatus(SerialNumberStatus.TRANSIT);
+                        break;
+                    case ADJUSTMENT:
+                        serial.setStatus(SerialNumberStatus.CONSUMED);
+                        break;
+                    default:
+                        serial.setStatus(SerialNumberStatus.SOLD);
+                }
+                serial.setWarehouse(null);
+                serial.setStorageLocation(null);
+            }
+            serial = serialNumberRepository.save(serial);
+
+            StockMovementSerialNumber smsn = new StockMovementSerialNumber();
+            smsn.setStockMovement(movement);
+            smsn.setSerialNumber(serial);
+            stockMovementSerialNumberRepository.save(smsn);
+        }
     }
 
     @Override
@@ -234,6 +277,26 @@ public class StockServiceImpl implements StockService {
             return cb.and(predicates.toArray(new Predicate[0]));
         };
         return stockMovementRepository.findAll(spec, pageable).map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StockMovementDto> getSerialNumberHistory(String serialNumber) {
+        List<SerialNumber> serials = serialNumberRepository.findAllBySerialNumber(serialNumber);
+
+        List<StockMovementDto> history = new ArrayList<>();
+
+        for (SerialNumber sn : serials) {
+            List<StockMovementSerialNumber> smsns = stockMovementSerialNumberRepository.findBySerialNumber(sn);
+            for (StockMovementSerialNumber smsn : smsns) {
+                history.add(mapToDto(smsn.getStockMovement()));
+            }
+        }
+
+        // Sort by creation date desc
+        history.sort((a, b) -> b.getCreatedAt().compareTo(a.getCreatedAt()));
+
+        return history;
     }
 
     private Stock createStock(ProductVariant v, Warehouse w, StorageLocation l, Batch b) {
@@ -290,6 +353,15 @@ public class StockServiceImpl implements StockService {
         dto.setReferenceId(movement.getReferenceId());
         dto.setCreatedAt(movement.getCreatedAt());
         dto.setCreatedBy(movement.getCreatedBy());
+
+        // Fetch serial numbers
+        List<StockMovementSerialNumber> smsns = stockMovementSerialNumberRepository.findByStockMovement(movement);
+        if (!smsns.isEmpty()) {
+            dto.setSerialNumbers(smsns.stream()
+                .map(smsn -> smsn.getSerialNumber().getSerialNumber())
+                .collect(Collectors.toList()));
+        }
+
         return dto;
     }
 }

@@ -4,6 +4,7 @@ import com.inventory.system.common.entity.StockMovement.StockMovementType;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -28,4 +29,6 @@ public class StockAdjustmentDto {
 
     private String reason;
     private String referenceId;
+
+    private List<String> serialNumbers;
 }
