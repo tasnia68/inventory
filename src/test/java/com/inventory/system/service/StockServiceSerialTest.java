@@ -1,12 +1,13 @@
 package com.inventory.system.service;
 
-import com.inventory.system.common.entity.Batch;
 import com.inventory.system.common.entity.ProductTemplate;
 import com.inventory.system.common.entity.ProductVariant;
+import com.inventory.system.common.entity.SerialNumber;
+import com.inventory.system.common.entity.SerialNumberStatus;
 import com.inventory.system.common.entity.Stock;
 import com.inventory.system.common.entity.StockMovement;
+import com.inventory.system.common.entity.StockMovementSerialNumber;
 import com.inventory.system.common.entity.Warehouse;
-import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.StockAdjustmentDto;
 import com.inventory.system.payload.StockMovementDto;
 import com.inventory.system.repository.BatchRepository;
@@ -24,21 +25,20 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
-public class StockServiceTest {
+public class StockServiceSerialTest {
 
     @Mock
     private StockRepository stockRepository;
@@ -63,107 +63,19 @@ public class StockServiceTest {
     private StockServiceImpl stockService;
 
     @Test
-    void adjustStock_BatchTracked_Success() {
+    void adjustStock_SerialTracked_Inbound_Success() {
         UUID variantId = UUID.randomUUID();
         UUID warehouseId = UUID.randomUUID();
-        UUID batchId = UUID.randomUUID();
-        BigDecimal quantity = BigDecimal.TEN;
+        BigDecimal quantity = BigDecimal.valueOf(2);
+        List<String> serials = List.of("SN1", "SN2");
 
         ProductTemplate template = new ProductTemplate();
-        template.setIsBatchTracked(true);
+        template.setIsSerialTracked(true);
 
         ProductVariant variant = new ProductVariant();
         variant.setId(variantId);
         variant.setTemplate(template);
-        variant.setSku("SKU-BATCH");
-
-        Warehouse warehouse = new Warehouse();
-        warehouse.setId(warehouseId);
-        warehouse.setName("Main WH");
-
-        Batch batch = new Batch();
-        batch.setId(batchId);
-        batch.setBatchNumber("BATCH-001");
-
-        StockAdjustmentDto dto = new StockAdjustmentDto();
-        dto.setProductVariantId(variantId);
-        dto.setWarehouseId(warehouseId);
-        dto.setQuantity(quantity);
-        dto.setType(StockMovement.StockMovementType.IN);
-        dto.setBatchId(batchId);
-
-        when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
-        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
-        when(batchRepository.findById(batchId)).thenReturn(Optional.of(batch));
-
-        // Mock find stock to return empty, so it creates new
-        when(stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchId(
-                eq(variantId), eq(warehouseId), eq(batchId)))
-                .thenReturn(Optional.empty());
-
-        when(stockRepository.save(any(Stock.class))).thenAnswer(i -> {
-            Stock s = (Stock) i.getArguments()[0];
-            s.setId(UUID.randomUUID());
-            return s;
-        });
-
-        when(stockMovementRepository.save(any(StockMovement.class))).thenAnswer(i -> {
-            StockMovement m = (StockMovement) i.getArguments()[0];
-            m.setId(UUID.randomUUID());
-            return m;
-        });
-
-        StockMovementDto result = stockService.adjustStock(dto);
-
-        assertNotNull(result);
-        assertEquals(quantity, result.getQuantity());
-        assertEquals(batchId, result.getBatchId());
-
-        verify(stockRepository).save(any(Stock.class));
-        verify(valuationService).processInbound(any(StockMovement.class), any());
-    }
-
-    @Test
-    void adjustStock_BatchTracked_MissingBatchId_ThrowsException() {
-        UUID variantId = UUID.randomUUID();
-        UUID warehouseId = UUID.randomUUID();
-
-        ProductTemplate template = new ProductTemplate();
-        template.setIsBatchTracked(true);
-
-        ProductVariant variant = new ProductVariant();
-        variant.setId(variantId);
-        variant.setTemplate(template);
-
-        Warehouse warehouse = new Warehouse();
-        warehouse.setId(warehouseId);
-
-        StockAdjustmentDto dto = new StockAdjustmentDto();
-        dto.setProductVariantId(variantId);
-        dto.setWarehouseId(warehouseId);
-        dto.setQuantity(BigDecimal.TEN);
-        dto.setType(StockMovement.StockMovementType.IN);
-        dto.setBatchId(null); // Missing batch
-
-        when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
-        when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
-
-        assertThrows(IllegalArgumentException.class, () -> stockService.adjustStock(dto));
-    }
-
-    @Test
-    void adjustStock_NotBatchTracked_Success() {
-        UUID variantId = UUID.randomUUID();
-        UUID warehouseId = UUID.randomUUID();
-        BigDecimal quantity = BigDecimal.TEN;
-
-        ProductTemplate template = new ProductTemplate();
-        template.setIsBatchTracked(false);
-
-        ProductVariant variant = new ProductVariant();
-        variant.setId(variantId);
-        variant.setTemplate(template);
-        variant.setSku("SKU-NORMAL");
+        variant.setSku("SKU-SERIAL");
 
         Warehouse warehouse = new Warehouse();
         warehouse.setId(warehouseId);
@@ -174,12 +86,12 @@ public class StockServiceTest {
         dto.setWarehouseId(warehouseId);
         dto.setQuantity(quantity);
         dto.setType(StockMovement.StockMovementType.IN);
-        dto.setBatchId(null);
+        dto.setSerialNumbers(serials);
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
 
-        // Mock find stock for no batch
+        // Mock stock find
         when(stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(
                 eq(variantId), eq(warehouseId)))
                 .thenReturn(Optional.empty());
@@ -196,21 +108,35 @@ public class StockServiceTest {
             return m;
         });
 
+        // Mock Serial Number lookups (return empty -> create new)
+        when(serialNumberRepository.findBySerialNumberAndProductVariantId(eq("SN1"), eq(variantId))).thenReturn(Optional.empty());
+        when(serialNumberRepository.findBySerialNumberAndProductVariantId(eq("SN2"), eq(variantId))).thenReturn(Optional.empty());
+
+        when(serialNumberRepository.save(any(SerialNumber.class))).thenAnswer(i -> {
+            SerialNumber sn = (SerialNumber) i.getArguments()[0];
+            sn.setId(UUID.randomUUID());
+            return sn;
+        });
+
         StockMovementDto result = stockService.adjustStock(dto);
 
         assertNotNull(result);
         assertEquals(quantity, result.getQuantity());
-        assertEquals(null, result.getBatchId());
+
+        // Verify serial numbers saved
+        verify(serialNumberRepository, times(2)).save(any(SerialNumber.class));
+        verify(stockMovementSerialNumberRepository, times(2)).save(any(StockMovementSerialNumber.class));
     }
 
     @Test
-    void adjustStock_NotBatchTracked_WithBatchId_ThrowsException() {
+    void adjustStock_SerialTracked_Outbound_Success() {
         UUID variantId = UUID.randomUUID();
         UUID warehouseId = UUID.randomUUID();
-        UUID batchId = UUID.randomUUID();
+        BigDecimal quantity = BigDecimal.valueOf(1);
+        List<String> serials = List.of("SN1");
 
         ProductTemplate template = new ProductTemplate();
-        template.setIsBatchTracked(false);
+        template.setIsSerialTracked(true);
 
         ProductVariant variant = new ProductVariant();
         variant.setId(variantId);
@@ -219,20 +145,53 @@ public class StockServiceTest {
         Warehouse warehouse = new Warehouse();
         warehouse.setId(warehouseId);
 
-        Batch batch = new Batch();
-        batch.setId(batchId);
-
         StockAdjustmentDto dto = new StockAdjustmentDto();
         dto.setProductVariantId(variantId);
         dto.setWarehouseId(warehouseId);
-        dto.setQuantity(BigDecimal.TEN);
-        dto.setType(StockMovement.StockMovementType.IN);
-        dto.setBatchId(batchId); // Provided when not needed
+        dto.setQuantity(quantity);
+        dto.setType(StockMovement.StockMovementType.OUT);
+        dto.setSerialNumbers(serials);
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
-        when(batchRepository.findById(batchId)).thenReturn(Optional.of(batch));
 
-        assertThrows(IllegalArgumentException.class, () -> stockService.adjustStock(dto));
+        // Mock stock find (assume enough stock)
+        Stock existingStock = new Stock();
+        existingStock.setId(UUID.randomUUID());
+        existingStock.setQuantity(BigDecimal.TEN);
+        existingStock.setProductVariant(variant);
+        existingStock.setWarehouse(warehouse);
+        when(stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(
+                eq(variantId), eq(warehouseId)))
+                .thenReturn(Optional.of(existingStock));
+
+        when(stockRepository.save(any(Stock.class))).thenAnswer(i -> i.getArguments()[0]);
+
+        when(stockMovementRepository.save(any(StockMovement.class))).thenAnswer(i -> {
+            StockMovement m = (StockMovement) i.getArguments()[0];
+            m.setId(UUID.randomUUID());
+            return m;
+        });
+
+        // Mock Serial Number lookup (must exist and be AVAILABLE)
+        SerialNumber sn1 = new SerialNumber();
+        sn1.setId(UUID.randomUUID());
+        sn1.setSerialNumber("SN1");
+        sn1.setProductVariant(variant);
+        sn1.setWarehouse(warehouse);
+        sn1.setStatus(SerialNumberStatus.AVAILABLE);
+
+        when(serialNumberRepository.findBySerialNumberAndProductVariantId(eq("SN1"), eq(variantId)))
+                .thenReturn(Optional.of(sn1));
+
+        when(serialNumberRepository.save(any(SerialNumber.class))).thenAnswer(i -> i.getArguments()[0]);
+
+        StockMovementDto result = stockService.adjustStock(dto);
+
+        assertNotNull(result);
+
+        // Verify serial number status updated to SOLD
+        assertEquals(SerialNumberStatus.SOLD, sn1.getStatus());
+        verify(stockMovementSerialNumberRepository, times(1)).save(any(StockMovementSerialNumber.class));
     }
 }

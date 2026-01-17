@@ -157,12 +157,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 
 ### 5.1 Batch & Serial Number Tracking
 - [x] Create Batch entity (batch_number, manufacturing_date, expiry_date)
-- [ ] Create SerialNumber entity (serial_number, product, status)
+- [x] Create SerialNumber entity (serial_number, product, status)
 - [x] Implement batch-wise stock tracking
-- [ ] Build serial number assignment/scanning
-- [ ] Create batch expiry alerts
-- [ ] Implement batch/serial traceability
-- [ ] Add warranty tracking for serial numbers
+- [x] Build serial number assignment/scanning
+- [x] Create batch expiry alerts
+- [x] Implement batch/serial traceability
+- [x] Add warranty tracking for serial numbers
 
 ### 5.2 Stock Reservation System
 - [ ] Create StockReservation entity

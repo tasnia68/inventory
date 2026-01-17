@@ -4,6 +4,7 @@ import com.inventory.system.common.entity.StockMovement.StockMovementType;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -25,4 +26,5 @@ public class StockMovementDto {
     private String referenceId;
     private LocalDateTime createdAt;
     private String createdBy;
+    private List<String> serialNumbers;
 }
