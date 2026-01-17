@@ -165,12 +165,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Add warranty tracking for serial numbers
 
 ### 5.2 Stock Reservation System
-- [ ] Create StockReservation entity
-- [ ] Implement reserve stock endpoint
-- [ ] Build reservation release logic
-- [ ] Create reservation timeout handling
-- [ ] Add reservation priority levels
-- [ ] Implement available-to-promise (ATP) calculation
+- [x] Create StockReservation entity
+- [x] Implement reserve stock endpoint
+- [x] Build reservation release logic
+- [x] Create reservation timeout handling
+- [x] Add reservation priority levels
+- [x] Implement available-to-promise (ATP) calculation
 
 ### 5.3 Stock Replenishment
 - [ ] Create ReplenishmentRule entity (min/max levels, reorder point)
