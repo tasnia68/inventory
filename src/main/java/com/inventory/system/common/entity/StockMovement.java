@@ -31,6 +31,10 @@ public class StockMovement extends BaseEntity {
     @JoinColumn(name = "storage_location_id")
     private StorageLocation storageLocation;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "batch_id")
+    private Batch batch;
+
     @Column(nullable = false, precision = 19, scale = 6)
     private BigDecimal quantity;
 

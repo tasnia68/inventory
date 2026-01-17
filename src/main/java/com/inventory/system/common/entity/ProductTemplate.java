@@ -24,6 +24,9 @@ public class ProductTemplate extends BaseEntity {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    @Column(name = "is_batch_tracked")
+    private Boolean isBatchTracked = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "category_id")
     private Category category;

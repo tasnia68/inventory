@@ -1,5 +1,6 @@
 package com.inventory.system.service;
 
+import com.inventory.system.common.entity.Batch;
 import com.inventory.system.common.entity.ProductVariant;
 import com.inventory.system.common.entity.Stock;
 import com.inventory.system.common.entity.StockMovement;
@@ -9,6 +10,7 @@ import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.StockAdjustmentDto;
 import com.inventory.system.payload.StockDto;
 import com.inventory.system.payload.StockMovementDto;
+import com.inventory.system.repository.BatchRepository;
 import com.inventory.system.repository.ProductVariantRepository;
 import com.inventory.system.repository.StockMovementRepository;
 import com.inventory.system.repository.StockRepository;
@@ -37,6 +39,7 @@ public class StockServiceImpl implements StockService {
     private final WarehouseRepository warehouseRepository;
     private final StorageLocationRepository storageLocationRepository;
     private final InventoryValuationService valuationService;
+    private final BatchRepository batchRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -80,15 +83,40 @@ public class StockServiceImpl implements StockService {
             }
         }
 
+        Batch batch = null;
+        if (dto.getBatchId() != null) {
+            batch = batchRepository.findById(dto.getBatchId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Batch", "id", dto.getBatchId()));
+        }
+
+        if (Boolean.TRUE.equals(variant.getTemplate().getIsBatchTracked()) && batch == null) {
+            throw new IllegalArgumentException("Batch ID is required for this product");
+        }
+        if (Boolean.FALSE.equals(variant.getTemplate().getIsBatchTracked()) && batch != null) {
+            throw new IllegalArgumentException("Batch ID provided for non-batch-tracked product");
+        }
+
         Stock stock;
         if (location != null) {
-            stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationId(
-                    variant.getId(), warehouse.getId(), location.getId())
-                    .orElse(createStock(variant, warehouse, location));
+            if (batch != null) {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchId(
+                                variant.getId(), warehouse.getId(), location.getId(), batch.getId())
+                        .orElse(createStock(variant, warehouse, location, batch));
+            } else {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdIsNull(
+                                variant.getId(), warehouse.getId(), location.getId())
+                        .orElse(createStock(variant, warehouse, location, null));
+            }
         } else {
-            stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNull(
-                    variant.getId(), warehouse.getId())
-                    .orElse(createStock(variant, warehouse, null));
+            if (batch != null) {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchId(
+                                variant.getId(), warehouse.getId(), batch.getId())
+                        .orElse(createStock(variant, warehouse, null, batch));
+            } else {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(
+                                variant.getId(), warehouse.getId())
+                        .orElse(createStock(variant, warehouse, null, null));
+            }
         }
 
         BigDecimal quantityChange = dto.getQuantity();
@@ -127,6 +155,7 @@ public class StockServiceImpl implements StockService {
         movement.setProductVariant(variant);
         movement.setWarehouse(warehouse);
         movement.setStorageLocation(location);
+        movement.setBatch(batch);
         movement.setQuantity(quantityChange);
         movement.setType(dto.getType());
         movement.setReason(dto.getReason());
@@ -207,11 +236,12 @@ public class StockServiceImpl implements StockService {
         return stockMovementRepository.findAll(spec, pageable).map(this::mapToDto);
     }
 
-    private Stock createStock(ProductVariant v, Warehouse w, StorageLocation l) {
+    private Stock createStock(ProductVariant v, Warehouse w, StorageLocation l, Batch b) {
         Stock s = new Stock();
         s.setProductVariant(v);
         s.setWarehouse(w);
         s.setStorageLocation(l);
+        s.setBatch(b);
         s.setQuantity(BigDecimal.ZERO);
         return s;
     }
@@ -226,6 +256,10 @@ public class StockServiceImpl implements StockService {
         if (stock.getStorageLocation() != null) {
             dto.setStorageLocationId(stock.getStorageLocation().getId());
             dto.setStorageLocationName(stock.getStorageLocation().getName());
+        }
+        if (stock.getBatch() != null) {
+            dto.setBatchId(stock.getBatch().getId());
+            dto.setBatchNumber(stock.getBatch().getBatchNumber());
         }
         dto.setQuantity(stock.getQuantity());
         dto.setCreatedAt(stock.getCreatedAt());
@@ -243,6 +277,10 @@ public class StockServiceImpl implements StockService {
         if (movement.getStorageLocation() != null) {
             dto.setStorageLocationId(movement.getStorageLocation().getId());
             dto.setStorageLocationName(movement.getStorageLocation().getName());
+        }
+        if (movement.getBatch() != null) {
+            dto.setBatchId(movement.getBatch().getId());
+            dto.setBatchNumber(movement.getBatch().getBatchNumber());
         }
         dto.setQuantity(movement.getQuantity());
         dto.setUnitCost(movement.getUnitCost());

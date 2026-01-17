@@ -17,6 +17,14 @@ public interface StockRepository extends JpaRepository<Stock, UUID>, JpaSpecific
 
     Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNull(UUID productVariantId, UUID warehouseId);
 
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchId(UUID productVariantId, UUID warehouseId, UUID storageLocationId, UUID batchId);
+
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchId(UUID productVariantId, UUID warehouseId, UUID batchId);
+
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdIsNull(UUID productVariantId, UUID warehouseId, UUID storageLocationId);
+
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(UUID productVariantId, UUID warehouseId);
+
     @Query("SELECT SUM(s.quantity) FROM Stock s WHERE s.productVariant.id = :productVariantId AND s.warehouse.id = :warehouseId")
     BigDecimal countTotalQuantityByProductVariantAndWarehouse(@Param("productVariantId") UUID productVariantId, @Param("warehouseId") UUID warehouseId);
 }

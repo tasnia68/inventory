@@ -14,6 +14,8 @@ public class StockDto {
     private String warehouseName;
     private UUID storageLocationId;
     private String storageLocationName;
+    private UUID batchId;
+    private String batchNumber;
     private BigDecimal quantity;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

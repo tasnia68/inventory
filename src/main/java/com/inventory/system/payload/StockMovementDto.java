@@ -15,6 +15,8 @@ public class StockMovementDto {
     private String warehouseName;
     private UUID storageLocationId;
     private String storageLocationName;
+    private UUID batchId;
+    private String batchNumber;
     private BigDecimal quantity;
     private BigDecimal unitCost;
     private BigDecimal totalCost;
