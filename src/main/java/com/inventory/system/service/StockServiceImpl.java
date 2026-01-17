@@ -1,6 +1,8 @@
 package com.inventory.system.service;
 
+import com.inventory.system.common.entity.Batch;
 import com.inventory.system.common.entity.ProductVariant;
+import com.inventory.system.common.entity.SerialNumber;
 import com.inventory.system.common.entity.Stock;
 import com.inventory.system.common.entity.StockMovement;
 import com.inventory.system.common.entity.StorageLocation;
@@ -9,7 +11,9 @@ import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.StockAdjustmentDto;
 import com.inventory.system.payload.StockDto;
 import com.inventory.system.payload.StockMovementDto;
+import com.inventory.system.repository.BatchRepository;
 import com.inventory.system.repository.ProductVariantRepository;
+import com.inventory.system.repository.SerialNumberRepository;
 import com.inventory.system.repository.StockMovementRepository;
 import com.inventory.system.repository.StockRepository;
 import com.inventory.system.repository.StorageLocationRepository;
@@ -37,6 +41,8 @@ public class StockServiceImpl implements StockService {
     private final WarehouseRepository warehouseRepository;
     private final StorageLocationRepository storageLocationRepository;
     private final InventoryValuationService valuationService;
+    private final BatchRepository batchRepository;
+    private final SerialNumberRepository serialNumberRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -80,15 +86,54 @@ public class StockServiceImpl implements StockService {
             }
         }
 
+        Batch batch = null;
+        if (dto.getBatchId() != null) {
+            batch = batchRepository.findById(dto.getBatchId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Batch", "id", dto.getBatchId()));
+        }
+
+        if (Boolean.TRUE.equals(variant.getTemplate().getIsBatchTracked()) && batch == null) {
+            throw new IllegalArgumentException("Batch ID is required for this product");
+        }
+        if (Boolean.FALSE.equals(variant.getTemplate().getIsBatchTracked()) && batch != null) {
+            throw new IllegalArgumentException("Batch ID provided for non-batch-tracked product");
+        }
+
+        // Serial Number Validation
+        if (Boolean.TRUE.equals(variant.getTemplate().getIsSerialTracked())) {
+            if (dto.getSerialNumbers() == null || dto.getSerialNumbers().isEmpty()) {
+                throw new IllegalArgumentException("Serial numbers are required for this product");
+            }
+            if (BigDecimal.valueOf(dto.getSerialNumbers().size()).compareTo(dto.getQuantity().abs()) != 0) {
+                 throw new IllegalArgumentException("Quantity must match the number of serial numbers provided");
+            }
+        } else {
+             if (dto.getSerialNumbers() != null && !dto.getSerialNumbers().isEmpty()) {
+                 throw new IllegalArgumentException("Serial numbers provided for non-serial-tracked product");
+             }
+        }
+
         Stock stock;
         if (location != null) {
-            stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationId(
-                    variant.getId(), warehouse.getId(), location.getId())
-                    .orElse(createStock(variant, warehouse, location));
+            if (batch != null) {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchId(
+                                variant.getId(), warehouse.getId(), location.getId(), batch.getId())
+                        .orElse(createStock(variant, warehouse, location, batch));
+            } else {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdIsNull(
+                                variant.getId(), warehouse.getId(), location.getId())
+                        .orElse(createStock(variant, warehouse, location, null));
+            }
         } else {
-            stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNull(
-                    variant.getId(), warehouse.getId())
-                    .orElse(createStock(variant, warehouse, null));
+            if (batch != null) {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchId(
+                                variant.getId(), warehouse.getId(), batch.getId())
+                        .orElse(createStock(variant, warehouse, null, batch));
+            } else {
+                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(
+                                variant.getId(), warehouse.getId())
+                        .orElse(createStock(variant, warehouse, null, null));
+            }
         }
 
         BigDecimal quantityChange = dto.getQuantity();
@@ -127,10 +172,16 @@ public class StockServiceImpl implements StockService {
         movement.setProductVariant(variant);
         movement.setWarehouse(warehouse);
         movement.setStorageLocation(location);
+        movement.setBatch(batch);
         movement.setQuantity(quantityChange);
         movement.setType(dto.getType());
         movement.setReason(dto.getReason());
         movement.setReferenceId(dto.getReferenceId());
+
+        // Handle Serial Numbers
+        if (Boolean.TRUE.equals(variant.getTemplate().getIsSerialTracked())) {
+            handleSerialNumbers(dto, variant, warehouse, location, batch);
+        }
 
         // Handle Valuation
         switch (dto.getType()) {
@@ -207,11 +258,12 @@ public class StockServiceImpl implements StockService {
         return stockMovementRepository.findAll(spec, pageable).map(this::mapToDto);
     }
 
-    private Stock createStock(ProductVariant v, Warehouse w, StorageLocation l) {
+    private Stock createStock(ProductVariant v, Warehouse w, StorageLocation l, Batch b) {
         Stock s = new Stock();
         s.setProductVariant(v);
         s.setWarehouse(w);
         s.setStorageLocation(l);
+        s.setBatch(b);
         s.setQuantity(BigDecimal.ZERO);
         return s;
     }
@@ -227,10 +279,94 @@ public class StockServiceImpl implements StockService {
             dto.setStorageLocationId(stock.getStorageLocation().getId());
             dto.setStorageLocationName(stock.getStorageLocation().getName());
         }
+        if (stock.getBatch() != null) {
+            dto.setBatchId(stock.getBatch().getId());
+            dto.setBatchNumber(stock.getBatch().getBatchNumber());
+        }
         dto.setQuantity(stock.getQuantity());
         dto.setCreatedAt(stock.getCreatedAt());
         dto.setUpdatedAt(stock.getUpdatedAt());
         return dto;
+    }
+
+    private void handleSerialNumbers(StockAdjustmentDto dto, ProductVariant variant, Warehouse warehouse, StorageLocation location, Batch batch) {
+        for (String snStr : dto.getSerialNumbers()) {
+            switch (dto.getType()) {
+                case IN:
+                case TRANSFER_IN:
+                    // Create or Update
+                    SerialNumber sn = serialNumberRepository.findBySerialNumberAndProductVariantId(snStr, variant.getId())
+                            .orElse(new SerialNumber());
+
+                    if (sn.getId() == null) {
+                         sn.setSerialNumber(snStr);
+                         sn.setProductVariant(variant);
+                    } else {
+                        // If it exists, check status?
+                        // If it's effectively "New" to the system or being returned.
+                        // For simplicity, we assume we can move it back to inventory.
+                    }
+                    sn.setWarehouse(warehouse);
+                    sn.setStorageLocation(location);
+                    sn.setBatch(batch);
+                    sn.setStatus(SerialNumber.SerialNumberStatus.AVAILABLE);
+                    serialNumberRepository.save(sn);
+                    break;
+                case OUT:
+                case TRANSFER_OUT:
+                    SerialNumber snOut = serialNumberRepository.findBySerialNumberAndProductVariantId(snStr, variant.getId())
+                            .orElseThrow(() -> new ResourceNotFoundException("SerialNumber", "serialNumber", snStr));
+
+                    // Verify it is in the correct warehouse/location?
+                    // Optional: stricter checks here.
+
+                    snOut.setStatus(SerialNumber.SerialNumberStatus.SOLD); // Or SHIPPED/USED depending on context. Defaulting to SOLD for OUT.
+                    // For TRANSFER_OUT, it might stay AVAILABLE but change warehouse?
+                    // Wait, TRANSFER mechanism usually involves OUT from Source and IN to Dest.
+                    // This function handles one side of the transaction.
+                    // If it is TRANSFER_OUT, we might want to keep it "AVAILABLE" but effectively "In Transit" or just remove location?
+                    // Current simplified logic:
+                    if (dto.getType() == StockMovement.StockMovementType.TRANSFER_OUT) {
+                         // Typically transfers are 2-step.
+                         // Here we just remove it from current location context or mark it.
+                         // Let's clear location for now.
+                         snOut.setWarehouse(null);
+                         snOut.setStorageLocation(null);
+                         // Status?
+                    } else {
+                        snOut.setWarehouse(null);
+                        snOut.setStorageLocation(null);
+                        snOut.setStatus(SerialNumber.SerialNumberStatus.SOLD);
+                    }
+                    serialNumberRepository.save(snOut);
+                    break;
+                case ADJUSTMENT:
+                    // Depends on quantity sign.
+                    if (dto.getQuantity().compareTo(BigDecimal.ZERO) >= 0) {
+                        // IN logic
+                         SerialNumber snAdj = serialNumberRepository.findBySerialNumberAndProductVariantId(snStr, variant.getId())
+                            .orElse(new SerialNumber());
+                         if (snAdj.getId() == null) {
+                             snAdj.setSerialNumber(snStr);
+                             snAdj.setProductVariant(variant);
+                         }
+                         snAdj.setWarehouse(warehouse);
+                         snAdj.setStorageLocation(location);
+                         snAdj.setBatch(batch);
+                         snAdj.setStatus(SerialNumber.SerialNumberStatus.AVAILABLE);
+                         serialNumberRepository.save(snAdj);
+                    } else {
+                        // OUT logic
+                        SerialNumber snAdjOut = serialNumberRepository.findBySerialNumberAndProductVariantId(snStr, variant.getId())
+                            .orElseThrow(() -> new ResourceNotFoundException("SerialNumber", "serialNumber", snStr));
+                        snAdjOut.setWarehouse(null);
+                        snAdjOut.setStorageLocation(null);
+                        snAdjOut.setStatus(SerialNumber.SerialNumberStatus.SOLD); // or Adjusted Out
+                        serialNumberRepository.save(snAdjOut);
+                    }
+                    break;
+            }
+        }
     }
 
     private StockMovementDto mapToDto(StockMovement movement) {
@@ -243,6 +379,10 @@ public class StockServiceImpl implements StockService {
         if (movement.getStorageLocation() != null) {
             dto.setStorageLocationId(movement.getStorageLocation().getId());
             dto.setStorageLocationName(movement.getStorageLocation().getName());
+        }
+        if (movement.getBatch() != null) {
+            dto.setBatchId(movement.getBatch().getId());
+            dto.setBatchNumber(movement.getBatch().getBatchNumber());
         }
         dto.setQuantity(movement.getQuantity());
         dto.setUnitCost(movement.getUnitCost());
