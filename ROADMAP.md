@@ -173,12 +173,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Implement available-to-promise (ATP) calculation
 
 ### 5.3 Stock Replenishment
-- [ ] Create ReplenishmentRule entity (min/max levels, reorder point)
-- [ ] Implement automatic reorder point calculation
-- [ ] Build replenishment suggestion endpoint
+- [x] Create ReplenishmentRule entity (min/max levels, reorder point)
+- [x] Implement automatic reorder point calculation
+- [x] Build replenishment suggestion endpoint
 - [ ] Create purchase requisition generation
-- [ ] Add lead time consideration
-- [ ] Implement safety stock calculation
+- [x] Add lead time consideration
+- [x] Implement safety stock calculation
 
 ### 5.4 Stock Cycle Count & Physical Inventory
 - [ ] Create CycleCount entity (scheduled counts)
