@@ -181,13 +181,13 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Implement safety stock calculation
 
 ### 5.4 Stock Cycle Count & Physical Inventory
-- [ ] Create CycleCount entity (scheduled counts)
+- [x] Create CycleCount entity (scheduled counts)
 - [ ] Build cycle count schedule management
-- [ ] Implement count task assignment
-- [ ] Create count entry interface/API
-- [ ] Build variance detection and approval
-- [ ] Add stock adjustment from count results
-- [ ] Create count history and reporting
+- [x] Implement count task assignment
+- [x] Create count entry interface/API
+- [x] Build variance detection and approval
+- [x] Add stock adjustment from count results
+- [x] Create count history and reporting
 
 ---
 
