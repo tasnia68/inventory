@@ -194,8 +194,8 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 ## Phase 6: Supplier & Purchase Management
 
 ### 6.1 Supplier Management
-- [ ] Create Supplier entity (name, contact, payment terms)
-- [ ] Build supplier CRUD endpoints
+- [x] Create Supplier entity (name, contact, payment terms)
+- [x] Build supplier CRUD endpoints
 - [ ] Implement supplier rating/performance tracking
 - [ ] Create supplier-product relationship
 - [ ] Add supplier price lists
