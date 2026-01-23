@@ -52,7 +52,6 @@ public class SupplierController {
 
     @PutMapping("/{id}")
     public ResponseEntity<ApiResponse<SupplierDto>> updateSupplier(@PathVariable UUID id, @Valid @RequestBody UpdateSupplierRequest request) {
-    public ResponseEntity<ApiResponse<SupplierDto>> updateSupplier(@PathVariable UUID id, @RequestBody UpdateSupplierRequest request) {
         SupplierDto supplier = supplierService.updateSupplier(id, request);
         ApiResponse<SupplierDto> response = new ApiResponse<>(true, "Supplier updated successfully", supplier);
         return ResponseEntity.ok(response);
