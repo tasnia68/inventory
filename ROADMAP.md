@@ -203,14 +203,14 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Implement supplier approval workflow
 
 ### 6.2 Purchase Order Management
-- [ ] Create PurchaseOrder entity (supplier, items, status)
-- [ ] Create PurchaseOrderItem entity
-- [ ] Build PO creation endpoint
-- [ ] Implement PO approval workflow
-- [ ] Create PO modification/cancellation
-- [ ] Build PO tracking (pending, partial, completed)
-- [ ] Add PO-to-GRN linkage
-- [ ] Create PO history and audit
+- [x] Create PurchaseOrder entity (supplier, items, status)
+- [x] Create PurchaseOrderItem entity
+- [x] Build PO creation endpoint
+- [x] Implement PO approval workflow
+- [x] Create PO modification/cancellation
+- [x] Build PO tracking (pending, partial, completed)
+- [x] Add PO-to-GRN linkage
+- [x] Create PO history and audit
 
 ### 6.3 Goods Receipt & Inspection
 - [ ] Create GoodsReceiptNote (GRN) entity
