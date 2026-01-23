@@ -213,12 +213,12 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Create PO history and audit
 
 ### 6.3 Goods Receipt & Inspection
-- [ ] Create GoodsReceiptNote (GRN) entity
-- [ ] Build GRN creation from PO
-- [ ] Implement quality inspection workflow
-- [ ] Create acceptance/rejection logic
-- [ ] Add partial receiving support
-- [ ] Build GRN-to-stock linkage
+- [x] Create GoodsReceiptNote (GRN) entity
+- [x] Build GRN creation from PO
+- [x] Implement quality inspection workflow
+- [x] Create acceptance/rejection logic
+- [x] Add partial receiving support
+- [x] Build GRN-to-stock linkage
 - [ ] Create return-to-supplier functionality
 
 ---
