@@ -33,6 +33,12 @@ public class SupplierServiceImpl implements SupplierService {
         if (request.getIsActive() != null) {
             supplier.setIsActive(request.getIsActive());
         }
+        if (request.getRating() != null) {
+            supplier.setRating(request.getRating());
+        }
+        if (request.getStatus() != null) {
+            supplier.setStatus(request.getStatus());
+        }
 
         Supplier savedSupplier = supplierRepository.save(supplier);
         return mapToDto(savedSupplier);
@@ -81,6 +87,12 @@ public class SupplierServiceImpl implements SupplierService {
         if (request.getIsActive() != null) {
             supplier.setIsActive(request.getIsActive());
         }
+        if (request.getRating() != null) {
+            supplier.setRating(request.getRating());
+        }
+        if (request.getStatus() != null) {
+            supplier.setStatus(request.getStatus());
+        }
 
         Supplier updatedSupplier = supplierRepository.save(supplier);
         return mapToDto(updatedSupplier);
@@ -104,6 +116,8 @@ public class SupplierServiceImpl implements SupplierService {
         dto.setAddress(supplier.getAddress());
         dto.setPaymentTerms(supplier.getPaymentTerms());
         dto.setIsActive(supplier.getIsActive());
+        dto.setRating(supplier.getRating());
+        dto.setStatus(supplier.getStatus());
         dto.setCreatedAt(supplier.getCreatedAt());
         dto.setUpdatedAt(supplier.getUpdatedAt());
         return dto;

@@ -196,11 +196,11 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 ### 6.1 Supplier Management
 - [x] Create Supplier entity (name, contact, payment terms)
 - [x] Build supplier CRUD endpoints
-- [ ] Implement supplier rating/performance tracking
-- [ ] Create supplier-product relationship
-- [ ] Add supplier price lists
+- [x] Implement supplier rating/performance tracking
+- [x] Create supplier-product relationship
+- [x] Add supplier price lists
 - [ ] Build supplier document management
-- [ ] Implement supplier approval workflow
+- [x] Implement supplier approval workflow
 
 ### 6.2 Purchase Order Management
 - [ ] Create PurchaseOrder entity (supplier, items, status)

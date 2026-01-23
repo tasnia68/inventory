@@ -1,5 +1,6 @@
 package com.inventory.system.payload;
 
+import com.inventory.system.common.entity.SupplierStatus;
 import lombok.Data;
 
 import java.time.LocalDateTime;
@@ -15,6 +16,8 @@ public class SupplierDto {
     private String address;
     private String paymentTerms;
     private Boolean isActive;
+    private Double rating;
+    private SupplierStatus status;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

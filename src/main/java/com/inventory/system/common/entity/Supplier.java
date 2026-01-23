@@ -2,6 +2,8 @@ package com.inventory.system.common.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.Table;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
@@ -35,4 +37,11 @@ public class Supplier extends BaseEntity {
 
     @Column(name = "is_active")
     private Boolean isActive = true;
+
+    @Column(name = "rating")
+    private Double rating;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status")
+    private SupplierStatus status = SupplierStatus.PENDING;
 }

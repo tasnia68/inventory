@@ -1,5 +1,6 @@
 package com.inventory.system.payload;
 
+import com.inventory.system.common.entity.SupplierStatus;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
@@ -21,4 +22,8 @@ public class CreateSupplierRequest {
     private String paymentTerms;
 
     private Boolean isActive = true;
+
+    private Double rating;
+
+    private SupplierStatus status = SupplierStatus.PENDING;
 }
