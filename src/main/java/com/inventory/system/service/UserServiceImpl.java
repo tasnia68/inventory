@@ -39,11 +39,11 @@ public class UserServiceImpl implements UserService {
     private final PasswordEncoder passwordEncoder;
 
     public UserServiceImpl(UserRepository userRepository,
-                           RoleRepository roleRepository,
-                           UserInvitationRepository userInvitationRepository,
-                           UserActivityLogRepository userActivityLogRepository,
-                           EmailService emailService,
-                           PasswordEncoder passwordEncoder) {
+            RoleRepository roleRepository,
+            UserInvitationRepository userInvitationRepository,
+            UserActivityLogRepository userActivityLogRepository,
+            EmailService emailService,
+            PasswordEncoder passwordEncoder) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userInvitationRepository = userInvitationRepository;
@@ -59,14 +59,15 @@ public class UserServiceImpl implements UserService {
         }
 
         userInvitationRepository.findByEmail(request.getEmail()).ifPresent(existingInvitation -> {
-             if (existingInvitation.getStatus() == UserInvitation.InvitationStatus.PENDING
-                     && existingInvitation.getExpiryDate().isAfter(LocalDateTime.now())) {
-                 throw new RuntimeException("Active invitation already exists for this email.");
-             }
-             // If expired or accepted (unlikely if user not found), we delete/archive it or just overwrite logic essentially by creating new one below?
-             // Since token is unique, we should probably delete the old one or update it.
-             // For simplicity, let's delete the old one.
-             userInvitationRepository.delete(existingInvitation);
+            if (existingInvitation.getStatus() == UserInvitation.InvitationStatus.PENDING
+                    && existingInvitation.getExpiryDate().isAfter(LocalDateTime.now())) {
+                throw new RuntimeException("Active invitation already exists for this email.");
+            }
+            // If expired or accepted (unlikely if user not found), we delete/archive it or
+            // just overwrite logic essentially by creating new one below?
+            // Since token is unique, we should probably delete the old one or update it.
+            // For simplicity, let's delete the old one.
+            userInvitationRepository.delete(existingInvitation);
         });
 
         Role role = roleRepository.findByName(request.getRoleName())
@@ -119,7 +120,8 @@ public class UserServiceImpl implements UserService {
         invitation.setStatus(UserInvitation.InvitationStatus.ACCEPTED);
         userInvitationRepository.save(invitation);
 
-        // Cannot log activity here easily as user is not logged in yet, or log as system
+        // Cannot log activity here easily as user is not logged in yet, or log as
+        // system
     }
 
     @Override
@@ -138,9 +140,9 @@ public class UserServiceImpl implements UserService {
         if (request.getRoles() != null && !request.getRoles().isEmpty()) {
             Set<Role> roles = new HashSet<>();
             for (String roleName : request.getRoles()) {
-                 Role role = roleRepository.findByName(roleName)
+                Role role = roleRepository.findByName(roleName)
                         .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleName));
-                 roles.add(role);
+                roles.add(role);
             }
             user.setRoles(roles);
         }
@@ -155,16 +157,19 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
-        if (request.getLastName() != null) user.setLastName(request.getLastName());
-        if (request.getEnabled() != null) user.setEnabled(request.getEnabled());
+        if (request.getFirstName() != null)
+            user.setFirstName(request.getFirstName());
+        if (request.getLastName() != null)
+            user.setLastName(request.getLastName());
+        if (request.getEnabled() != null)
+            user.setEnabled(request.getEnabled());
 
         if (request.getRoles() != null) {
             Set<Role> roles = new HashSet<>();
             for (String roleName : request.getRoles()) {
-                 Role role = roleRepository.findByName(roleName)
+                Role role = roleRepository.findByName(roleName)
                         .orElseThrow(() -> new ResourceNotFoundException("Role not found: " + roleName));
-                 roles.add(role);
+                roles.add(role);
             }
             user.setRoles(roles);
         }
@@ -202,6 +207,11 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
+        Set<String> permissions = user.getRoles().stream()
+                .flatMap(role -> role.getPermissions().stream())
+                .map(com.inventory.system.common.entity.Permission::getName)
+                .collect(Collectors.toSet());
+
         return UserProfileResponse.builder()
                 .id(user.getId())
                 .email(user.getEmail())
@@ -209,6 +219,7 @@ public class UserServiceImpl implements UserService {
                 .lastName(user.getLastName())
                 .createdAt(user.getCreatedAt())
                 .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
+                .permissions(permissions)
                 .build();
     }
 
@@ -218,11 +229,18 @@ public class UserServiceImpl implements UserService {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
-        if (request.getFirstName() != null) user.setFirstName(request.getFirstName());
-        if (request.getLastName() != null) user.setLastName(request.getLastName());
+        if (request.getFirstName() != null)
+            user.setFirstName(request.getFirstName());
+        if (request.getLastName() != null)
+            user.setLastName(request.getLastName());
 
         User updatedUser = userRepository.save(user);
         logActivity("UPDATE_PROFILE", "User updated their profile");
+
+        Set<String> permissions = updatedUser.getRoles().stream()
+                .flatMap(role -> role.getPermissions().stream())
+                .map(com.inventory.system.common.entity.Permission::getName)
+                .collect(Collectors.toSet());
 
         return UserProfileResponse.builder()
                 .id(updatedUser.getId())
@@ -231,6 +249,7 @@ public class UserServiceImpl implements UserService {
                 .lastName(updatedUser.getLastName())
                 .createdAt(updatedUser.getCreatedAt())
                 .roles(updatedUser.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
+                .permissions(permissions)
                 .build();
     }
 
@@ -256,7 +275,8 @@ public class UserServiceImpl implements UserService {
             if (user != null) {
                 log.setUserId(user.getId().toString());
             }
-            // IP address would need to be passed down or retrieved from RequestContextHolder if available
+            // IP address would need to be passed down or retrieved from
+            // RequestContextHolder if available
             // For now leaving IP null or mocking
             userActivityLogRepository.save(log);
         } catch (Exception e) {

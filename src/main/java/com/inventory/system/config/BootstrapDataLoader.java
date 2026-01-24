@@ -21,6 +21,7 @@ public class BootstrapDataLoader implements CommandLineRunner {
 
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final com.inventory.system.repository.PermissionRepository permissionRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.bootstrap.admin.email:admin@test.com}")
@@ -38,9 +39,34 @@ public class BootstrapDataLoader implements CommandLineRunner {
     @Value("${app.bootstrap.admin.tenantId:default-tenant}")
     private String tenantId;
 
+    private static final Set<String> PERMISSIONS = Set.of(
+            "MENU:DASHBOARD",
+            "MENU:USER_MANAGEMENT",
+            "MENU:CATALOG",
+            "MENU:INVENTORY_CORE",
+            "MENU:ADVANCED_INVENTORY",
+            "MENU:PROCUREMENT",
+            "MENU:SALES",
+            "MENU:ANALYTICS",
+            "MENU:SETTINGS");
+
     @Override
     public void run(String... args) throws Exception {
         log.info("Running bootstrap data loader...");
+
+        // Create standard permissions
+        Set<com.inventory.system.common.entity.Permission> allPermissions = new java.util.HashSet<>();
+        for (String permName : PERMISSIONS) {
+            com.inventory.system.common.entity.Permission permission = permissionRepository.findByName(permName)
+                    .orElseGet(() -> {
+                        com.inventory.system.common.entity.Permission p = new com.inventory.system.common.entity.Permission();
+                        p.setName(permName);
+                        p.setDescription(formatDescription(permName));
+                        return permissionRepository.save(p);
+                    });
+            allPermissions.add(permission);
+        }
+        log.info("Ensured {} permissions exist", allPermissions.size());
 
         // Check if admin user already exists
         Optional<User> existingUser = userRepository.findByEmail(adminEmail);
@@ -56,8 +82,16 @@ public class BootstrapDataLoader implements CommandLineRunner {
                     role.setName("ROLE_ADMIN");
                     role.setDescription("System Administrator");
                     role.setTenantId(tenantId);
+                    role.setPermissions(allPermissions);
                     return roleRepository.save(role);
                 });
+
+        // Ensure admin role has all permissions (in case it existed but new permissions
+        // added)
+        if (adminRole.getPermissions() == null || adminRole.getPermissions().size() < allPermissions.size()) {
+            adminRole.setPermissions(allPermissions);
+            roleRepository.save(adminRole);
+        }
 
         // Create bootstrap admin user
         User adminUser = new User();
@@ -72,5 +106,13 @@ public class BootstrapDataLoader implements CommandLineRunner {
         userRepository.save(adminUser);
         log.info("Bootstrap admin user created successfully: {}", adminEmail);
         log.info("You can now login with email: {} and password from configuration", adminEmail);
+    }
+
+    private String formatDescription(String permName) {
+        String[] parts = permName.split(":");
+        if (parts.length > 1) {
+            return parts[1].replace("_", " ") + " Access";
+        }
+        return permName;
     }
 }

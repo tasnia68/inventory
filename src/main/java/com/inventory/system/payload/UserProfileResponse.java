@@ -15,5 +15,6 @@ public class UserProfileResponse {
     private String firstName;
     private String lastName;
     private Set<String> roles;
+    private Set<String> permissions;
     private LocalDateTime createdAt;
 }
