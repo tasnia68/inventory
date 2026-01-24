@@ -226,8 +226,8 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 ## Phase 7: Sales & Order Fulfillment
 
 ### 7.1 Customer Management
-- [ ] Create Customer entity (name, contact, credit limit)
-- [ ] Build customer CRUD endpoints
+- [x] Create Customer entity (name, contact, credit limit)
+- [x] Build customer CRUD endpoints
 - [ ] Implement customer categorization
 - [ ] Create customer price lists
 - [ ] Add customer credit management
