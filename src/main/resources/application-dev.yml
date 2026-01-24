@@ -4,9 +4,43 @@ spring:
       on-profile: dev
   datasource:
     url: jdbc:postgresql://localhost:5432/inventory_dev
-    username: postgres
-    password: password
+    username: admin
+    password: admin123
   jpa:
     hibernate:
       ddl-auto: update
     show-sql: true
+  flyway:
+    enabled: false
+  mail:
+    host: sandbox.smtp.mailtrap.io
+    port: 587
+    username: 5675c00f3068e3
+    password: 3576bfee73eb58
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+app:
+  bootstrap:
+    admin:
+      email: admin@test.com
+      password: Admin123!
+      firstName: System
+      lastName: Admin
+      tenantId: default-tenant
+  mail:
+    from: noreply@inventory-system.com
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: DEBUG
+    org.springframework.security: DEBUG
+    com.inventory.system: DEBUG
+    org.springframework.web.servlet.mvc.method.annotation: TRACE
+
+debug: true

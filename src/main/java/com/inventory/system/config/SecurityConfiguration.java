@@ -30,8 +30,8 @@ public class SecurityConfiguration {
     private final CustomAccessDeniedHandler customAccessDeniedHandler;
 
     public SecurityConfiguration(JwtAuthenticationFilter jwtAuthenticationFilter,
-                                 JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
-                                 CustomAccessDeniedHandler customAccessDeniedHandler) {
+            JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
+            CustomAccessDeniedHandler customAccessDeniedHandler) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
         this.customAccessDeniedHandler = customAccessDeniedHandler;
@@ -40,19 +40,22 @@ public class SecurityConfiguration {
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
-            .csrf(AbstractHttpConfigurer::disable)
-            .cors(cors -> cors.configurationSource(corsConfigurationSource()))
-            .exceptionHandling(exception -> exception
-                    .authenticationEntryPoint(jwtAuthenticationEntryPoint)
-                    .accessDeniedHandler(customAccessDeniedHandler)
-            )
-            .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
-            .authorizeHttpRequests(auth -> auth
-                .requestMatchers("/api/v1/auth/**").permitAll()
-                .requestMatchers("/api/auth/**").permitAll()
-                .anyRequest().authenticated()
-            )
-            .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(cors -> cors.configurationSource(corsConfigurationSource()))
+                .exceptionHandling(exception -> exception
+                        .authenticationEntryPoint(jwtAuthenticationEntryPoint)
+                        .accessDeniedHandler(customAccessDeniedHandler))
+                .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(
+                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                        "/api/v1/auth/**"),
+                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                        "/api/v1/users/invite/accept"),
+                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher("/error"))
+                        .permitAll()
+                        .anyRequest().authenticated())
+                .addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
     }

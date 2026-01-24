@@ -29,6 +29,13 @@ public class TenantContextFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) request;
         HttpServletResponse res = (HttpServletResponse) response;
 
+        // Skip tenant validation for auth endpoints
+        String requestPath = req.getRequestURI();
+        if (requestPath.startsWith("/api/v1/auth/") || requestPath.equals("/error")) {
+            chain.doFilter(request, response);
+            return;
+        }
+
         String tenantId = req.getHeader(TENANT_HEADER);
 
         if (!StringUtils.hasText(tenantId)) {
@@ -43,7 +50,8 @@ public class TenantContextFilter implements Filter {
             Session session = entityManager.unwrap(Session.class);
             session.enableFilter("tenantFilter").setParameter("tenantId", tenantId);
         } catch (Exception e) {
-            // If we cannot enable the filter, we must block the request to prevent data leakage
+            // If we cannot enable the filter, we must block the request to prevent data
+            // leakage
             res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to initialize tenant context");
             return;
         }
