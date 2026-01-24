@@ -244,13 +244,13 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Implement backorder handling
 
 ### 7.3 Order Fulfillment & Picking
-- [ ] Create PickingList entity
-- [ ] Build picking list generation from orders
-- [ ] Implement wave picking support
-- [ ] Create picking task assignment
-- [ ] Build picking confirmation endpoint
-- [ ] Add picking accuracy tracking
-- [ ] Create packing list generation
+- [x] Create PickingList entity
+- [x] Build picking list generation from orders
+- [x] Implement wave picking support
+- [x] Create picking task assignment
+- [x] Build picking confirmation endpoint
+- [x] Add picking accuracy tracking
+- [x] Create packing list generation
 
 ### 7.4 Shipping & Delivery
 - [ ] Create Shipment entity (tracking, carrier)
