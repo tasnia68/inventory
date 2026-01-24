@@ -8,11 +8,14 @@ import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface StockRepository extends JpaRepository<Stock, UUID>, JpaSpecificationExecutor<Stock> {
+    List<Stock> findByProductVariantIdAndWarehouseIdAndQuantityGreaterThan(UUID productVariantId, UUID warehouseId, BigDecimal quantity);
+
     Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationId(UUID productVariantId, UUID warehouseId, UUID storageLocationId);
 
     Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNull(UUID productVariantId, UUID warehouseId);
