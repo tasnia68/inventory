@@ -234,14 +234,14 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [ ] Build customer order history
 
 ### 7.2 Sales Order Management
-- [ ] Create SalesOrder entity (customer, items, status)
-- [ ] Create SalesOrderItem entity
-- [ ] Build sales order creation endpoint
-- [ ] Implement order validation (stock availability)
-- [ ] Create order modification/cancellation
-- [ ] Build order confirmation workflow
-- [ ] Add order priority management
-- [ ] Implement backorder handling
+- [x] Create SalesOrder entity (customer, items, status)
+- [x] Create SalesOrderItem entity
+- [x] Build sales order creation endpoint
+- [x] Implement order validation (stock availability)
+- [x] Create order modification/cancellation
+- [x] Build order confirmation workflow
+- [x] Add order priority management
+- [x] Implement backorder handling
 
 ### 7.3 Order Fulfillment & Picking
 - [ ] Create PickingList entity
