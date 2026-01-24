@@ -34,4 +34,17 @@ public class RoleController {
                 .timestamp(LocalDateTime.now())
                 .build());
     }
+
+    @org.springframework.web.bind.annotation.PostMapping
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<Role>> createRole(
+            @org.springframework.web.bind.annotation.RequestBody Role role) {
+        Role savedRole = roleRepository.save(role);
+        return ResponseEntity.status(HttpStatus.CREATED).body(ApiResponse.<Role>builder()
+                .status(HttpStatus.CREATED.value())
+                .message("Role created successfully")
+                .data(savedRole)
+                .timestamp(LocalDateTime.now())
+                .build());
+    }
 }

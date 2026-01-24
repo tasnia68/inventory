@@ -72,6 +72,28 @@
 | Method | Endpoint | Auth | Access | Description |
 |--------|----------|------|--------|-------------|
 | GET | `/` | ✅ Yes | Admin/Manager | List all roles |
+| POST | `/` | ✅ Yes | Admin | Create new role |
+
+### 4.4 Curl Examples for Roles
+
+**List Roles:**
+```bash
+curl http://localhost:8080/api/v1/roles \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Tenant-ID: default-tenant"
+```
+
+**Create Role:**
+```bash
+curl -X POST http://localhost:8080/api/v1/roles \
+  -H "Authorization: Bearer $TOKEN" \
+  -H "X-Tenant-ID: default-tenant" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "ROLE_MANAGER",
+    "description": "Manager role"
+  }'
+```
 
 ---
 
