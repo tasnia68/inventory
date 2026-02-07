@@ -67,6 +67,18 @@ public class ProductController {
         return new ResponseEntity<>(new ApiResponse<>(true, "Products retrieved successfully", products), HttpStatus.OK);
     }
 
+    @GetMapping("/search")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'USER', 'VIEWER')")
+    public ResponseEntity<ApiResponse<Page<ProductVariantDto>>> searchProducts(
+            @RequestParam("q") String query,
+            Pageable pageable) {
+        if (query == null || query.isBlank()) {
+            return new ResponseEntity<>(new ApiResponse<>(false, "Query is required", null), HttpStatus.BAD_REQUEST);
+        }
+        Page<ProductVariantDto> results = productService.searchProductVariants(query, pageable);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Products retrieved successfully", results), HttpStatus.OK);
+    }
+
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
     public ResponseEntity<ApiResponse<Void>> deleteProduct(@PathVariable UUID id) {

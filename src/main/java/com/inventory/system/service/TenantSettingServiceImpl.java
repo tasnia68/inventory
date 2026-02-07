@@ -40,6 +40,13 @@ public class TenantSettingServiceImpl implements TenantSettingService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<TenantSettingDto> findSetting(String key) {
+        return tenantSettingRepository.findBySettingKey(key)
+                .map(this::mapToDto);
+    }
+
+    @Override
     @Transactional
     public TenantSettingDto updateSetting(String key, String value, String type, String category) {
         TenantSetting setting = tenantSettingRepository.findBySettingKey(key)

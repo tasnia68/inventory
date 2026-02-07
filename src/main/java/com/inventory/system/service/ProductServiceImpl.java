@@ -29,6 +29,7 @@ public class ProductServiceImpl implements ProductService {
     private final AttributeGroupRepository attributeGroupRepository;
     private final ProductVariantRepository productVariantRepository;
     private final ProductAttributeValueRepository productAttributeValueRepository;
+    private final ProductImageRepository productImageRepository;
     private final CategoryRepository categoryRepository;
     private final UnitOfMeasureRepository unitOfMeasureRepository;
 
@@ -427,6 +428,12 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<ProductVariantDto> searchProductVariants(String query, Pageable pageable) {
+        return productVariantRepository.searchByQuery(query, pageable).map(this::mapToDto);
+    }
+
+    @Override
     @Transactional
     public void deleteProductVariant(UUID id) {
         ProductVariant variant = productVariantRepository.findById(id)
@@ -521,8 +528,10 @@ public class ProductServiceImpl implements ProductService {
         dto.setSku(variant.getSku());
         dto.setBarcode(variant.getBarcode());
         dto.setPrice(variant.getPrice());
-        if (variant.getTemplate() != null)
+        if (variant.getTemplate() != null) {
             dto.setTemplateId(variant.getTemplate().getId());
+            setMainImageFields(dto, variant.getTemplate().getId());
+        }
         dto.setCreatedAt(variant.getCreatedAt());
         dto.setUpdatedAt(variant.getUpdatedAt());
         dto.setCreatedBy(variant.getCreatedBy());
@@ -539,6 +548,21 @@ public class ProductServiceImpl implements ProductService {
         }
 
         return dto;
+    }
+
+    private void setMainImageFields(ProductVariantDto dto, UUID templateId) {
+        productImageRepository.findByProductTemplateId(templateId).stream()
+                .filter(ProductImage::getIsMain)
+                .findFirst()
+                .ifPresentOrElse(image -> {
+                    dto.setMainImageId(image.getId());
+                    dto.setMainImageUrl("/api/v1/product-images/" + image.getId() + "/file");
+                }, () -> productImageRepository.findByProductTemplateId(templateId).stream()
+                        .findFirst()
+                        .ifPresent(image -> {
+                            dto.setMainImageId(image.getId());
+                            dto.setMainImageUrl("/api/v1/product-images/" + image.getId() + "/file");
+                        }));
     }
 
     private void validateAttributeValue(ProductAttribute attribute, String value) {

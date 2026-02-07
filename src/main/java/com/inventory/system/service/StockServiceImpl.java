@@ -9,6 +9,7 @@ import com.inventory.system.common.entity.StockMovement;
 import com.inventory.system.common.entity.StockMovementSerialNumber;
 import com.inventory.system.common.entity.StorageLocation;
 import com.inventory.system.common.entity.Warehouse;
+import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.StockAdjustmentDto;
 import com.inventory.system.payload.StockDto;
@@ -68,6 +69,12 @@ public class StockServiceImpl implements StockService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<StockDto> searchStocks(String query, Pageable pageable) {
+        return stockRepository.searchByQuery(query, pageable).map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public StockDto getStock(UUID id) {
         Stock stock = stockRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Stock", "id", id));
@@ -98,22 +105,22 @@ public class StockServiceImpl implements StockService {
         }
 
         if (Boolean.TRUE.equals(variant.getTemplate().getIsBatchTracked()) && batch == null) {
-            throw new IllegalArgumentException("Batch ID is required for this product");
+            throw new BadRequestException("Batch ID is required for this product");
         }
         if (Boolean.FALSE.equals(variant.getTemplate().getIsBatchTracked()) && batch != null) {
-            throw new IllegalArgumentException("Batch ID provided for non-batch-tracked product");
+            throw new BadRequestException("Batch ID provided for non-batch-tracked product");
         }
 
         // Serial Number Logic
         if (Boolean.TRUE.equals(variant.getTemplate().getIsSerialTracked())) {
             if (dto.getSerialNumbers() == null || dto.getSerialNumbers().isEmpty()) {
-                throw new IllegalArgumentException("Serial numbers are required for this product");
+                throw new BadRequestException("Serial numbers are required for this product");
             }
             if (dto.getQuantity().remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) != 0) {
-                 throw new IllegalArgumentException("Quantity must be an integer for serial tracked products");
+                 throw new BadRequestException("Quantity must be an integer for serial tracked products");
             }
             if (BigDecimal.valueOf(dto.getSerialNumbers().size()).compareTo(dto.getQuantity().abs()) != 0) {
-                throw new IllegalArgumentException("Number of serial numbers must match the quantity");
+                throw new BadRequestException("Number of serial numbers must match the quantity");
             }
         }
 
@@ -201,6 +208,9 @@ public class StockServiceImpl implements StockService {
 
         // Process Serial Numbers
         if (Boolean.TRUE.equals(variant.getTemplate().getIsSerialTracked())) {
+            if (dto.getSerialNumbers() == null || dto.getSerialNumbers().isEmpty()) {
+                throw new BadRequestException("Serial numbers are required for this product");
+            }
             processSerialNumbers(dto, variant, warehouse, location, batch, movement);
         }
 

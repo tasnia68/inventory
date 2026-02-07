@@ -1,6 +1,8 @@
 package com.inventory.system.repository;
 
 import com.inventory.system.common.entity.Stock;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
@@ -30,4 +32,9 @@ public interface StockRepository extends JpaRepository<Stock, UUID>, JpaSpecific
 
     @Query("SELECT SUM(s.quantity) FROM Stock s WHERE s.productVariant.id = :productVariantId AND s.warehouse.id = :warehouseId")
     BigDecimal countTotalQuantityByProductVariantAndWarehouse(@Param("productVariantId") UUID productVariantId, @Param("warehouseId") UUID warehouseId);
+
+    @Query("select s from Stock s join s.productVariant pv join s.warehouse w " +
+            "where lower(pv.sku) like lower(concat('%', :q, '%')) " +
+            "or lower(w.name) like lower(concat('%', :q, '%'))")
+    Page<Stock> searchByQuery(@Param("q") String query, Pageable pageable);
 }

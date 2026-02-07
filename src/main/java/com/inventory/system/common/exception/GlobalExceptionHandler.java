@@ -9,6 +9,7 @@ import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.transaction.UnexpectedRollbackException;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -52,6 +53,20 @@ public class GlobalExceptionHandler {
         logger.error("Internal server error: {}", ex.getMessage(), ex);
         return new ResponseEntity<>(new ApiResponse<>(false, "An unexpected error occurred: " + ex.getMessage()),
                 HttpStatus.INTERNAL_SERVER_ERROR);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiResponse<Void>> handleIllegalArgumentException(IllegalArgumentException ex) {
+        logger.error("Bad request: {}", ex.getMessage(), ex);
+        return new ResponseEntity<>(new ApiResponse<>(false, ex.getMessage()), HttpStatus.BAD_REQUEST);
+    }
+
+    @ExceptionHandler(UnexpectedRollbackException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnexpectedRollbackException(UnexpectedRollbackException ex) {
+        Throwable cause = ex.getMostSpecificCause();
+        String message = cause != null && cause.getMessage() != null ? cause.getMessage() : ex.getMessage();
+        logger.error("Transaction rollback: {}", message, ex);
+        return new ResponseEntity<>(new ApiResponse<>(false, message), HttpStatus.BAD_REQUEST);
     }
 
     @ExceptionHandler(org.springframework.security.core.AuthenticationException.class)

@@ -41,6 +41,7 @@ public interface ProductService {
     ProductVariantDto getProductVariant(UUID id);
     Page<ProductVariantDto> getAllProductVariants(Pageable pageable);
     List<ProductVariantDto> getProductVariantsByTemplate(UUID templateId);
+    Page<ProductVariantDto> searchProductVariants(String query, Pageable pageable);
     void deleteProductVariant(UUID id);
 
     // Simple Product (Convenience API)

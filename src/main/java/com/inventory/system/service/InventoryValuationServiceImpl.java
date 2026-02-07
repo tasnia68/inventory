@@ -245,11 +245,14 @@ public class InventoryValuationServiceImpl implements InventoryValuationService 
     }
 
     private ValuationMethod getValuationMethod() {
-        try {
-            String methodStr = tenantSettingService.getSetting(VALUATION_METHOD_KEY).getValue();
-            return ValuationMethod.valueOf(methodStr);
-        } catch (Exception e) {
-            return ValuationMethod.FIFO; // Default
-        }
+        return tenantSettingService.findSetting(VALUATION_METHOD_KEY)
+                .map(setting -> {
+                    try {
+                        return ValuationMethod.valueOf(setting.getValue());
+                    } catch (Exception e) {
+                        return ValuationMethod.FIFO;
+                    }
+                })
+                .orElse(ValuationMethod.FIFO);
     }
 }

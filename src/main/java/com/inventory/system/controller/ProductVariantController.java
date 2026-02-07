@@ -49,7 +49,12 @@ public class ProductVariantController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'USER', 'VIEWER')")
     public ResponseEntity<ApiResponse<?>> getVariants(
             @RequestParam(required = false) UUID templateId,
+            @RequestParam(required = false) String q,
             Pageable pageable) {
+        if (q != null && !q.isBlank()) {
+            Page<ProductVariantDto> results = productService.searchProductVariants(q, pageable);
+            return new ResponseEntity<>(new ApiResponse<>(true, "Product variants retrieved", results), HttpStatus.OK);
+        }
         if (templateId != null) {
             List<ProductVariantDto> list = productService.getProductVariantsByTemplate(templateId);
             return new ResponseEntity<>(new ApiResponse<>(true, "Product variants retrieved", list), HttpStatus.OK);

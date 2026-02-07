@@ -35,6 +35,18 @@ public class StockController {
         return ResponseEntity.ok(ApiResponse.success(stocks, "Stocks retrieved successfully"));
     }
 
+    @GetMapping("/query")
+    public ResponseEntity<ApiResponse<Page<StockDto>>> searchStocks(
+            @RequestParam("q") String query,
+            Pageable pageable) {
+        if (query == null || query.isBlank()) {
+            return ResponseEntity.badRequest()
+                    .body(new ApiResponse<>(false, "Query is required", null));
+        }
+        Page<StockDto> stocks = stockService.searchStocks(query, pageable);
+        return ResponseEntity.ok(ApiResponse.success(stocks, "Stocks retrieved successfully"));
+    }
+
     @PostMapping("/adjust")
     public ResponseEntity<ApiResponse<StockMovementDto>> adjustStock(@Valid @RequestBody StockAdjustmentDto adjustmentDto) {
         StockMovementDto movement = stockService.adjustStock(adjustmentDto);

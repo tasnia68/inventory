@@ -14,6 +14,8 @@ public class ProductVariantDto {
     private String barcode;
     private BigDecimal price;
     private UUID templateId;
+    private UUID mainImageId;
+    private String mainImageUrl;
     private List<AttributeValueDto> attributeValues;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
