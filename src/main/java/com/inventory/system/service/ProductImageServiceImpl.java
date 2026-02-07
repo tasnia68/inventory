@@ -73,6 +73,14 @@ public class ProductImageServiceImpl implements ProductImageService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public ProductImageDto getImage(UUID imageId) {
+        ProductImage image = productImageRepository.findById(imageId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product Image", "id", imageId));
+        return mapToDto(image);
+    }
+
+    @Override
     @Transactional
     public ProductImageDto setMainImage(UUID imageId) {
         ProductImage image = productImageRepository.findById(imageId)

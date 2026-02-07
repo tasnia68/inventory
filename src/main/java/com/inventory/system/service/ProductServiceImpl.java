@@ -239,6 +239,10 @@ public class ProductServiceImpl implements ProductService {
     public void deleteProductAttribute(UUID id) {
         ProductAttribute attribute = productAttributeRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product Attribute", "id", id));
+        List<ProductAttributeValue> values = productAttributeValueRepository.findByAttributeId(id);
+        if (!values.isEmpty()) {
+            productAttributeValueRepository.deleteAll(values);
+        }
         productAttributeRepository.delete(attribute);
     }
 
@@ -253,7 +257,11 @@ public class ProductServiceImpl implements ProductService {
         ProductVariant variant = new ProductVariant();
         variant.setTemplate(template);
         variant.setPrice(dto.getPrice());
-        variant.setBarcode(dto.getBarcode());
+        String barcode = dto.getBarcode();
+        if (barcode != null && barcode.isBlank()) {
+            barcode = null;
+        }
+        variant.setBarcode(barcode);
 
         // Generate SKU if not provided, or check uniqueness if provided
         if (dto.getSku() == null || dto.getSku().isEmpty()) {
@@ -313,6 +321,90 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional
+    public ProductVariantDto updateProductVariant(UUID id, ProductVariantDto dto) {
+        ProductVariant variant = productVariantRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Product Variant", "id", id));
+
+        boolean templateChanged = false;
+        if (dto.getTemplateId() != null && (variant.getTemplate() == null
+                || !dto.getTemplateId().equals(variant.getTemplate().getId()))) {
+            ProductTemplate template = productTemplateRepository.findById(dto.getTemplateId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Product Template", "id", dto.getTemplateId()));
+            variant.setTemplate(template);
+            templateChanged = true;
+        }
+
+        if (dto.getSku() != null && !dto.getSku().isBlank()) {
+            if (!dto.getSku().equals(variant.getSku())) {
+                if (productVariantRepository.existsBySku(dto.getSku())) {
+                    throw new IllegalArgumentException("SKU already exists: " + dto.getSku());
+                }
+                variant.setSku(dto.getSku());
+            }
+        }
+
+        if (dto.getBarcode() != null) {
+            String barcode = dto.getBarcode();
+            if (barcode.isBlank()) {
+                barcode = null;
+            }
+            variant.setBarcode(barcode);
+        }
+
+        if (dto.getPrice() != null) {
+            variant.setPrice(dto.getPrice());
+        }
+
+        if (dto.getAttributeValues() != null) {
+            List<ProductAttributeValue> existingValues = productAttributeValueRepository.findByVariantId(id);
+            if (!existingValues.isEmpty()) {
+                productAttributeValueRepository.deleteAll(existingValues);
+            }
+
+            List<ProductAttributeValue> attributeValues = new ArrayList<>();
+            for (ProductVariantDto.AttributeValueDto valDto : dto.getAttributeValues()) {
+                ProductAttribute attribute = productAttributeRepository.findById(valDto.getAttributeId())
+                        .orElseThrow(() -> new ResourceNotFoundException("Product Attribute", "id",
+                                valDto.getAttributeId()));
+
+                validateAttributeValue(attribute, valDto.getValue());
+
+                ProductAttributeValue attributeValue = new ProductAttributeValue();
+                attributeValue.setVariant(variant);
+                attributeValue.setAttribute(attribute);
+                attributeValue.setValue(valDto.getValue());
+
+                attributeValues.add(attributeValue);
+            }
+
+            // Validate required attributes
+            UUID templateId = variant.getTemplate() != null ? variant.getTemplate().getId() : null;
+            if (templateId != null) {
+                List<ProductAttribute> requiredAttributes = productAttributeRepository.findByTemplateId(templateId)
+                        .stream().filter(ProductAttribute::getRequired).collect(Collectors.toList());
+
+                List<UUID> providedAttributeIds = dto.getAttributeValues().stream()
+                        .map(ProductVariantDto.AttributeValueDto::getAttributeId).collect(Collectors.toList());
+
+                for (ProductAttribute required : requiredAttributes) {
+                    if (!providedAttributeIds.contains(required.getId())) {
+                        throw new IllegalArgumentException("Missing required attribute: " + required.getName());
+                    }
+                }
+            }
+
+            productAttributeValueRepository.saveAll(attributeValues);
+            variant.setAttributeValues(attributeValues);
+        } else if (templateChanged) {
+            throw new IllegalArgumentException("Attribute values are required when changing template");
+        }
+
+        ProductVariant updated = productVariantRepository.save(variant);
+        return mapToDto(updated);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public ProductVariantDto getProductVariant(UUID id) {
         ProductVariant variant = productVariantRepository.findById(id)
@@ -324,6 +416,14 @@ public class ProductServiceImpl implements ProductService {
     @Transactional(readOnly = true)
     public Page<ProductVariantDto> getAllProductVariants(Pageable pageable) {
         return productVariantRepository.findAll(pageable).map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<ProductVariantDto> getProductVariantsByTemplate(UUID templateId) {
+        return productVariantRepository.findByTemplateId(templateId).stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
     }
 
     @Override

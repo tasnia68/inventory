@@ -2,9 +2,14 @@ package com.inventory.system.controller;
 
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.ProductImageDto;
+import com.inventory.system.service.FileStorageService;
 import com.inventory.system.service.ProductImageService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.core.io.InputStreamResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.http.MediaTypeFactory;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +24,7 @@ import java.util.UUID;
 public class ProductImageController {
 
     private final ProductImageService productImageService;
+    private final FileStorageService fileStorageService;
 
     @PostMapping(value = "/product-templates/{templateId}/images", consumes = "multipart/form-data")
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
@@ -35,6 +41,21 @@ public class ProductImageController {
     public ResponseEntity<ApiResponse<List<ProductImageDto>>> getImages(@PathVariable UUID templateId) {
         List<ProductImageDto> images = productImageService.getImages(templateId);
         return new ResponseEntity<>(new ApiResponse<>(true, "Images retrieved successfully", images), HttpStatus.OK);
+    }
+
+    @GetMapping("/product-images/{id}/file")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'USER', 'VIEWER')")
+    public ResponseEntity<InputStreamResource> getImageFile(@PathVariable UUID id) {
+        ProductImageDto image = productImageService.getImage(id);
+        InputStreamResource resource = new InputStreamResource(fileStorageService.getFile(image.getUrl()));
+
+        MediaType mediaType = MediaTypeFactory.getMediaType(image.getFilename())
+                .orElse(MediaType.APPLICATION_OCTET_STREAM);
+
+        return ResponseEntity.ok()
+                .contentType(mediaType)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + image.getFilename() + "\"")
+                .body(resource);
     }
 
     @DeleteMapping("/product-images/{id}")

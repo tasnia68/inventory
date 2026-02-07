@@ -36,6 +36,15 @@ public class ProductController {
         return new ResponseEntity<>(new ApiResponse<>(true, "Product created successfully", createdProduct), HttpStatus.CREATED);
     }
 
+    @PutMapping("/{id}")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<ApiResponse<ProductVariantDto>> updateProduct(
+            @PathVariable UUID id,
+            @Valid @RequestBody ProductVariantDto productVariantDto) {
+        ProductVariantDto updatedProduct = productService.updateProductVariant(id, productVariantDto);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Product updated successfully", updatedProduct), HttpStatus.OK);
+    }
+
     @GetMapping("/{id}")
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'USER', 'VIEWER')")
     public ResponseEntity<ApiResponse<ProductVariantDto>> getProduct(@PathVariable UUID id) {
@@ -45,7 +54,15 @@ public class ProductController {
 
     @GetMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'USER', 'VIEWER')")
-    public ResponseEntity<ApiResponse<Page<ProductVariantDto>>> getAllProducts(Pageable pageable) {
+    public ResponseEntity<ApiResponse<?>> getAllProducts(
+            @RequestParam(required = false) UUID templateId,
+            Pageable pageable) {
+        if (templateId != null) {
+            return new ResponseEntity<>(
+                    new ApiResponse<>(true, "Products retrieved successfully",
+                            productService.getProductVariantsByTemplate(templateId)),
+                    HttpStatus.OK);
+        }
         Page<ProductVariantDto> products = productService.getAllProductVariants(pageable);
         return new ResponseEntity<>(new ApiResponse<>(true, "Products retrieved successfully", products), HttpStatus.OK);
     }

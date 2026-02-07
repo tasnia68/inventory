@@ -12,5 +12,7 @@ public interface ProductImageService {
 
     List<ProductImageDto> getImages(UUID templateId);
 
+    ProductImageDto getImage(UUID imageId);
+
     ProductImageDto setMainImage(UUID imageId);
 }

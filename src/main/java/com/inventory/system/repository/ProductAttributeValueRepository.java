@@ -10,4 +10,5 @@ import java.util.UUID;
 @Repository
 public interface ProductAttributeValueRepository extends JpaRepository<ProductAttributeValue, UUID> {
     List<ProductAttributeValue> findByVariantId(UUID variantId);
+    List<ProductAttributeValue> findByAttributeId(UUID attributeId);
 }

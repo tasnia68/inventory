@@ -37,8 +37,10 @@ public interface ProductService {
 
     // Variant
     ProductVariantDto createProductVariant(ProductVariantDto productVariantDto);
+    ProductVariantDto updateProductVariant(UUID id, ProductVariantDto productVariantDto);
     ProductVariantDto getProductVariant(UUID id);
     Page<ProductVariantDto> getAllProductVariants(Pageable pageable);
+    List<ProductVariantDto> getProductVariantsByTemplate(UUID templateId);
     void deleteProductVariant(UUID id);
 
     // Simple Product (Convenience API)
