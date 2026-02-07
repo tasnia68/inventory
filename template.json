@@ -1,0 +1,1 @@
+{"status":400,"success":false,"message":"Invalid request format: JSON parse error: Cannot deserialize value of type `java.util.UUID` from String \"null\": UUID has to be represented by standard 36-char representation","data":null,"timestamp":"2026-01-25T00:00:19.412995"}

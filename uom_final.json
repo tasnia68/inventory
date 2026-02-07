@@ -1,0 +1,1 @@
+{"status":400,"success":false,"message":"Invalid request format: JSON parse error: Cannot deserialize value of type `com.inventory.system.common.entity.UnitOfMeasure$UomCategory` from String \"UNIT\": not one of the values accepted for Enum class: [WEIGHT, VOLUME, QUANTITY, TIME, LENGTH]","data":null,"timestamp":"2026-01-25T00:00:34.380046"}

@@ -2,6 +2,7 @@ package com.inventory.system.controller;
 
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.ProductVariantDto;
+import com.inventory.system.payload.SimpleProductDto;
 import com.inventory.system.service.ProductService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -20,6 +21,13 @@ import java.util.UUID;
 public class ProductController {
 
     private final ProductService productService;
+
+    @PostMapping("/simple")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<ApiResponse<ProductVariantDto>> createSimpleProduct(@Valid @RequestBody SimpleProductDto simpleProductDto) {
+        ProductVariantDto createdProduct = productService.createSimpleProduct(simpleProductDto);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Simple product created successfully", createdProduct), HttpStatus.CREATED);
+    }
 
     @PostMapping
     @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")

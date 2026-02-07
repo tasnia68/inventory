@@ -5,6 +5,7 @@ import com.inventory.system.payload.AttributeGroupDto;
 import com.inventory.system.payload.ProductAttributeDto;
 import com.inventory.system.payload.ProductTemplateDto;
 import com.inventory.system.payload.ProductVariantDto;
+import com.inventory.system.payload.SimpleProductDto;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 
@@ -39,4 +40,7 @@ public interface ProductService {
     ProductVariantDto getProductVariant(UUID id);
     Page<ProductVariantDto> getAllProductVariants(Pageable pageable);
     void deleteProductVariant(UUID id);
+
+    // Simple Product (Convenience API)
+    ProductVariantDto createSimpleProduct(SimpleProductDto simpleProductDto);
 }

@@ -23,7 +23,7 @@ public class UnitOfMeasureServiceImpl implements UnitOfMeasureService {
     @Override
     @Transactional
     public UnitOfMeasureDto createUom(UnitOfMeasureDto dto) {
-        if (dto.getIsBase()) {
+        if (Boolean.TRUE.equals(dto.getIsBase())) {
             validateNoExistingBase(dto.getCategory(), null);
             if (dto.getConversionFactor().compareTo(BigDecimal.ONE) != 0) {
                 throw new IllegalArgumentException("Base unit must have conversion factor of 1.0");
@@ -34,7 +34,11 @@ public class UnitOfMeasureServiceImpl implements UnitOfMeasureService {
         uom.setName(dto.getName());
         uom.setCode(dto.getCode());
         uom.setCategory(dto.getCategory());
-        uom.setIsBase(dto.getIsBase());
+        if (dto.getIsBase() != null) {
+            uom.setIsBase(dto.getIsBase());
+        } else {
+            uom.setIsBase(false);
+        }
         uom.setConversionFactor(dto.getConversionFactor());
 
         return mapToDto(uomRepository.save(uom));
@@ -46,18 +50,20 @@ public class UnitOfMeasureServiceImpl implements UnitOfMeasureService {
         UnitOfMeasure uom = uomRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Unit of Measure", "id", id));
 
-        if (dto.getIsBase() && !uom.getIsBase()) {
+        if (Boolean.TRUE.equals(dto.getIsBase()) && !uom.getIsBase()) {
             validateNoExistingBase(dto.getCategory(), id);
         }
 
-        if (dto.getIsBase() && dto.getConversionFactor().compareTo(BigDecimal.ONE) != 0) {
-             throw new IllegalArgumentException("Base unit must have conversion factor of 1.0");
+        if (Boolean.TRUE.equals(dto.getIsBase()) && dto.getConversionFactor().compareTo(BigDecimal.ONE) != 0) {
+            throw new IllegalArgumentException("Base unit must have conversion factor of 1.0");
         }
 
         uom.setName(dto.getName());
         uom.setCode(dto.getCode());
         uom.setCategory(dto.getCategory());
-        uom.setIsBase(dto.getIsBase());
+        if (dto.getIsBase() != null) {
+            uom.setIsBase(dto.getIsBase());
+        }
         uom.setConversionFactor(dto.getConversionFactor());
 
         return mapToDto(uomRepository.save(uom));

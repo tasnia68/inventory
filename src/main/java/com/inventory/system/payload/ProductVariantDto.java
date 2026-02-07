@@ -11,6 +11,7 @@ import java.util.UUID;
 public class ProductVariantDto {
     private UUID id;
     private String sku;
+    private String barcode;
     private BigDecimal price;
     private UUID templateId;
     private List<AttributeValueDto> attributeValues;

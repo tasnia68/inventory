@@ -6,11 +6,8 @@ import com.inventory.system.payload.AttributeGroupDto;
 import com.inventory.system.payload.ProductAttributeDto;
 import com.inventory.system.payload.ProductTemplateDto;
 import com.inventory.system.payload.ProductVariantDto;
-import com.inventory.system.repository.AttributeGroupRepository;
-import com.inventory.system.repository.ProductAttributeRepository;
-import com.inventory.system.repository.ProductAttributeValueRepository;
-import com.inventory.system.repository.ProductTemplateRepository;
-import com.inventory.system.repository.ProductVariantRepository;
+import com.inventory.system.payload.SimpleProductDto;
+import com.inventory.system.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -32,13 +29,17 @@ public class ProductServiceImpl implements ProductService {
     private final AttributeGroupRepository attributeGroupRepository;
     private final ProductVariantRepository productVariantRepository;
     private final ProductAttributeValueRepository productAttributeValueRepository;
+    private final CategoryRepository categoryRepository;
+    private final UnitOfMeasureRepository unitOfMeasureRepository;
 
     @Override
     public String generateSku(ProductVariant variant) {
         // Simple SKU generation logic: TEMPLATE_NAME-RANDOM_UUID_SUBSTRING
-        // In a real scenario, this would be more complex, possibly involving attributes.
+        // In a real scenario, this would be more complex, possibly involving
+        // attributes.
         String templateName = variant.getTemplate() != null ? variant.getTemplate().getName() : "UNK";
-        String prefix = templateName.length() > 3 ? templateName.substring(0, 3).toUpperCase() : templateName.toUpperCase();
+        String prefix = templateName.length() > 3 ? templateName.substring(0, 3).toUpperCase()
+                : templateName.toUpperCase();
         return prefix + "-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }
 
@@ -51,6 +52,20 @@ public class ProductServiceImpl implements ProductService {
         template.setName(productTemplateDto.getName());
         template.setDescription(productTemplateDto.getDescription());
         template.setIsActive(productTemplateDto.getIsActive() != null ? productTemplateDto.getIsActive() : true);
+
+        if (productTemplateDto.getCategoryId() != null) {
+            Category category = categoryRepository.findById(productTemplateDto.getCategoryId())
+                    .orElseThrow(
+                            () -> new ResourceNotFoundException("Category", "id", productTemplateDto.getCategoryId()));
+            template.setCategory(category);
+        }
+
+        if (productTemplateDto.getUomId() != null) {
+            UnitOfMeasure uom = unitOfMeasureRepository.findById(productTemplateDto.getUomId())
+                    .orElseThrow(
+                            () -> new ResourceNotFoundException("UnitOfMeasure", "id", productTemplateDto.getUomId()));
+            template.setUom(uom);
+        }
 
         template = productTemplateRepository.save(template);
         return mapToDto(template);
@@ -66,6 +81,20 @@ public class ProductServiceImpl implements ProductService {
         template.setDescription(productTemplateDto.getDescription());
         if (productTemplateDto.getIsActive() != null) {
             template.setIsActive(productTemplateDto.getIsActive());
+        }
+
+        if (productTemplateDto.getCategoryId() != null) {
+            Category category = categoryRepository.findById(productTemplateDto.getCategoryId())
+                    .orElseThrow(
+                            () -> new ResourceNotFoundException("Category", "id", productTemplateDto.getCategoryId()));
+            template.setCategory(category);
+        }
+
+        if (productTemplateDto.getUomId() != null) {
+            UnitOfMeasure uom = unitOfMeasureRepository.findById(productTemplateDto.getUomId())
+                    .orElseThrow(
+                            () -> new ResourceNotFoundException("UnitOfMeasure", "id", productTemplateDto.getUomId()));
+            template.setUom(uom);
         }
 
         template = productTemplateRepository.save(template);
@@ -166,12 +195,14 @@ public class ProductServiceImpl implements ProductService {
                 .orElseThrow(() -> new ResourceNotFoundException("Product Attribute", "id", id));
 
         attribute.setName(dto.getName());
-        if(dto.getType() != null) attribute.setType(dto.getType());
-        if(dto.getRequired() != null) attribute.setRequired(dto.getRequired());
+        if (dto.getType() != null)
+            attribute.setType(dto.getType());
+        if (dto.getRequired() != null)
+            attribute.setRequired(dto.getRequired());
         attribute.setValidationRegex(dto.getValidationRegex());
         attribute.setOptions(dto.getOptions());
 
-         if (dto.getTemplateId() != null) {
+        if (dto.getTemplateId() != null) {
             ProductTemplate template = productTemplateRepository.findById(dto.getTemplateId())
                     .orElseThrow(() -> new ResourceNotFoundException("Product Template", "id", dto.getTemplateId()));
             attribute.setTemplate(template);
@@ -222,15 +253,16 @@ public class ProductServiceImpl implements ProductService {
         ProductVariant variant = new ProductVariant();
         variant.setTemplate(template);
         variant.setPrice(dto.getPrice());
+        variant.setBarcode(dto.getBarcode());
 
         // Generate SKU if not provided, or check uniqueness if provided
         if (dto.getSku() == null || dto.getSku().isEmpty()) {
             variant.setSku(generateSku(variant));
         } else {
-             if (productVariantRepository.existsBySku(dto.getSku())) {
+            if (productVariantRepository.existsBySku(dto.getSku())) {
                 throw new IllegalArgumentException("SKU already exists: " + dto.getSku());
-             }
-             variant.setSku(dto.getSku());
+            }
+            variant.setSku(dto.getSku());
         }
 
         variant = productVariantRepository.save(variant);
@@ -240,7 +272,8 @@ public class ProductServiceImpl implements ProductService {
             List<ProductAttributeValue> attributeValues = new ArrayList<>();
             for (ProductVariantDto.AttributeValueDto valDto : dto.getAttributeValues()) {
                 ProductAttribute attribute = productAttributeRepository.findById(valDto.getAttributeId())
-                        .orElseThrow(() -> new ResourceNotFoundException("Product Attribute", "id", valDto.getAttributeId()));
+                        .orElseThrow(() -> new ResourceNotFoundException("Product Attribute", "id",
+                                valDto.getAttributeId()));
 
                 validateAttributeValue(attribute, valDto.getValue());
 
@@ -254,10 +287,10 @@ public class ProductServiceImpl implements ProductService {
 
             // Validate required attributes
             List<ProductAttribute> requiredAttributes = productAttributeRepository.findByTemplateId(template.getId())
-                .stream().filter(ProductAttribute::getRequired).collect(Collectors.toList());
+                    .stream().filter(ProductAttribute::getRequired).collect(Collectors.toList());
 
             List<UUID> providedAttributeIds = dto.getAttributeValues().stream()
-                .map(ProductVariantDto.AttributeValueDto::getAttributeId).collect(Collectors.toList());
+                    .map(ProductVariantDto.AttributeValueDto::getAttributeId).collect(Collectors.toList());
 
             for (ProductAttribute required : requiredAttributes) {
                 if (!providedAttributeIds.contains(required.getId())) {
@@ -268,12 +301,12 @@ public class ProductServiceImpl implements ProductService {
             productAttributeValueRepository.saveAll(attributeValues);
             variant.setAttributeValues(attributeValues);
         } else {
-             // If no attributes provided, check if there are any required ones
-             List<ProductAttribute> requiredAttributes = productAttributeRepository.findByTemplateId(template.getId())
-                .stream().filter(ProductAttribute::getRequired).collect(Collectors.toList());
-             if (!requiredAttributes.isEmpty()) {
-                 throw new IllegalArgumentException("Missing required attributes");
-             }
+            // If no attributes provided, check if there are any required ones
+            List<ProductAttribute> requiredAttributes = productAttributeRepository.findByTemplateId(template.getId())
+                    .stream().filter(ProductAttribute::getRequired).collect(Collectors.toList());
+            if (!requiredAttributes.isEmpty()) {
+                throw new IllegalArgumentException("Missing required attributes");
+            }
         }
 
         return mapToDto(variant);
@@ -301,6 +334,32 @@ public class ProductServiceImpl implements ProductService {
         productVariantRepository.delete(variant);
     }
 
+    // --- Simple Product Method (Convenience API) ---
+
+    @Override
+    @Transactional
+    public ProductVariantDto createSimpleProduct(SimpleProductDto dto) {
+        // Step 1: Create the template
+        ProductTemplateDto templateDto = new ProductTemplateDto();
+        templateDto.setName(dto.getName());
+        templateDto.setDescription(dto.getDescription());
+        templateDto.setCategoryId(dto.getCategoryId());
+        templateDto.setUomId(dto.getUomId());
+        templateDto.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : true);
+
+        ProductTemplateDto createdTemplate = createTemplate(templateDto);
+
+        // Step 2: Create a single variant for this template
+        ProductVariantDto variantDto = new ProductVariantDto();
+        variantDto.setTemplateId(createdTemplate.getId());
+        variantDto.setSku(dto.getSku());
+        variantDto.setBarcode(dto.getBarcode());
+        variantDto.setPrice(dto.getPrice());
+        variantDto.setAttributeValues(null); // Simple products don't have attributes
+
+        return createProductVariant(variantDto);
+    }
+
     // --- Mappers ---
 
     private ProductTemplateDto mapToDto(ProductTemplate template) {
@@ -313,6 +372,15 @@ public class ProductServiceImpl implements ProductService {
         dto.setUpdatedAt(template.getUpdatedAt());
         dto.setCreatedBy(template.getCreatedBy());
         dto.setUpdatedBy(template.getUpdatedBy());
+
+        if (template.getCategory() != null) {
+            dto.setCategoryId(template.getCategory().getId());
+            dto.setCategoryName(template.getCategory().getName());
+        }
+        if (template.getUom() != null) {
+            dto.setUomId(template.getUom().getId());
+            dto.setUomName(template.getUom().getName());
+        }
         return dto;
     }
 
@@ -336,8 +404,10 @@ public class ProductServiceImpl implements ProductService {
         dto.setRequired(attribute.getRequired());
         dto.setValidationRegex(attribute.getValidationRegex());
         dto.setOptions(attribute.getOptions());
-        if(attribute.getTemplate() != null) dto.setTemplateId(attribute.getTemplate().getId());
-        if(attribute.getGroup() != null) dto.setGroupId(attribute.getGroup().getId());
+        if (attribute.getTemplate() != null)
+            dto.setTemplateId(attribute.getTemplate().getId());
+        if (attribute.getGroup() != null)
+            dto.setGroupId(attribute.getGroup().getId());
         dto.setCreatedAt(attribute.getCreatedAt());
         dto.setUpdatedAt(attribute.getUpdatedAt());
         dto.setCreatedBy(attribute.getCreatedBy());
@@ -349,8 +419,10 @@ public class ProductServiceImpl implements ProductService {
         ProductVariantDto dto = new ProductVariantDto();
         dto.setId(variant.getId());
         dto.setSku(variant.getSku());
+        dto.setBarcode(variant.getBarcode());
         dto.setPrice(variant.getPrice());
-        if (variant.getTemplate() != null) dto.setTemplateId(variant.getTemplate().getId());
+        if (variant.getTemplate() != null)
+            dto.setTemplateId(variant.getTemplate().getId());
         dto.setCreatedAt(variant.getCreatedAt());
         dto.setUpdatedAt(variant.getUpdatedAt());
         dto.setCreatedBy(variant.getCreatedBy());
@@ -378,13 +450,17 @@ public class ProductServiceImpl implements ProductService {
             // Regex validation
             if (attribute.getValidationRegex() != null && !attribute.getValidationRegex().isEmpty()) {
                 if (!value.matches(attribute.getValidationRegex())) {
-                    throw new IllegalArgumentException("Value '" + value + "' for attribute " + attribute.getName() + " does not match pattern: " + attribute.getValidationRegex());
+                    throw new IllegalArgumentException("Value '" + value + "' for attribute " + attribute.getName()
+                            + " does not match pattern: " + attribute.getValidationRegex());
                 }
             }
 
             // Options validation (DROPDOWN/MULTI_SELECT)
-            if ((attribute.getType() == ProductAttribute.AttributeType.DROPDOWN || attribute.getType() == ProductAttribute.AttributeType.MULTI_SELECT) && attribute.getOptions() != null) {
-                // Assuming options are comma-separated or JSON list. For simplicity here: comma-separated.
+            if ((attribute.getType() == ProductAttribute.AttributeType.DROPDOWN
+                    || attribute.getType() == ProductAttribute.AttributeType.MULTI_SELECT)
+                    && attribute.getOptions() != null) {
+                // Assuming options are comma-separated or JSON list. For simplicity here:
+                // comma-separated.
                 // In production, robust parsing is needed.
                 List<String> allowedOptions = Arrays.stream(attribute.getOptions().split(","))
                         .map(String::trim)
@@ -392,14 +468,16 @@ public class ProductServiceImpl implements ProductService {
 
                 if (attribute.getType() == ProductAttribute.AttributeType.DROPDOWN) {
                     if (!allowedOptions.contains(value)) {
-                         throw new IllegalArgumentException("Value '" + value + "' is not a valid option for " + attribute.getName());
+                        throw new IllegalArgumentException(
+                                "Value '" + value + "' is not a valid option for " + attribute.getName());
                     }
                 } else {
                     // MULTI_SELECT: value might be comma separated too
                     String[] selectedValues = value.split(",");
                     for (String val : selectedValues) {
                         if (!allowedOptions.contains(val.trim())) {
-                            throw new IllegalArgumentException("Value '" + val + "' is not a valid option for " + attribute.getName());
+                            throw new IllegalArgumentException(
+                                    "Value '" + val + "' is not a valid option for " + attribute.getName());
                         }
                     }
                 }

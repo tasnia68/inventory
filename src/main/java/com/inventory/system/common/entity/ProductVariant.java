@@ -23,6 +23,9 @@ public class ProductVariant extends BaseEntity {
     @Column(nullable = false, unique = true)
     private String sku;
 
+    @Column(unique = true)
+    private String barcode;
+
     @Column(nullable = false)
     private BigDecimal price;
 
