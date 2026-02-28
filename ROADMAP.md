@@ -253,13 +253,13 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Create packing list generation
 
 ### 7.4 Shipping & Delivery
-- [ ] Create Shipment entity (tracking, carrier)
-- [ ] Build shipment creation from orders
-- [ ] Implement shipping label generation
-- [ ] Create delivery confirmation
+- [x] Create Shipment entity (tracking, carrier)
+- [x] Build shipment creation from orders
+- [x] Implement shipping label generation
+- [x] Create delivery confirmation
 - [ ] Add shipment tracking integration (optional)
-- [ ] Build delivery note generation
-- [ ] Implement return merchandise authorization (RMA)
+- [x] Build delivery note generation
+- [x] Implement return merchandise authorization (RMA)
 
 ---
 
