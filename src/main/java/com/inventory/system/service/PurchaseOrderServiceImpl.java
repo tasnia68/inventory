@@ -5,6 +5,9 @@ import com.inventory.system.common.entity.PurchaseOrder;
 import com.inventory.system.common.entity.PurchaseOrderItem;
 import com.inventory.system.common.entity.PurchaseOrderStatus;
 import com.inventory.system.common.entity.Supplier;
+import com.inventory.system.common.entity.SupplierStatus;
+import com.inventory.system.common.exception.BadRequestException;
+import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.PurchaseOrderDto;
 import com.inventory.system.payload.PurchaseOrderItemDto;
 import com.inventory.system.payload.PurchaseOrderItemRequest;
@@ -45,7 +48,9 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
     @Transactional
     public PurchaseOrderDto createPurchaseOrder(PurchaseOrderRequest request) {
         Supplier supplier = supplierRepository.findById(request.getSupplierId())
-                .orElseThrow(() -> new RuntimeException("Supplier not found with ID: " + request.getSupplierId()));
+            .orElseThrow(() -> new ResourceNotFoundException("Supplier", "id", request.getSupplierId()));
+
+        validateSupplierEligibility(supplier);
 
         PurchaseOrder purchaseOrder = new PurchaseOrder();
         purchaseOrder.setSupplier(supplier);
@@ -64,7 +69,7 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
                 .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
 
         if (variantMap.size() != variantIds.size()) {
-            throw new RuntimeException("Some product variants not found");
+            throw new BadRequestException("Some product variants were not found");
         }
 
         List<PurchaseOrderItem> items = new ArrayList<>();
@@ -96,7 +101,7 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
     @Transactional(readOnly = true)
     public PurchaseOrderDto getPurchaseOrderById(UUID id) {
         PurchaseOrder purchaseOrder = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Purchase Order not found with ID: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", "id", id));
         return mapToDto(purchaseOrder);
     }
 
@@ -130,14 +135,15 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
     @Transactional
     public PurchaseOrderDto updatePurchaseOrder(UUID id, PurchaseOrderRequest request) {
         PurchaseOrder purchaseOrder = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Purchase Order not found with ID: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", "id", id));
 
         if (purchaseOrder.getStatus() != PurchaseOrderStatus.PENDING) {
-            throw new RuntimeException("Cannot update Purchase Order that is not in PENDING status");
+            throw new BadRequestException("Cannot update Purchase Order that is not in PENDING status");
         }
 
         Supplier supplier = supplierRepository.findById(request.getSupplierId())
-                .orElseThrow(() -> new RuntimeException("Supplier not found with ID: " + request.getSupplierId()));
+                .orElseThrow(() -> new ResourceNotFoundException("Supplier", "id", request.getSupplierId()));
+        validateSupplierEligibility(supplier);
         purchaseOrder.setSupplier(supplier);
         purchaseOrder.setExpectedDeliveryDate(request.getExpectedDeliveryDate());
         purchaseOrder.setCurrency(request.getCurrency());
@@ -155,7 +161,7 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
                 .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
 
         if (variantMap.size() != variantIds.size()) {
-            throw new RuntimeException("Some product variants not found");
+            throw new BadRequestException("Some product variants were not found");
         }
 
         for (PurchaseOrderItemRequest itemRequest : request.getItems()) {
@@ -182,9 +188,9 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
     @Transactional
     public PurchaseOrderDto updatePurchaseOrderStatus(UUID id, PurchaseOrderStatus status) {
         PurchaseOrder purchaseOrder = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Purchase Order not found with ID: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", "id", id));
 
-        // Add logic for valid transitions if needed
+        validateStatusTransition(purchaseOrder.getStatus(), status);
         purchaseOrder.setStatus(status);
 
         PurchaseOrder savedPo = purchaseOrderRepository.save(purchaseOrder);
@@ -194,11 +200,45 @@ public class PurchaseOrderServiceImpl implements PurchaseOrderService {
     @Override
     public void deletePurchaseOrder(UUID id) {
         PurchaseOrder purchaseOrder = purchaseOrderRepository.findById(id)
-                .orElseThrow(() -> new RuntimeException("Purchase Order not found with ID: " + id));
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", "id", id));
         if (purchaseOrder.getStatus() != PurchaseOrderStatus.PENDING) {
-            throw new RuntimeException("Cannot delete Purchase Order that is not in PENDING status");
+            throw new BadRequestException("Cannot delete Purchase Order that is not in PENDING status");
         }
         purchaseOrderRepository.delete(purchaseOrder);
+    }
+
+    private void validateSupplierEligibility(Supplier supplier) {
+        if (!Boolean.TRUE.equals(supplier.getIsActive())) {
+            throw new BadRequestException("Purchase orders can only be created for active suppliers");
+        }
+        if (supplier.getStatus() != SupplierStatus.APPROVED) {
+            throw new BadRequestException("Purchase orders can only be created for approved suppliers");
+        }
+    }
+
+    private void validateStatusTransition(PurchaseOrderStatus currentStatus, PurchaseOrderStatus targetStatus) {
+        if (targetStatus == currentStatus) {
+            return;
+        }
+
+        boolean valid = switch (currentStatus) {
+            case PENDING -> targetStatus == PurchaseOrderStatus.APPROVED
+                    || targetStatus == PurchaseOrderStatus.REJECTED
+                    || targetStatus == PurchaseOrderStatus.CANCELLED;
+            case APPROVED -> targetStatus == PurchaseOrderStatus.ISSUED
+                    || targetStatus == PurchaseOrderStatus.CANCELLED;
+            case ISSUED -> targetStatus == PurchaseOrderStatus.PARTIALLY_RECEIVED
+                    || targetStatus == PurchaseOrderStatus.COMPLETED
+                    || targetStatus == PurchaseOrderStatus.CANCELLED;
+            case PARTIALLY_RECEIVED -> targetStatus == PurchaseOrderStatus.COMPLETED
+                    || targetStatus == PurchaseOrderStatus.CLOSED;
+            case COMPLETED -> targetStatus == PurchaseOrderStatus.CLOSED;
+            case REJECTED, CANCELLED, CLOSED -> false;
+        };
+
+        if (!valid) {
+            throw new BadRequestException("Invalid purchase order status transition from " + currentStatus + " to " + targetStatus);
+        }
     }
 
     private String generatePoNumber() {

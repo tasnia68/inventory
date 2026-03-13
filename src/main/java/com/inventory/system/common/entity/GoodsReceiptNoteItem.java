@@ -36,6 +36,9 @@ public class GoodsReceiptNoteItem extends BaseEntity {
     @Column(name = "rejected_quantity", nullable = false)
     private Integer rejectedQuantity;
 
+    @Column(name = "returned_quantity", nullable = false)
+    private Integer returnedQuantity = 0;
+
     @Column(name = "rejection_reason")
     private String rejectionReason;
 }

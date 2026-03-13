@@ -13,5 +13,6 @@ public class GoodsReceiptNoteItemDto {
     private Integer receivedQuantity;
     private Integer acceptedQuantity;
     private Integer rejectedQuantity;
+    private Integer returnedQuantity;
     private String rejectionReason;
 }

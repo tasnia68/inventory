@@ -12,5 +12,7 @@ public interface SupplierService {
     SupplierDto updateSupplier(UUID id, UpdateSupplierRequest request);
     SupplierDto getSupplierById(UUID id);
     List<SupplierDto> getAllSuppliers();
+    SupplierDto approveSupplier(UUID id);
+    SupplierDto rejectSupplier(UUID id);
     void deleteSupplier(UUID id);
 }

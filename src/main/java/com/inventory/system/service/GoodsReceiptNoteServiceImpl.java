@@ -1,6 +1,7 @@
 package com.inventory.system.service;
 
 import com.inventory.system.common.entity.*;
+import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.*;
 import com.inventory.system.repository.*;
@@ -39,8 +40,10 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
         PurchaseOrder po = purchaseOrderRepository.findById(request.getPurchaseOrderId())
                 .orElseThrow(() -> new ResourceNotFoundException("PurchaseOrder", "id", request.getPurchaseOrderId()));
 
-        if (po.getStatus() == PurchaseOrderStatus.COMPLETED || po.getStatus() == PurchaseOrderStatus.CANCELLED) {
-            throw new IllegalArgumentException("Cannot create GRN for Completed or Cancelled PO");
+        if (po.getStatus() != PurchaseOrderStatus.APPROVED
+            && po.getStatus() != PurchaseOrderStatus.ISSUED
+            && po.getStatus() != PurchaseOrderStatus.PARTIALLY_RECEIVED) {
+            throw new BadRequestException("GRN can only be created for approved, issued, or partially received purchase orders");
         }
 
         Warehouse warehouse = warehouseRepository.findById(request.getWarehouseId())
@@ -66,12 +69,16 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
                 grnItem.setReceivedQuantity(remaining);
                 grnItem.setAcceptedQuantity(remaining); // Default to all accepted
                 grnItem.setRejectedQuantity(0);
+                grnItem.setReturnedQuantity(0);
                 items.add(grnItem);
             }
         }
         grn.setItems(items);
 
         GoodsReceiptNote savedGrn = grnRepository.save(grn);
+        if (po.getStatus() == PurchaseOrderStatus.APPROVED) {
+            purchaseOrderService.updatePurchaseOrderStatus(po.getId(), PurchaseOrderStatus.ISSUED);
+        }
         return mapToDto(savedGrn);
     }
 
@@ -124,7 +131,7 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
                 .orElseThrow(() -> new ResourceNotFoundException("GoodsReceiptNote", "id", id));
 
         if (grn.getStatus() == GoodsReceiptNoteStatus.COMPLETED || grn.getStatus() == GoodsReceiptNoteStatus.CANCELLED) {
-            throw new IllegalArgumentException("Cannot update items of a completed or cancelled GRN");
+            throw new BadRequestException("Cannot update items of a completed or cancelled GRN");
         }
 
         Map<UUID, UpdateGoodsReceiptNoteItemRequest> requestMap = itemRequests.stream()
@@ -138,9 +145,14 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
                 if (req.getRejectedQuantity() != null) item.setRejectedQuantity(req.getRejectedQuantity());
                 if (req.getRejectionReason() != null) item.setRejectionReason(req.getRejectionReason());
 
+                int remainingOpenQuantity = item.getPurchaseOrderItem().getQuantity() - item.getPurchaseOrderItem().getReceivedQuantity();
+                if (item.getReceivedQuantity() > remainingOpenQuantity) {
+                    throw new BadRequestException("Received quantity cannot exceed remaining purchase order quantity for item " + item.getId());
+                }
+
                 // Validate validation logic
                 if (item.getAcceptedQuantity() + item.getRejectedQuantity() != item.getReceivedQuantity()) {
-                     throw new IllegalArgumentException("Sum of accepted and rejected quantities must equal received quantity for item " + item.getId());
+                     throw new BadRequestException("Sum of accepted and rejected quantities must equal received quantity for item " + item.getId());
                 }
             }
         }
@@ -151,12 +163,37 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
 
     @Override
     @Transactional
+    public GoodsReceiptNoteDto verifyGrn(UUID id) {
+        GoodsReceiptNote grn = grnRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("GoodsReceiptNote", "id", id));
+
+        if (grn.getStatus() != GoodsReceiptNoteStatus.DRAFT) {
+            throw new BadRequestException("Only draft GRNs can be verified");
+        }
+
+        boolean hasReceivableItems = grn.getItems().stream().anyMatch(item -> item.getReceivedQuantity() > 0);
+        if (!hasReceivableItems) {
+            throw new BadRequestException("GRN must contain at least one received item before verification");
+        }
+
+        for (GoodsReceiptNoteItem item : grn.getItems()) {
+            if (item.getAcceptedQuantity() + item.getRejectedQuantity() != item.getReceivedQuantity()) {
+                throw new BadRequestException("All GRN items must balance before verification");
+            }
+        }
+
+        grn.setStatus(GoodsReceiptNoteStatus.VERIFIED);
+        return mapToDto(grnRepository.save(grn));
+    }
+
+    @Override
+    @Transactional
     public GoodsReceiptNoteDto confirmGrn(UUID id) {
         GoodsReceiptNote grn = grnRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("GoodsReceiptNote", "id", id));
 
-        if (grn.getStatus() != GoodsReceiptNoteStatus.DRAFT && grn.getStatus() != GoodsReceiptNoteStatus.VERIFIED) {
-            throw new IllegalArgumentException("GRN must be in DRAFT or VERIFIED status to confirm");
+        if (grn.getStatus() != GoodsReceiptNoteStatus.VERIFIED) {
+            throw new BadRequestException("GRN must be verified before confirmation");
         }
 
         // 1. Create Stock Transaction (Inbound)
@@ -246,6 +283,7 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
         dto.setReceivedQuantity(item.getReceivedQuantity());
         dto.setAcceptedQuantity(item.getAcceptedQuantity());
         dto.setRejectedQuantity(item.getRejectedQuantity());
+        dto.setReturnedQuantity(item.getReturnedQuantity());
         dto.setRejectionReason(item.getRejectionReason());
         return dto;
     }

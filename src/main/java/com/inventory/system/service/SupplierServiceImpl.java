@@ -1,6 +1,8 @@
 package com.inventory.system.service;
 
 import com.inventory.system.common.entity.Supplier;
+import com.inventory.system.common.entity.SupplierStatus;
+import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.CreateSupplierRequest;
 import com.inventory.system.payload.SupplierDto;
@@ -62,6 +64,39 @@ public class SupplierServiceImpl implements SupplierService {
 
     @Override
     @Transactional
+    public SupplierDto approveSupplier(UUID id) {
+        Supplier supplier = supplierRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + id));
+
+        if (supplier.getStatus() == SupplierStatus.APPROVED) {
+            return mapToDto(supplier);
+        }
+        if (supplier.getStatus() == SupplierStatus.INACTIVE) {
+            throw new BadRequestException("Inactive suppliers cannot be approved");
+        }
+
+        supplier.setStatus(SupplierStatus.APPROVED);
+        supplier.setIsActive(true);
+        return mapToDto(supplierRepository.save(supplier));
+    }
+
+    @Override
+    @Transactional
+    public SupplierDto rejectSupplier(UUID id) {
+        Supplier supplier = supplierRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + id));
+
+        if (supplier.getStatus() == SupplierStatus.APPROVED) {
+            throw new BadRequestException("Approved suppliers cannot be rejected directly");
+        }
+
+        supplier.setStatus(SupplierStatus.REJECTED);
+        supplier.setIsActive(false);
+        return mapToDto(supplierRepository.save(supplier));
+    }
+
+    @Override
+    @Transactional
     public SupplierDto updateSupplier(UUID id, UpdateSupplierRequest request) {
         Supplier supplier = supplierRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Supplier not found with id: " + id));
@@ -91,6 +126,7 @@ public class SupplierServiceImpl implements SupplierService {
             supplier.setRating(request.getRating());
         }
         if (request.getStatus() != null) {
+            validateStatusChange(supplier, request.getStatus());
             supplier.setStatus(request.getStatus());
         }
 
@@ -121,5 +157,19 @@ public class SupplierServiceImpl implements SupplierService {
         dto.setCreatedAt(supplier.getCreatedAt());
         dto.setUpdatedAt(supplier.getUpdatedAt());
         return dto;
+    }
+
+    private void validateStatusChange(Supplier supplier, SupplierStatus targetStatus) {
+        if (targetStatus == supplier.getStatus()) {
+            return;
+        }
+
+        if (targetStatus == SupplierStatus.APPROVED && supplier.getStatus() != SupplierStatus.PENDING) {
+            throw new BadRequestException("Only pending suppliers can be approved");
+        }
+
+        if (targetStatus == SupplierStatus.REJECTED && supplier.getStatus() == SupplierStatus.APPROVED) {
+            throw new BadRequestException("Approved suppliers cannot be rejected via generic update");
+        }
     }
 }

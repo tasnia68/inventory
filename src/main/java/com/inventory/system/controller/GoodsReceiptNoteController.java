@@ -84,6 +84,12 @@ public class GoodsReceiptNoteController {
         return ResponseEntity.ok(ApiResponse.success(grn, "GRN items updated successfully"));
     }
 
+    @PostMapping("/{id}/verify")
+    public ResponseEntity<ApiResponse<GoodsReceiptNoteDto>> verifyGrn(@PathVariable UUID id) {
+        GoodsReceiptNoteDto grn = grnService.verifyGrn(id);
+        return ResponseEntity.ok(ApiResponse.success(grn, "GRN verified successfully"));
+    }
+
     @PostMapping("/{id}/confirm")
     public ResponseEntity<ApiResponse<GoodsReceiptNoteDto>> confirmGrn(@PathVariable UUID id) {
         GoodsReceiptNoteDto grn = grnService.confirmGrn(id);

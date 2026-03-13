@@ -14,5 +14,6 @@ public interface GoodsReceiptNoteService {
     GoodsReceiptNoteDto getGrn(UUID id);
     Page<GoodsReceiptNoteDto> getAllGrns(GoodsReceiptNoteSearchRequest request);
     GoodsReceiptNoteDto updateGrnItems(UUID id, List<UpdateGoodsReceiptNoteItemRequest> items);
+    GoodsReceiptNoteDto verifyGrn(UUID id);
     GoodsReceiptNoteDto confirmGrn(UUID id);
 }

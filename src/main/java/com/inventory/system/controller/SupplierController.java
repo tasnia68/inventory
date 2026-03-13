@@ -57,6 +57,20 @@ public class SupplierController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<ApiResponse<SupplierDto>> approveSupplier(@PathVariable UUID id) {
+        SupplierDto supplier = supplierService.approveSupplier(id);
+        ApiResponse<SupplierDto> response = new ApiResponse<>(true, "Supplier approved successfully", supplier);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/{id}/reject")
+    public ResponseEntity<ApiResponse<SupplierDto>> rejectSupplier(@PathVariable UUID id) {
+        SupplierDto supplier = supplierService.rejectSupplier(id);
+        ApiResponse<SupplierDto> response = new ApiResponse<>(true, "Supplier rejected successfully", supplier);
+        return ResponseEntity.ok(response);
+    }
+
     @DeleteMapping("/{id}")
     public ResponseEntity<ApiResponse<Void>> deleteSupplier(@PathVariable UUID id) {
         supplierService.deleteSupplier(id);
