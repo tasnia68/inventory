@@ -14,6 +14,7 @@ import org.springframework.stereotype.Repository;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,7 +24,25 @@ public interface StockReservationRepository extends JpaRepository<StockReservati
     @Query("SELECT SUM(r.quantity) FROM StockReservation r WHERE r.productVariant.id = :productVariantId AND r.warehouse.id = :warehouseId AND r.status IN ('ACTIVE', 'PENDING')")
     BigDecimal countTotalReservedQuantity(@Param("productVariantId") UUID productVariantId, @Param("warehouseId") UUID warehouseId);
 
+        @Query("""
+            SELECT SUM(r.quantity)
+            FROM StockReservation r
+            WHERE r.productVariant.id = :productVariantId
+              AND r.warehouse.id = :warehouseId
+              AND r.status IN ('ACTIVE', 'PENDING')
+              AND ((:storageLocationId IS NULL AND r.storageLocation IS NULL) OR r.storageLocation.id = :storageLocationId)
+              AND ((:batchId IS NULL AND r.batch IS NULL) OR r.batch.id = :batchId)
+            """)
+        BigDecimal countTotalReservedQuantityByInventoryPosition(
+            @Param("productVariantId") UUID productVariantId,
+            @Param("warehouseId") UUID warehouseId,
+            @Param("storageLocationId") UUID storageLocationId,
+            @Param("batchId") UUID batchId);
+
     List<StockReservation> findByStatusAndExpiresAtBefore(StockReservationStatus status, LocalDateTime expiresAt);
+
+    @EntityGraph(attributePaths = {"productVariant", "warehouse", "storageLocation", "batch"})
+    List<StockReservation> findByReferenceIdAndStatusIn(String referenceId, Collection<StockReservationStatus> statuses);
 
     @Override
     @EntityGraph(attributePaths = {"productVariant", "warehouse", "storageLocation", "batch"})

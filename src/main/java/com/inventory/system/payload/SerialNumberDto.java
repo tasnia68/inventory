@@ -3,6 +3,7 @@ package com.inventory.system.payload;
 import com.inventory.system.common.entity.SerialNumberStatus;
 import lombok.Data;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -19,6 +20,8 @@ public class SerialNumberDto {
     private UUID batchId;
     private String batchNumber;
     private SerialNumberStatus status;
+    private LocalDate warrantyStartDate;
+    private LocalDate warrantyEndDate;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

@@ -14,6 +14,7 @@ public interface StockTransactionService {
     StockTransactionDto rejectTransaction(UUID id);
     StockTransactionDto confirmTransaction(UUID id);
     StockTransactionDto cancelTransaction(UUID id);
+    StockTransactionDto reverseTransaction(UUID id);
     StockTransactionDto getTransaction(UUID id);
     Page<StockTransactionDto> getTransactions(Pageable pageable);
 }

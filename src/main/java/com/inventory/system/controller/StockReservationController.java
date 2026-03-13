@@ -50,6 +50,12 @@ public class StockReservationController {
         return ResponseEntity.ok(ApiResponse.success(null, "Reservation released successfully"));
     }
 
+    @PutMapping("/release-by-reference")
+    public ResponseEntity<ApiResponse<Void>> releaseReservationsByReference(@RequestParam String referenceId) {
+        stockReservationService.releaseReservationsByReference(referenceId);
+        return ResponseEntity.ok(ApiResponse.success(null, "Reservations released successfully"));
+    }
+
     @GetMapping("/atp")
     public ResponseEntity<ApiResponse<BigDecimal>> getAvailableToPromise(
             @RequestParam UUID productVariantId,

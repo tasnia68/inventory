@@ -186,6 +186,33 @@ public class StockTransactionServiceImpl implements StockTransactionService {
     }
 
     @Override
+    @Transactional
+    public StockTransactionDto reverseTransaction(UUID id) {
+        StockTransaction transaction = stockTransactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransaction", "id", id));
+
+        if (transaction.getStatus() != StockTransactionStatus.COMPLETED) {
+            throw new BadRequestException("Only COMPLETED transactions can be reversed");
+        }
+        if (transaction.getReversalOfTransaction() != null) {
+            throw new BadRequestException("Reversal transactions cannot be reversed");
+        }
+        if (stockTransactionRepository.existsByReversalOfTransactionId(transaction.getId())) {
+            throw new BadRequestException("Transaction has already been reversed");
+        }
+
+        StockTransaction reversal = buildReversalTransaction(transaction);
+        validateWarehouses(reversal);
+        reversal = stockTransactionRepository.save(reversal);
+
+        processStockMovements(reversal);
+
+        reversal.setStatus(StockTransactionStatus.COMPLETED);
+        reversal = stockTransactionRepository.save(reversal);
+        return mapToDto(reversal);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public StockTransactionDto getTransaction(UUID id) {
         StockTransaction transaction = stockTransactionRepository.findById(id)
@@ -253,7 +280,8 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                     outbound.setType(StockMovement.StockMovementType.OUT);
                     outbound.setReason("Transaction: " + transaction.getTransactionNumber());
                     outbound.setReferenceId(transaction.getId().toString());
-                    stockService.adjustStock(outbound);
+                    StockMovementDto outboundResult = stockService.adjustStock(outbound);
+                    item.setUnitCost(outboundResult.getUnitCost());
                     break;
 
                 case TRANSFER:
@@ -269,6 +297,7 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                     transferOut.setReason("Transfer: " + transaction.getTransactionNumber());
                     transferOut.setReferenceId(transaction.getId().toString());
                     StockMovementDto outResult = stockService.adjustStock(transferOut);
+                    item.setUnitCost(outResult.getUnitCost());
 
                     // In to Destination
                     StockAdjustmentDto transferIn = new StockAdjustmentDto();
@@ -301,10 +330,90 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                     adjustment.setType(StockMovement.StockMovementType.ADJUSTMENT);
                     adjustment.setReason("Adjustment: " + transaction.getTransactionNumber());
                     adjustment.setReferenceId(transaction.getId().toString());
-                    stockService.adjustStock(adjustment);
+                    StockMovementDto adjustmentResult = stockService.adjustStock(adjustment);
+                    item.setUnitCost(adjustmentResult.getUnitCost());
                     break;
             }
         }
+    }
+
+    private StockTransaction buildReversalTransaction(StockTransaction original) {
+        StockTransaction reversal = new StockTransaction();
+        reversal.setTransactionNumber(generateTransactionNumber());
+        reversal.setType(reverseType(original.getType()));
+        reversal.setStatus(StockTransactionStatus.APPROVED);
+        reversal.setReference("REV-" + original.getTransactionNumber());
+        reversal.setNotes(buildReversalNotes(original));
+        reversal.setTransactionDate(LocalDateTime.now());
+        reversal.setReversalOfTransaction(original);
+
+        switch (original.getType()) {
+            case INBOUND:
+                reversal.setSourceWarehouse(original.getDestinationWarehouse());
+                break;
+            case OUTBOUND:
+                reversal.setDestinationWarehouse(original.getSourceWarehouse());
+                break;
+            case TRANSFER:
+                reversal.setSourceWarehouse(original.getDestinationWarehouse());
+                reversal.setDestinationWarehouse(original.getSourceWarehouse());
+                break;
+            case ADJUSTMENT:
+                reversal.setSourceWarehouse(original.getSourceWarehouse());
+                break;
+        }
+
+        List<StockTransactionItem> reversalItems = original.getItems().stream()
+                .map(item -> buildReversalItem(reversal, original.getType(), item))
+                .collect(Collectors.toList());
+        reversal.setItems(reversalItems);
+        return reversal;
+    }
+
+    private StockTransactionType reverseType(StockTransactionType type) {
+        return switch (type) {
+            case INBOUND -> StockTransactionType.OUTBOUND;
+            case OUTBOUND -> StockTransactionType.INBOUND;
+            case TRANSFER -> StockTransactionType.TRANSFER;
+            case ADJUSTMENT -> StockTransactionType.ADJUSTMENT;
+        };
+    }
+
+    private StockTransactionItem buildReversalItem(StockTransaction reversal, StockTransactionType originalType, StockTransactionItem item) {
+        StockTransactionItem reversalItem = new StockTransactionItem();
+        reversalItem.setStockTransaction(reversal);
+        reversalItem.setProductVariant(item.getProductVariant());
+        reversalItem.setUnitCost(item.getUnitCost());
+
+        switch (originalType) {
+            case INBOUND:
+                reversalItem.setQuantity(item.getQuantity());
+                reversalItem.setSourceStorageLocation(item.getDestinationStorageLocation());
+                break;
+            case OUTBOUND:
+                reversalItem.setQuantity(item.getQuantity());
+                reversalItem.setDestinationStorageLocation(item.getSourceStorageLocation());
+                break;
+            case TRANSFER:
+                reversalItem.setQuantity(item.getQuantity());
+                reversalItem.setSourceStorageLocation(item.getDestinationStorageLocation());
+                reversalItem.setDestinationStorageLocation(item.getSourceStorageLocation());
+                break;
+            case ADJUSTMENT:
+                reversalItem.setQuantity(item.getQuantity().negate());
+                reversalItem.setSourceStorageLocation(item.getSourceStorageLocation());
+                break;
+        }
+
+        return reversalItem;
+    }
+
+    private String buildReversalNotes(StockTransaction original) {
+        String base = "Reversal of transaction " + original.getTransactionNumber();
+        if (original.getNotes() == null || original.getNotes().isBlank()) {
+            return base;
+        }
+        return base + ". Original notes: " + original.getNotes();
     }
 
     private String generateTransactionNumber() {
@@ -324,6 +433,9 @@ public class StockTransactionServiceImpl implements StockTransactionService {
         if (transaction.getDestinationWarehouse() != null) {
             dto.setDestinationWarehouseId(transaction.getDestinationWarehouse().getId());
             dto.setDestinationWarehouseName(transaction.getDestinationWarehouse().getName());
+        }
+        if (transaction.getReversalOfTransaction() != null) {
+            dto.setReversalOfTransactionId(transaction.getReversalOfTransaction().getId());
         }
         dto.setReference(transaction.getReference());
         dto.setNotes(transaction.getNotes());

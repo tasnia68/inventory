@@ -42,6 +42,12 @@ public class CycleCountItem extends BaseEntity {
     @Column(name = "variance", precision = 19, scale = 4)
     private BigDecimal variance;
 
+    @Column(name = "system_serial_numbers", columnDefinition = "TEXT")
+    private String systemSerialNumbers;
+
+    @Column(name = "counted_serial_numbers", columnDefinition = "TEXT")
+    private String countedSerialNumbers;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 }

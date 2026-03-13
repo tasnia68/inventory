@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -64,10 +65,21 @@ public class StockReservationServiceImpl implements StockReservationService {
         if (request.getBatchId() != null) {
             batch = batchRepository.findById(request.getBatchId())
                     .orElseThrow(() -> new ResourceNotFoundException("Batch", "id", request.getBatchId()));
+            if (!batch.getProductVariant().getId().equals(variant.getId())) {
+                throw new IllegalArgumentException("Batch does not belong to the specified product variant");
+            }
         }
 
-        // Check ATP
-        BigDecimal atp = getAvailableToPromise(variant.getId(), warehouse.getId());
+        if (request.getExpiresAt() != null && !request.getExpiresAt().isAfter(LocalDateTime.now())) {
+            throw new IllegalArgumentException("Reservation expiry must be in the future");
+        }
+
+        BigDecimal atp = getAvailableToPromise(
+                variant.getId(),
+                warehouse.getId(),
+                request.getStorageLocationId(),
+                request.getBatchId()
+        );
         if (atp.compareTo(request.getQuantity()) < 0) {
             throw new IllegalArgumentException("Insufficient stock available to promise. ATP: " + atp);
         }
@@ -95,12 +107,24 @@ public class StockReservationServiceImpl implements StockReservationService {
         StockReservation reservation = stockReservationRepository.findById(reservationId)
                 .orElseThrow(() -> new ResourceNotFoundException("StockReservation", "id", reservationId));
 
-        if (reservation.getStatus() == StockReservationStatus.ACTIVE || reservation.getStatus() == StockReservationStatus.PENDING) {
-            reservation.setStatus(StockReservationStatus.RELEASED);
-            stockReservationRepository.save(reservation);
-        } else {
-             throw new IllegalStateException("Reservation is not in a releasable state: " + reservation.getStatus());
+        if (!isReservableStatus(reservation.getStatus())) {
+            throw new IllegalStateException("Reservation is not in a releasable state: " + reservation.getStatus());
         }
+
+        reservation.setStatus(StockReservationStatus.RELEASED);
+        stockReservationRepository.save(reservation);
+    }
+
+    @Override
+    @Transactional
+    public void releaseReservationsByReference(String referenceId) {
+        updateReservationsByReference(referenceId, StockReservationStatus.RELEASED);
+    }
+
+    @Override
+    @Transactional
+    public void fulfillReservationsByReference(String referenceId) {
+        updateReservationsByReference(referenceId, StockReservationStatus.FULFILLED);
     }
 
     @Override
@@ -112,6 +136,34 @@ public class StockReservationServiceImpl implements StockReservationService {
         }
 
         BigDecimal reservedStock = stockReservationRepository.countTotalReservedQuantity(productVariantId, warehouseId);
+        if (reservedStock == null) {
+            reservedStock = BigDecimal.ZERO;
+        }
+
+        return totalStock.subtract(reservedStock);
+    }
+
+    private BigDecimal getAvailableToPromise(UUID productVariantId, UUID warehouseId, UUID storageLocationId, UUID batchId) {
+        if (storageLocationId == null && batchId == null) {
+            return getAvailableToPromise(productVariantId, warehouseId);
+        }
+
+        BigDecimal totalStock = stockRepository.countTotalQuantityByInventoryPosition(
+                productVariantId,
+                warehouseId,
+                storageLocationId,
+                batchId
+        );
+        if (totalStock == null) {
+            totalStock = BigDecimal.ZERO;
+        }
+
+        BigDecimal reservedStock = stockReservationRepository.countTotalReservedQuantityByInventoryPosition(
+                productVariantId,
+                warehouseId,
+                storageLocationId,
+                batchId
+        );
         if (reservedStock == null) {
             reservedStock = BigDecimal.ZERO;
         }
@@ -175,5 +227,27 @@ public class StockReservationServiceImpl implements StockReservationService {
         dto.setCreatedAt(reservation.getCreatedAt());
         dto.setCreatedBy(reservation.getCreatedBy());
         return dto;
+    }
+
+    private void updateReservationsByReference(String referenceId, StockReservationStatus targetStatus) {
+        if (referenceId == null || referenceId.isBlank()) {
+            return;
+        }
+
+        List<StockReservation> reservations = stockReservationRepository.findByReferenceIdAndStatusIn(
+                referenceId,
+                EnumSet.of(StockReservationStatus.ACTIVE, StockReservationStatus.PENDING)
+        );
+
+        if (reservations.isEmpty()) {
+            return;
+        }
+
+        reservations.forEach(reservation -> reservation.setStatus(targetStatus));
+        stockReservationRepository.saveAll(reservations);
+    }
+
+    private boolean isReservableStatus(StockReservationStatus status) {
+        return status == StockReservationStatus.ACTIVE || status == StockReservationStatus.PENDING;
     }
 }

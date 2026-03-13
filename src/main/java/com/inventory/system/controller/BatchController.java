@@ -3,8 +3,10 @@ package com.inventory.system.controller;
 import com.inventory.system.common.entity.Batch;
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.BatchDto;
+import com.inventory.system.payload.StockMovementDto;
 import com.inventory.system.payload.UpdateBatchExpiryRequest;
 import com.inventory.system.repository.BatchRepository;
+import com.inventory.system.service.StockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +28,7 @@ import java.util.stream.Collectors;
 public class BatchController {
 
     private final BatchRepository batchRepository;
+    private final StockService stockService;
 
     @GetMapping("/expiring")
     public ResponseEntity<ApiResponse<List<BatchDto>>> getExpiringBatches(
@@ -57,6 +60,12 @@ public class BatchController {
                 .orElseThrow(() -> new RuntimeException("Batch not found with id: " + id));
         ApiResponse<BatchDto> response = new ApiResponse<>(true, "Batch retrieved successfully", mapToDto(batch));
         return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/history")
+    public ResponseEntity<ApiResponse<List<StockMovementDto>>> getBatchHistory(@PathVariable UUID id) {
+        List<StockMovementDto> history = stockService.getBatchHistory(id);
+        return ResponseEntity.ok(ApiResponse.success(history, "Batch history retrieved successfully"));
     }
 
     @GetMapping

@@ -33,6 +33,20 @@ public interface StockRepository extends JpaRepository<Stock, UUID>, JpaSpecific
     @Query("SELECT SUM(s.quantity) FROM Stock s WHERE s.productVariant.id = :productVariantId AND s.warehouse.id = :warehouseId")
     BigDecimal countTotalQuantityByProductVariantAndWarehouse(@Param("productVariantId") UUID productVariantId, @Param("warehouseId") UUID warehouseId);
 
+        @Query("""
+            SELECT SUM(s.quantity)
+            FROM Stock s
+            WHERE s.productVariant.id = :productVariantId
+              AND s.warehouse.id = :warehouseId
+              AND ((:storageLocationId IS NULL AND s.storageLocation IS NULL) OR s.storageLocation.id = :storageLocationId)
+              AND ((:batchId IS NULL AND s.batch IS NULL) OR s.batch.id = :batchId)
+            """)
+        BigDecimal countTotalQuantityByInventoryPosition(
+            @Param("productVariantId") UUID productVariantId,
+            @Param("warehouseId") UUID warehouseId,
+            @Param("storageLocationId") UUID storageLocationId,
+            @Param("batchId") UUID batchId);
+
     @Query("select s from Stock s join s.productVariant pv join s.warehouse w " +
             "where lower(pv.sku) like lower(concat('%', :q, '%')) " +
             "or lower(w.name) like lower(concat('%', :q, '%'))")

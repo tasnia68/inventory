@@ -11,4 +11,5 @@ import java.util.UUID;
 @Repository
 public interface StockTransactionRepository extends JpaRepository<StockTransaction, UUID>, JpaSpecificationExecutor<StockTransaction> {
     Optional<StockTransaction> findByTransactionNumber(String transactionNumber);
+    boolean existsByReversalOfTransactionId(UUID reversalOfTransactionId);
 }

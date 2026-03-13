@@ -20,8 +20,32 @@ CREATE TABLE IF NOT EXISTS batches (
 
 -- 3. Update Stocks Table
 ALTER TABLE stocks ADD COLUMN IF NOT EXISTS batch_id UUID;
-ALTER TABLE stocks ADD CONSTRAINT fk_stock_batch FOREIGN KEY (batch_id) REFERENCES batches (id);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_stock_batch'
+          AND table_name = 'stocks'
+    ) THEN
+        ALTER TABLE stocks
+            ADD CONSTRAINT fk_stock_batch FOREIGN KEY (batch_id) REFERENCES batches (id);
+    END IF;
+END $$;
 
 -- 4. Update Stock Movements Table
 ALTER TABLE stock_movements ADD COLUMN IF NOT EXISTS batch_id UUID;
-ALTER TABLE stock_movements ADD CONSTRAINT fk_movement_batch FOREIGN KEY (batch_id) REFERENCES batches (id);
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_movement_batch'
+          AND table_name = 'stock_movements'
+    ) THEN
+        ALTER TABLE stock_movements
+            ADD CONSTRAINT fk_movement_batch FOREIGN KEY (batch_id) REFERENCES batches (id);
+    END IF;
+END $$;

@@ -15,5 +15,6 @@ public interface StockService {
     StockDto getStock(UUID id);
     StockMovementDto adjustStock(StockAdjustmentDto adjustmentDto);
     Page<StockMovementDto> getStockMovements(UUID warehouseId, UUID productVariantId, Pageable pageable);
+    List<StockMovementDto> getBatchHistory(UUID batchId);
     List<StockMovementDto> getSerialNumberHistory(String serialNumber);
 }

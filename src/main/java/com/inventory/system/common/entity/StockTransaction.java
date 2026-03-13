@@ -42,6 +42,10 @@ public class StockTransaction extends BaseEntity {
     @JoinColumn(name = "destination_warehouse_id")
     private Warehouse destinationWarehouse;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reversal_of_transaction_id")
+    private StockTransaction reversalOfTransaction;
+
     @Column(name = "reference")
     private String reference;
 

@@ -64,6 +64,12 @@ public class StockTransactionController {
         return ResponseEntity.ok(ApiResponse.success(transaction, "Stock transaction cancelled successfully"));
     }
 
+    @PostMapping("/{id}/reverse")
+    public ResponseEntity<ApiResponse<StockTransactionDto>> reverseTransaction(@PathVariable UUID id) {
+        StockTransactionDto transaction = stockTransactionService.reverseTransaction(id);
+        return ResponseEntity.ok(ApiResponse.success(transaction, "Stock transaction reversed successfully"));
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<ApiResponse<StockTransactionDto>> getTransaction(@PathVariable UUID id) {
         StockTransactionDto transaction = stockTransactionService.getTransaction(id);

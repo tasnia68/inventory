@@ -30,4 +30,7 @@ public class ProductCost extends BaseEntity {
 
     @Column(name = "average_cost", nullable = false, precision = 19, scale = 6)
     private BigDecimal averageCost;
+
+    @Column(name = "currency", nullable = false, length = 3)
+    private String currency;
 }

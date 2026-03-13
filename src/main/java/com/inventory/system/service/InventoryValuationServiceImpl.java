@@ -33,6 +33,9 @@ public class InventoryValuationServiceImpl implements InventoryValuationService 
     private final StockRepository stockRepository;
 
     private static final String VALUATION_METHOD_KEY = "INVENTORY_VALUATION_METHOD";
+    private static final String VALUATION_CURRENCY_KEY = "INVENTORY_VALUATION_CURRENCY";
+    private static final String DEFAULT_CURRENCY_KEY = "DEFAULT_CURRENCY";
+    private static final String FALLBACK_CURRENCY = "USD";
 
     @Override
     @Transactional
@@ -96,6 +99,7 @@ public class InventoryValuationServiceImpl implements InventoryValuationService 
 
         List<InventoryValuationReportDto> report = new ArrayList<>();
         ValuationMethod method = getValuationMethod();
+        String valuationCurrency = getValuationCurrency();
 
         for (List<Stock> group : grouped.values()) {
             if (group.isEmpty()) continue;
@@ -116,6 +120,7 @@ public class InventoryValuationServiceImpl implements InventoryValuationService 
             dto.setProductName(first.getProductVariant().getTemplate().getName());
             dto.setWarehouseId(wId);
             dto.setWarehouseName(first.getWarehouse().getName());
+            dto.setCurrency(valuationCurrency);
             dto.setQuantity(totalQty);
 
             if (method == ValuationMethod.WEIGHTED_AVERAGE) {
@@ -148,8 +153,13 @@ public class InventoryValuationServiceImpl implements InventoryValuationService 
                     pc.setProductVariant(movement.getProductVariant());
                     pc.setWarehouse(movement.getWarehouse());
                     pc.setAverageCost(BigDecimal.ZERO);
+                    pc.setCurrency(getValuationCurrency());
                     return pc;
                 });
+
+        if (productCost.getCurrency() == null || productCost.getCurrency().isBlank()) {
+            productCost.setCurrency(getValuationCurrency());
+        }
 
         // Get total stock quantity for this product in this warehouse
         // Since Stock is split by StorageLocation, we need to sum them up.
@@ -254,5 +264,17 @@ public class InventoryValuationServiceImpl implements InventoryValuationService 
                     }
                 })
                 .orElse(ValuationMethod.FIFO);
+    }
+
+    private String getValuationCurrency() {
+        return tenantSettingService.findSetting(VALUATION_CURRENCY_KEY)
+                .map(setting -> setting.getValue())
+                .filter(value -> value != null && !value.isBlank())
+                .or(() -> tenantSettingService.findSetting(DEFAULT_CURRENCY_KEY)
+                        .map(setting -> setting.getValue())
+                        .filter(value -> value != null && !value.isBlank()))
+                .map(String::trim)
+                .map(String::toUpperCase)
+                .orElse(FALLBACK_CURRENCY);
     }
 }

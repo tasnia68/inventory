@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS stock_movements (
 
 -- 3. Stock Transactions Tables (New)
 
-CREATE TABLE stock_transactions (
+CREATE TABLE IF NOT EXISTS stock_transactions (
     id UUID PRIMARY KEY,
     transaction_number VARCHAR(255) NOT NULL,
     type VARCHAR(50) NOT NULL,
@@ -159,7 +159,7 @@ CREATE TABLE stock_transactions (
     CONSTRAINT fk_transaction_dest_wh FOREIGN KEY (destination_warehouse_id) REFERENCES warehouses (id)
 );
 
-CREATE TABLE stock_transaction_items (
+CREATE TABLE IF NOT EXISTS stock_transaction_items (
     id UUID PRIMARY KEY,
     stock_transaction_id UUID NOT NULL,
     product_variant_id UUID NOT NULL,

@@ -198,7 +198,9 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         SalesOrder salesOrder = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
 
-        if (status == SalesOrderStatus.CONFIRMED && salesOrder.getStatus() != SalesOrderStatus.CONFIRMED) {
+        SalesOrderStatus previousStatus = salesOrder.getStatus();
+
+        if (status == SalesOrderStatus.CONFIRMED && previousStatus != SalesOrderStatus.CONFIRMED) {
             // Validate Stock and Reserve
             for (SalesOrderItem item : salesOrder.getItems()) {
                 BigDecimal available = stockReservationService.getAvailableToPromise(item.getProductVariant().getId(), salesOrder.getWarehouse().getId());
@@ -221,6 +223,16 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             }
         }
 
+        if ((status == SalesOrderStatus.SHIPPED || status == SalesOrderStatus.DELIVERED)
+                && previousStatus != SalesOrderStatus.SHIPPED
+                && previousStatus != SalesOrderStatus.DELIVERED) {
+            stockReservationService.fulfillReservationsByReference(salesOrder.getSoNumber());
+        }
+
+        if (status == SalesOrderStatus.CANCELLED && previousStatus != SalesOrderStatus.CANCELLED) {
+            stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
+        }
+
         salesOrder.setStatus(status);
         SalesOrder savedSo = salesOrderRepository.save(salesOrder);
         return mapToDto(savedSo);
@@ -236,10 +248,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
              throw new BadRequestException("Cannot cancel Sales Order that has been shipped or delivered");
         }
 
-        // Note: Releasing reservation logic would require fetching reservation by reference ID (SO Number)
-        // Since StockReservationService doesn't explicitly expose "releaseByReference", we might need to enhance it or leave it for now.
-        // Given we just added reservation logic, this is a gap, but acceptable for this task scope.
-        // We can't release if we don't have the reservation ID.
+        stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
 
         salesOrder.setStatus(SalesOrderStatus.CANCELLED);
         salesOrderRepository.save(salesOrder);

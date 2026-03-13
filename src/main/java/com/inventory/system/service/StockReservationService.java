@@ -11,6 +11,8 @@ import java.util.UUID;
 public interface StockReservationService {
     StockReservationDto reserveStock(StockReservationRequest request);
     void releaseReservation(UUID reservationId);
+    void releaseReservationsByReference(String referenceId);
+    void fulfillReservationsByReference(String referenceId);
     BigDecimal getAvailableToPromise(UUID productVariantId, UUID warehouseId);
     void cleanupExpiredReservations();
     Page<StockReservationDto> getReservations(UUID warehouseId, UUID productVariantId, Pageable pageable);

@@ -1,5 +1,5 @@
 -- Create categories table
-CREATE TABLE categories (
+CREATE TABLE IF NOT EXISTS categories (
     id UUID PRIMARY KEY,
     tenant_id VARCHAR(255) NOT NULL,
     created_by VARCHAR(255),
@@ -13,7 +13,7 @@ CREATE TABLE categories (
 );
 
 -- Create category_attributes table (join table)
-CREATE TABLE category_attributes (
+CREATE TABLE IF NOT EXISTS category_attributes (
     category_id UUID NOT NULL,
     attribute_id UUID NOT NULL,
     PRIMARY KEY (category_id, attribute_id),
@@ -22,5 +22,17 @@ CREATE TABLE category_attributes (
 );
 
 -- Add category_id to product_templates table
-ALTER TABLE product_templates ADD COLUMN category_id UUID;
-ALTER TABLE product_templates ADD CONSTRAINT fk_template_category FOREIGN KEY (category_id) REFERENCES categories (id);
+ALTER TABLE product_templates ADD COLUMN IF NOT EXISTS category_id UUID;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_template_category'
+          AND table_name = 'product_templates'
+    ) THEN
+        ALTER TABLE product_templates
+            ADD CONSTRAINT fk_template_category FOREIGN KEY (category_id) REFERENCES categories (id);
+    END IF;
+END $$;

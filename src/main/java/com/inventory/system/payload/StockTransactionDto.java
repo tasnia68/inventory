@@ -18,6 +18,7 @@ public class StockTransactionDto {
     private String sourceWarehouseName;
     private UUID destinationWarehouseId;
     private String destinationWarehouseName;
+    private UUID reversalOfTransactionId;
     private String reference;
     private String notes;
     private LocalDateTime transactionDate;

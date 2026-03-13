@@ -12,6 +12,7 @@ public class InventoryValuationReportDto {
     private String productName;
     private UUID warehouseId;
     private String warehouseName;
+    private String currency;
     private BigDecimal quantity;
     private BigDecimal unitCost;
     private BigDecimal totalValue;

@@ -26,6 +26,7 @@ import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -287,6 +288,19 @@ public class StockServiceImpl implements StockService {
             return cb.and(predicates.toArray(new Predicate[0]));
         };
         return stockMovementRepository.findAll(spec, pageable).map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StockMovementDto> getBatchHistory(UUID batchId) {
+        batchRepository.findById(batchId)
+                .orElseThrow(() -> new ResourceNotFoundException("Batch", "id", batchId));
+
+        Specification<StockMovement> spec = (root, query, cb) -> cb.equal(root.get("batch").get("id"), batchId);
+
+        return stockMovementRepository.findAll(spec, Sort.by(Sort.Direction.DESC, "createdAt")).stream()
+                .map(this::mapToDto)
+                .collect(Collectors.toList());
     }
 
     @Override

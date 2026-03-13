@@ -3,6 +3,7 @@ package com.inventory.system.controller;
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.SerialNumberDto;
 import com.inventory.system.payload.StockMovementDto;
+import com.inventory.system.payload.UpdateSerialWarrantyRequest;
 import com.inventory.system.common.entity.ProductVariant;
 import com.inventory.system.common.entity.SerialNumber;
 import com.inventory.system.common.entity.SerialNumberStatus;
@@ -14,7 +15,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -53,6 +56,20 @@ public class SerialNumberController {
         return ResponseEntity.ok(ApiResponse.success(dtos, "Serial numbers retrieved successfully"));
     }
 
+    @PutMapping("/{id}/warranty")
+    public ResponseEntity<ApiResponse<SerialNumberDto>> updateWarranty(
+            @PathVariable UUID id,
+            @RequestBody UpdateSerialWarrantyRequest request) {
+        SerialNumber serial = serialNumberRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("SerialNumber", "id", id));
+
+        serial.setWarrantyStartDate(request.getWarrantyStartDate());
+        serial.setWarrantyEndDate(request.getWarrantyEndDate());
+
+        SerialNumber saved = serialNumberRepository.save(serial);
+        return ResponseEntity.ok(ApiResponse.success(mapToDto(saved), "Serial number warranty updated successfully"));
+    }
+
     private SerialNumberDto mapToDto(SerialNumber serial) {
         SerialNumberDto dto = new SerialNumberDto();
         dto.setId(serial.getId());
@@ -72,6 +89,8 @@ public class SerialNumberController {
             dto.setBatchNumber(serial.getBatch().getBatchNumber());
         }
         dto.setStatus(serial.getStatus());
+        dto.setWarrantyStartDate(serial.getWarrantyStartDate());
+        dto.setWarrantyEndDate(serial.getWarrantyEndDate());
         dto.setCreatedAt(serial.getCreatedAt());
         dto.setUpdatedAt(serial.getUpdatedAt());
         return dto;
