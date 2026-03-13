@@ -2,6 +2,7 @@ package com.inventory.system.payload;
 
 import lombok.Data;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -13,6 +14,8 @@ public class WarehouseDto {
     private String type;
     private String contactNumber;
     private Boolean isActive;
+    private BigDecimal capacity;
+    private BigDecimal usedCapacity;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

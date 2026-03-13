@@ -101,6 +101,48 @@ public class StockTransactionServiceImpl implements StockTransactionService {
 
     @Override
     @Transactional
+    public StockTransactionDto submitForApproval(UUID id) {
+        StockTransaction transaction = stockTransactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransaction", "id", id));
+
+        if (transaction.getStatus() != StockTransactionStatus.DRAFT) {
+            throw new BadRequestException("Only DRAFT transactions can be submitted for approval");
+        }
+
+        transaction.setStatus(StockTransactionStatus.PENDING_APPROVAL);
+        return mapToDto(stockTransactionRepository.save(transaction));
+    }
+
+    @Override
+    @Transactional
+    public StockTransactionDto approveTransaction(UUID id) {
+        StockTransaction transaction = stockTransactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransaction", "id", id));
+
+        if (transaction.getStatus() != StockTransactionStatus.PENDING_APPROVAL) {
+            throw new BadRequestException("Only PENDING_APPROVAL transactions can be approved");
+        }
+
+        transaction.setStatus(StockTransactionStatus.APPROVED);
+        return mapToDto(stockTransactionRepository.save(transaction));
+    }
+
+    @Override
+    @Transactional
+    public StockTransactionDto rejectTransaction(UUID id) {
+        StockTransaction transaction = stockTransactionRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StockTransaction", "id", id));
+
+        if (transaction.getStatus() != StockTransactionStatus.PENDING_APPROVAL) {
+            throw new BadRequestException("Only PENDING_APPROVAL transactions can be rejected");
+        }
+
+        transaction.setStatus(StockTransactionStatus.REJECTED);
+        return mapToDto(stockTransactionRepository.save(transaction));
+    }
+
+    @Override
+    @Transactional
     public StockTransactionDto confirmTransaction(UUID id) {
         StockTransaction transaction = stockTransactionRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("StockTransaction", "id", id));
@@ -110,6 +152,12 @@ public class StockTransactionServiceImpl implements StockTransactionService {
         }
         if (transaction.getStatus() == StockTransactionStatus.CANCELLED) {
             throw new BadRequestException("Cannot confirm a cancelled transaction");
+        }
+        if (transaction.getStatus() == StockTransactionStatus.PENDING_APPROVAL) {
+            throw new BadRequestException("Transaction is pending approval");
+        }
+        if (transaction.getStatus() == StockTransactionStatus.REJECTED) {
+            throw new BadRequestException("Cannot confirm a rejected transaction");
         }
 
         processStockMovements(transaction);
@@ -127,6 +175,9 @@ public class StockTransactionServiceImpl implements StockTransactionService {
 
         if (transaction.getStatus() == StockTransactionStatus.COMPLETED) {
             throw new BadRequestException("Cannot cancel a completed transaction");
+        }
+        if (transaction.getStatus() == StockTransactionStatus.REJECTED) {
+            throw new BadRequestException("Cannot cancel a rejected transaction");
         }
 
         transaction.setStatus(StockTransactionStatus.CANCELLED);

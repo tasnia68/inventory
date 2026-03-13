@@ -1,9 +1,11 @@
 package com.inventory.system.controller;
 
 import com.inventory.system.payload.ApiResponse;
+import com.inventory.system.payload.StockAlertDto;
 import com.inventory.system.payload.StockAdjustmentDto;
 import com.inventory.system.payload.StockDto;
 import com.inventory.system.payload.StockMovementDto;
+import com.inventory.system.service.ReplenishmentService;
 import com.inventory.system.service.StockService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +27,7 @@ import java.util.UUID;
 public class StockController {
 
     private final StockService stockService;
+    private final ReplenishmentService replenishmentService;
 
     @GetMapping
     public ResponseEntity<ApiResponse<Page<StockDto>>> getStocks(
@@ -60,5 +63,11 @@ public class StockController {
             Pageable pageable) {
         Page<StockMovementDto> movements = stockService.getStockMovements(warehouseId, productVariantId, pageable);
         return ResponseEntity.ok(ApiResponse.success(movements, "Stock movements retrieved successfully"));
+    }
+
+    @GetMapping("/alerts")
+    public ResponseEntity<ApiResponse<java.util.List<StockAlertDto>>> getStockAlerts(@RequestParam UUID warehouseId) {
+        java.util.List<StockAlertDto> alerts = replenishmentService.getStockAlerts(warehouseId);
+        return ResponseEntity.ok(ApiResponse.success(alerts, "Stock alerts retrieved successfully"));
     }
 }

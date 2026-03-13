@@ -5,6 +5,7 @@ import com.inventory.system.payload.CreateCycleCountRequest;
 import com.inventory.system.payload.CycleCountDto;
 import com.inventory.system.payload.CycleCountEntryRequest;
 import com.inventory.system.payload.CycleCountItemDto;
+import com.inventory.system.payload.ScheduleCycleCountRequest;
 import com.inventory.system.payload.UpdateCycleCountRequest;
 import com.inventory.system.service.CycleCountService;
 import jakarta.validation.Valid;
@@ -54,6 +55,12 @@ public class CycleCountController {
     @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
     public ResponseEntity<ApiResponse<CycleCountDto>> updateCycleCount(@PathVariable UUID id, @RequestBody UpdateCycleCountRequest request) {
         return ResponseEntity.ok(ApiResponse.success(cycleCountService.updateCycleCount(id, request), "Cycle count updated successfully"));
+    }
+
+    @PostMapping("/{id}/schedule")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<CycleCountDto>> scheduleCycleCount(@PathVariable UUID id, @RequestBody ScheduleCycleCountRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(cycleCountService.scheduleCycleCount(id, request), "Cycle count scheduled successfully"));
     }
 
     @PostMapping("/{id}/start")

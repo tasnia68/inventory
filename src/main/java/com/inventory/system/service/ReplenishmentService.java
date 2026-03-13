@@ -2,6 +2,7 @@ package com.inventory.system.service;
 
 import com.inventory.system.payload.ReplenishmentRuleDto;
 import com.inventory.system.payload.ReplenishmentSuggestionDto;
+import com.inventory.system.payload.StockAlertDto;
 import java.util.List;
 import java.util.UUID;
 
@@ -14,4 +15,5 @@ public interface ReplenishmentService {
 
     void calculateReorderPoint(UUID ruleId);
     List<ReplenishmentSuggestionDto> getReplenishmentSuggestions(UUID warehouseId);
+    List<StockAlertDto> getStockAlerts(UUID warehouseId);
 }

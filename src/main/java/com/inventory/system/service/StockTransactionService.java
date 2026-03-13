@@ -9,6 +9,9 @@ import java.util.UUID;
 
 public interface StockTransactionService {
     StockTransactionDto createTransaction(CreateStockTransactionRequest request);
+    StockTransactionDto submitForApproval(UUID id);
+    StockTransactionDto approveTransaction(UUID id);
+    StockTransactionDto rejectTransaction(UUID id);
     StockTransactionDto confirmTransaction(UUID id);
     StockTransactionDto cancelTransaction(UUID id);
     StockTransactionDto getTransaction(UUID id);

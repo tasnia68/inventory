@@ -9,6 +9,8 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
+
 @Entity
 @Table(name = "warehouses")
 @Getter
@@ -31,4 +33,10 @@ public class Warehouse extends BaseEntity {
 
     @Column(name = "is_active")
     private Boolean isActive = true;
+
+    @Column(name = "capacity", precision = 19, scale = 4)
+    private BigDecimal capacity;
+
+    @Column(name = "used_capacity", precision = 19, scale = 4)
+    private BigDecimal usedCapacity;
 }

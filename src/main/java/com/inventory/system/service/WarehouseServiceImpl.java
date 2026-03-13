@@ -4,12 +4,15 @@ import com.inventory.system.common.entity.Warehouse;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.CreateWarehouseRequest;
 import com.inventory.system.payload.UpdateWarehouseRequest;
+import com.inventory.system.payload.WarehouseCapacityDto;
+import com.inventory.system.payload.WarehouseCapacityUpdateRequest;
 import com.inventory.system.payload.WarehouseDto;
 import com.inventory.system.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -31,6 +34,8 @@ public class WarehouseServiceImpl implements WarehouseService {
         if (request.getIsActive() != null) {
             warehouse.setIsActive(request.getIsActive());
         }
+        warehouse.setCapacity(request.getCapacity());
+        warehouse.setUsedCapacity(request.getUsedCapacity());
 
         Warehouse savedWarehouse = warehouseRepository.save(warehouse);
         return mapToDto(savedWarehouse);
@@ -73,6 +78,12 @@ public class WarehouseServiceImpl implements WarehouseService {
         if (request.getIsActive() != null) {
             warehouse.setIsActive(request.getIsActive());
         }
+        if (request.getCapacity() != null) {
+            warehouse.setCapacity(request.getCapacity());
+        }
+        if (request.getUsedCapacity() != null) {
+            warehouse.setUsedCapacity(request.getUsedCapacity());
+        }
 
         Warehouse updatedWarehouse = warehouseRepository.save(warehouse);
         return mapToDto(updatedWarehouse);
@@ -86,6 +97,30 @@ public class WarehouseServiceImpl implements WarehouseService {
         warehouseRepository.delete(warehouse);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public WarehouseCapacityDto getWarehouseCapacity(UUID id) {
+        Warehouse warehouse = warehouseRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + id));
+        return mapCapacityDto(warehouse);
+    }
+
+    @Override
+    @Transactional
+    public WarehouseCapacityDto updateWarehouseCapacity(UUID id, WarehouseCapacityUpdateRequest request) {
+        Warehouse warehouse = warehouseRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with id: " + id));
+
+        if (request.getCapacity() != null) {
+            warehouse.setCapacity(request.getCapacity());
+        }
+        if (request.getUsedCapacity() != null) {
+            warehouse.setUsedCapacity(request.getUsedCapacity());
+        }
+
+        return mapCapacityDto(warehouseRepository.save(warehouse));
+    }
+
     private WarehouseDto mapToDto(Warehouse warehouse) {
         WarehouseDto dto = new WarehouseDto();
         dto.setId(warehouse.getId());
@@ -94,8 +129,29 @@ public class WarehouseServiceImpl implements WarehouseService {
         dto.setType(warehouse.getType());
         dto.setContactNumber(warehouse.getContactNumber());
         dto.setIsActive(warehouse.getIsActive());
+        dto.setCapacity(warehouse.getCapacity());
+        dto.setUsedCapacity(warehouse.getUsedCapacity());
         dto.setCreatedAt(warehouse.getCreatedAt());
         dto.setUpdatedAt(warehouse.getUpdatedAt());
+        return dto;
+    }
+
+    private WarehouseCapacityDto mapCapacityDto(Warehouse warehouse) {
+        WarehouseCapacityDto dto = new WarehouseCapacityDto();
+        dto.setWarehouseId(warehouse.getId());
+        dto.setCapacity(warehouse.getCapacity());
+        dto.setUsedCapacity(warehouse.getUsedCapacity());
+
+        if (warehouse.getCapacity() != null
+                && warehouse.getCapacity().compareTo(BigDecimal.ZERO) > 0
+                && warehouse.getUsedCapacity() != null) {
+            BigDecimal utilization = warehouse.getUsedCapacity()
+                    .multiply(BigDecimal.valueOf(100))
+                    .divide(warehouse.getCapacity(), 2, java.math.RoundingMode.HALF_UP);
+            dto.setUtilizationPercent(utilization);
+        } else {
+            dto.setUtilizationPercent(BigDecimal.ZERO);
+        }
         return dto;
     }
 }

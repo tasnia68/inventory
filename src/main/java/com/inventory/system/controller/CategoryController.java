@@ -2,6 +2,8 @@ package com.inventory.system.controller;
 
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.CategoryDto;
+import com.inventory.system.payload.CategoryPermissionDto;
+import com.inventory.system.payload.UpdateCategoryPermissionsRequest;
 import com.inventory.system.service.CategoryService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -60,5 +62,21 @@ public class CategoryController {
     public ResponseEntity<ApiResponse<List<CategoryDto>>> getCategoryTree() {
         List<CategoryDto> categoryTree = categoryService.getCategoryTree();
         return new ResponseEntity<>(new ApiResponse<>(true, "Category tree retrieved successfully", categoryTree), HttpStatus.OK);
+    }
+
+    @GetMapping("/{id}/permissions")
+    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER')")
+    public ResponseEntity<ApiResponse<List<CategoryPermissionDto>>> getCategoryPermissions(@PathVariable UUID id) {
+        List<CategoryPermissionDto> permissions = categoryService.getCategoryPermissions(id);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Category permissions retrieved successfully", permissions), HttpStatus.OK);
+    }
+
+    @PutMapping("/{id}/permissions")
+    @PreAuthorize("hasRole('ADMIN')")
+    public ResponseEntity<ApiResponse<List<CategoryPermissionDto>>> updateCategoryPermissions(
+            @PathVariable UUID id,
+            @RequestBody UpdateCategoryPermissionsRequest request) {
+        List<CategoryPermissionDto> permissions = categoryService.updateCategoryPermissions(id, request);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Category permissions updated successfully", permissions), HttpStatus.OK);
     }
 }

@@ -7,6 +7,7 @@ import com.inventory.system.common.entity.ProductVariant;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.ReplenishmentRuleDto;
 import com.inventory.system.payload.ReplenishmentSuggestionDto;
+import com.inventory.system.payload.StockAlertDto;
 import com.inventory.system.repository.ReplenishmentRuleRepository;
 import com.inventory.system.repository.StockMovementRepository;
 import com.inventory.system.repository.WarehouseRepository;
@@ -144,6 +145,47 @@ public class ReplenishmentServiceImpl implements ReplenishmentService {
             }
         }
         return suggestions;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StockAlertDto> getStockAlerts(UUID warehouseId) {
+        List<ReplenishmentRule> rules = replenishmentRuleRepository.findByWarehouseIdAndIsEnabledTrue(warehouseId);
+        List<StockAlertDto> alerts = new ArrayList<>();
+
+        for (ReplenishmentRule rule : rules) {
+            BigDecimal availableStock = stockReservationService.getAvailableToPromise(
+                    rule.getProductVariant().getId(),
+                    rule.getWarehouse().getId()
+            );
+
+            if (availableStock.compareTo(rule.getMinStock()) <= 0) {
+                StockAlertDto alert = buildAlert(rule, availableStock, com.inventory.system.common.entity.StockAlertStatus.BELOW_MIN);
+                alerts.add(alert);
+            } else if (availableStock.compareTo(rule.getMaxStock()) > 0) {
+                StockAlertDto alert = buildAlert(rule, availableStock, com.inventory.system.common.entity.StockAlertStatus.ABOVE_MAX);
+                alerts.add(alert);
+            }
+        }
+
+        return alerts;
+    }
+
+    private StockAlertDto buildAlert(ReplenishmentRule rule, BigDecimal availableStock, com.inventory.system.common.entity.StockAlertStatus status) {
+        StockAlertDto alert = new StockAlertDto();
+        alert.setProductVariantId(rule.getProductVariant().getId());
+        alert.setProductVariantName(rule.getProductVariant().getTemplate().getName() + " - " + rule.getProductVariant().getSku());
+        alert.setSku(rule.getProductVariant().getSku());
+        alert.setWarehouseId(rule.getWarehouse().getId());
+        alert.setWarehouseName(rule.getWarehouse().getName());
+        alert.setCurrentStock(availableStock);
+        alert.setMinStock(rule.getMinStock());
+        alert.setMaxStock(rule.getMaxStock());
+        if (rule.getMaxStock() != null && availableStock != null) {
+            alert.setSuggestedQuantity(rule.getMaxStock().subtract(availableStock).max(BigDecimal.ZERO));
+        }
+        alert.setStatus(status);
+        return alert;
     }
 
     private void updateRuleFromDto(ReplenishmentRule rule, ReplenishmentRuleDto dto) {

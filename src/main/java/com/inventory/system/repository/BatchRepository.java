@@ -13,4 +13,6 @@ import java.util.UUID;
 public interface BatchRepository extends JpaRepository<Batch, UUID> {
     Optional<Batch> findByBatchNumberAndProductVariantId(String batchNumber, UUID productVariantId);
     List<Batch> findByExpiryDateBetween(LocalDate startDate, LocalDate endDate);
+    List<Batch> findByExpiryDateBefore(LocalDate date);
+    List<Batch> findByProductVariantId(UUID productVariantId);
 }

@@ -1,22 +1,30 @@
 package com.inventory.system.service;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.inventory.system.common.entity.*;
+import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
-import com.inventory.system.payload.AttributeGroupDto;
-import com.inventory.system.payload.ProductAttributeDto;
-import com.inventory.system.payload.ProductTemplateDto;
-import com.inventory.system.payload.ProductVariantDto;
-import com.inventory.system.payload.SimpleProductDto;
+import com.inventory.system.payload.*;
 import com.inventory.system.repository.*;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -32,6 +40,8 @@ public class ProductServiceImpl implements ProductService {
     private final ProductImageRepository productImageRepository;
     private final CategoryRepository categoryRepository;
     private final UnitOfMeasureRepository unitOfMeasureRepository;
+    private final ProductVariantVersionRepository productVariantVersionRepository;
+    private final ObjectMapper objectMapper;
 
     @Override
     public String generateSku(ProductVariant variant) {
@@ -318,7 +328,9 @@ public class ProductServiceImpl implements ProductService {
             }
         }
 
-        return mapToDto(variant);
+        ProductVariantDto result = mapToDto(variant);
+        saveVariantVersion(variant, "CREATE");
+        return result;
     }
 
     @Override
@@ -402,7 +414,9 @@ public class ProductServiceImpl implements ProductService {
         }
 
         ProductVariant updated = productVariantRepository.save(variant);
-        return mapToDto(updated);
+        ProductVariantDto result = mapToDto(updated);
+        saveVariantVersion(updated, "UPDATE");
+        return result;
     }
 
     @Override
@@ -421,6 +435,12 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<ProductVariantDto> getProductVariantsByCategory(UUID categoryId, Pageable pageable) {
+        return productVariantRepository.findByTemplateCategoryId(categoryId, pageable).map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public List<ProductVariantDto> getProductVariantsByTemplate(UUID templateId) {
         return productVariantRepository.findByTemplateId(templateId).stream()
                 .map(this::mapToDto)
@@ -434,11 +454,136 @@ public class ProductServiceImpl implements ProductService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<ProductVariantDto> searchProductVariants(ProductSearchRequest request, Pageable pageable) {
+        return productVariantRepository.searchAdvanced(
+                        request.getQ(),
+                        request.getCategoryId(),
+                        request.getTemplateId(),
+                        request.getAttributeId(),
+                        request.getAttributeValue(),
+                        pageable)
+                .map(this::mapToDto);
+    }
+
+    @Override
     @Transactional
     public void deleteProductVariant(UUID id) {
         ProductVariant variant = productVariantRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Product Variant", "id", id));
+        saveVariantVersion(variant, "DELETE");
         productVariantRepository.delete(variant);
+    }
+
+    @Override
+    @Transactional
+    public BulkProductOperationResultDto bulkOperateProducts(BulkProductOperationRequest request) {
+        if (request.getProductVariantIds() == null || request.getProductVariantIds().isEmpty()) {
+            throw new BadRequestException("productVariantIds cannot be empty");
+        }
+
+        List<ProductVariant> variants = productVariantRepository.findAllById(request.getProductVariantIds());
+        BulkProductOperationResultDto result = new BulkProductOperationResultDto();
+        result.setTotalRequested(request.getProductVariantIds().size());
+
+        for (ProductVariant variant : variants) {
+            try {
+                if (request.getPercentagePriceAdjustment() != null) {
+                    BigDecimal multiplier = BigDecimal.ONE.add(request.getPercentagePriceAdjustment().divide(new BigDecimal("100")));
+                    variant.setPrice(variant.getPrice().multiply(multiplier));
+                }
+                if (request.getAbsolutePriceAdjustment() != null) {
+                    variant.setPrice(variant.getPrice().add(request.getAbsolutePriceAdjustment()));
+                }
+                if (request.getActive() != null && variant.getTemplate() != null) {
+                    variant.getTemplate().setIsActive(request.getActive());
+                }
+
+                ProductVariant saved = productVariantRepository.save(variant);
+                saveVariantVersion(saved, "BULK_UPDATE");
+                result.setTotalUpdated(result.getTotalUpdated() + 1);
+            } catch (Exception ex) {
+                result.getErrors().add("Variant " + variant.getId() + ": " + ex.getMessage());
+            }
+        }
+
+        return result;
+    }
+
+    @Override
+    @Transactional
+    public ProductImportResultDto importProductsFromCsv(MultipartFile file) {
+        ProductImportResultDto result = new ProductImportResultDto();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8))) {
+            String line;
+            boolean headerProcessed = false;
+            while ((line = reader.readLine()) != null) {
+                if (line.isBlank()) {
+                    continue;
+                }
+
+                if (!headerProcessed) {
+                    headerProcessed = true;
+                    if (line.toLowerCase().contains("sku") && line.toLowerCase().contains("templateid")) {
+                        continue;
+                    }
+                }
+
+                result.setTotalRows(result.getTotalRows() + 1);
+                String[] parts = line.split(",", -1);
+                if (parts.length < 4) {
+                    result.setFailed(result.getFailed() + 1);
+                    result.getErrors().add("Invalid row format: " + line);
+                    continue;
+                }
+
+                try {
+                    ProductVariantDto dto = new ProductVariantDto();
+                    dto.setSku(parts[0].trim());
+                    dto.setBarcode(parts[1].trim().isBlank() ? null : parts[1].trim());
+                    dto.setPrice(new BigDecimal(parts[2].trim()));
+                    dto.setTemplateId(UUID.fromString(parts[3].trim()));
+                    dto.setAttributeValues(new ArrayList<>());
+
+                    createProductVariant(dto);
+                    result.setImported(result.getImported() + 1);
+                } catch (Exception rowEx) {
+                    result.setFailed(result.getFailed() + 1);
+                    result.getErrors().add("Row failed: " + line + " | " + rowEx.getMessage());
+                }
+            }
+        } catch (IOException e) {
+            throw new BadRequestException("Failed to read CSV file", e);
+        }
+
+        return result;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public String exportProductsToCsv() {
+        List<ProductVariant> variants = productVariantRepository.findAll();
+        StringBuilder sb = new StringBuilder();
+        sb.append("sku,barcode,price,templateId").append("\n");
+
+        for (ProductVariant variant : variants) {
+            sb.append(safeCsv(variant.getSku())).append(",")
+                    .append(safeCsv(variant.getBarcode())).append(",")
+                    .append(variant.getPrice() != null ? variant.getPrice() : "")
+                    .append(",")
+                    .append(variant.getTemplate() != null ? variant.getTemplate().getId() : "")
+                    .append("\n");
+        }
+
+        return sb.toString();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Page<ProductVariantVersionDto> getProductVariantHistory(UUID variantId, Pageable pageable) {
+        return productVariantVersionRepository.findByProductVariantId(variantId, pageable)
+                .map(this::mapToDto);
     }
 
     // --- Simple Product Method (Convenience API) ---
@@ -607,5 +752,63 @@ public class ProductServiceImpl implements ProductService {
                 }
             }
         }
+    }
+
+    private void saveVariantVersion(ProductVariant variant, String changeType) {
+        int nextVersion = productVariantVersionRepository
+                .findTopByProductVariantIdOrderByVersionNumberDesc(variant.getId())
+                .map(v -> v.getVersionNumber() + 1)
+                .orElse(1);
+
+        ProductVariantVersion version = new ProductVariantVersion();
+        version.setProductVariantId(variant.getId());
+        version.setVersionNumber(nextVersion);
+        version.setChangeType(changeType);
+        version.setSnapshot(toSnapshot(variant));
+        productVariantVersionRepository.save(version);
+    }
+
+    private String toSnapshot(ProductVariant variant) {
+        Map<String, Object> snapshot = new LinkedHashMap<>();
+        snapshot.put("id", variant.getId());
+        snapshot.put("sku", variant.getSku());
+        snapshot.put("barcode", variant.getBarcode());
+        snapshot.put("price", variant.getPrice());
+        snapshot.put("templateId", variant.getTemplate() != null ? variant.getTemplate().getId() : null);
+        snapshot.put("attributeValues", variant.getAttributeValues() == null ? List.of() : variant.getAttributeValues().stream().map(v -> {
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("attributeId", v.getAttribute() != null ? v.getAttribute().getId() : null);
+            row.put("value", v.getValue());
+            return row;
+        }).collect(Collectors.toList()));
+
+        try {
+            return objectMapper.writeValueAsString(snapshot);
+        } catch (JsonProcessingException e) {
+            return "{\"error\":\"failed_to_serialize_snapshot\"}";
+        }
+    }
+
+    private ProductVariantVersionDto mapToDto(ProductVariantVersion version) {
+        ProductVariantVersionDto dto = new ProductVariantVersionDto();
+        dto.setId(version.getId());
+        dto.setProductVariantId(version.getProductVariantId());
+        dto.setVersionNumber(version.getVersionNumber());
+        dto.setChangeType(version.getChangeType());
+        dto.setSnapshot(version.getSnapshot());
+        dto.setCreatedAt(version.getCreatedAt());
+        dto.setCreatedBy(version.getCreatedBy());
+        return dto;
+    }
+
+    private String safeCsv(String value) {
+        if (value == null) {
+            return "";
+        }
+        String escaped = value.replace("\"", "\"\"");
+        if (escaped.contains(",") || escaped.contains("\n") || escaped.contains("\"")) {
+            return "\"" + escaped + "\"";
+        }
+        return escaped;
     }
 }

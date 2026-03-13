@@ -1,11 +1,17 @@
 package com.inventory.system.service;
 
 import com.inventory.system.common.entity.Category;
+import com.inventory.system.common.entity.CategoryPermission;
 import com.inventory.system.common.entity.ProductAttribute;
+import com.inventory.system.common.entity.Role;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.CategoryDto;
+import com.inventory.system.payload.CategoryPermissionDto;
+import com.inventory.system.payload.UpdateCategoryPermissionsRequest;
+import com.inventory.system.repository.CategoryPermissionRepository;
 import com.inventory.system.repository.CategoryRepository;
 import com.inventory.system.repository.ProductAttributeRepository;
+import com.inventory.system.repository.RoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,6 +28,8 @@ public class CategoryServiceImpl implements CategoryService {
 
     private final CategoryRepository categoryRepository;
     private final ProductAttributeRepository productAttributeRepository;
+    private final CategoryPermissionRepository categoryPermissionRepository;
+    private final RoleRepository roleRepository;
 
     @Override
     @Transactional
@@ -112,6 +120,47 @@ public class CategoryServiceImpl implements CategoryService {
                 .collect(Collectors.toList());
     }
 
+        @Override
+        @Transactional(readOnly = true)
+        public List<CategoryPermissionDto> getCategoryPermissions(UUID categoryId) {
+        categoryRepository.findById(categoryId)
+            .orElseThrow(() -> new ResourceNotFoundException("Category", "id", categoryId));
+
+        return categoryPermissionRepository.findByCategoryId(categoryId).stream()
+            .map(this::mapPermissionToDto)
+            .collect(Collectors.toList());
+        }
+
+        @Override
+        @Transactional
+        public List<CategoryPermissionDto> updateCategoryPermissions(UUID categoryId, UpdateCategoryPermissionsRequest request) {
+        Category category = categoryRepository.findById(categoryId)
+            .orElseThrow(() -> new ResourceNotFoundException("Category", "id", categoryId));
+
+        categoryPermissionRepository.deleteByCategoryId(categoryId);
+
+        if (request == null || request.getPermissions() == null || request.getPermissions().isEmpty()) {
+            return List.of();
+        }
+
+        List<CategoryPermission> permissions = new java.util.ArrayList<>();
+        for (CategoryPermissionDto dto : request.getPermissions()) {
+            Role role = roleRepository.findById(dto.getRoleId())
+                .orElseThrow(() -> new ResourceNotFoundException("Role", "id", dto.getRoleId()));
+
+            CategoryPermission permission = new CategoryPermission();
+            permission.setCategory(category);
+            permission.setRole(role);
+            permission.setCanView(dto.getCanView() != null ? dto.getCanView() : true);
+            permission.setCanEdit(dto.getCanEdit() != null ? dto.getCanEdit() : false);
+            permissions.add(permission);
+        }
+
+        return categoryPermissionRepository.saveAll(permissions).stream()
+            .map(this::mapPermissionToDto)
+            .collect(Collectors.toList());
+        }
+
     private boolean isDescendant(UUID potentialParentId, UUID categoryId) {
         // Find the potential parent
         Category potentialParent = categoryRepository.findById(potentialParentId)
@@ -150,6 +199,17 @@ public class CategoryServiceImpl implements CategoryService {
             dto.setChildren(childrenDtos);
         }
 
+        return dto;
+    }
+
+    private CategoryPermissionDto mapPermissionToDto(CategoryPermission permission) {
+        CategoryPermissionDto dto = new CategoryPermissionDto();
+        dto.setId(permission.getId());
+        dto.setCategoryId(permission.getCategory().getId());
+        dto.setRoleId(permission.getRole().getId());
+        dto.setRoleName(permission.getRole().getName());
+        dto.setCanView(permission.getCanView());
+        dto.setCanEdit(permission.getCanEdit());
         return dto;
     }
 }

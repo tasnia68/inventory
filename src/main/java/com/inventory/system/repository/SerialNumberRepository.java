@@ -15,4 +15,5 @@ public interface SerialNumberRepository extends JpaRepository<SerialNumber, UUID
     Optional<SerialNumber> findBySerialNumberAndProductVariantId(String serialNumber, UUID productVariantId);
     List<SerialNumber> findByProductVariantAndStatus(ProductVariant productVariant, SerialNumberStatus status);
     List<SerialNumber> findAllBySerialNumber(String serialNumber);
+    List<SerialNumber> findByProductVariantId(UUID productVariantId);
 }

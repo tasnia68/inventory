@@ -5,5 +5,6 @@ public enum StockTransactionStatus {
     PENDING_APPROVAL,
     APPROVED,
     COMPLETED,
-    CANCELLED
+    CANCELLED,
+    REJECTED
 }

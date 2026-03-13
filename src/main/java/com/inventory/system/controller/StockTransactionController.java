@@ -34,6 +34,24 @@ public class StockTransactionController {
                 .body(ApiResponse.success(transaction, "Stock transaction created successfully"));
     }
 
+    @PostMapping("/{id}/submit-approval")
+    public ResponseEntity<ApiResponse<StockTransactionDto>> submitForApproval(@PathVariable UUID id) {
+        StockTransactionDto transaction = stockTransactionService.submitForApproval(id);
+        return ResponseEntity.ok(ApiResponse.success(transaction, "Stock transaction submitted for approval"));
+    }
+
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<ApiResponse<StockTransactionDto>> approveTransaction(@PathVariable UUID id) {
+        StockTransactionDto transaction = stockTransactionService.approveTransaction(id);
+        return ResponseEntity.ok(ApiResponse.success(transaction, "Stock transaction approved"));
+    }
+
+    @PostMapping("/{id}/reject")
+    public ResponseEntity<ApiResponse<StockTransactionDto>> rejectTransaction(@PathVariable UUID id) {
+        StockTransactionDto transaction = stockTransactionService.rejectTransaction(id);
+        return ResponseEntity.ok(ApiResponse.success(transaction, "Stock transaction rejected"));
+    }
+
     @PostMapping("/{id}/confirm")
     public ResponseEntity<ApiResponse<StockTransactionDto>> confirmTransaction(@PathVariable UUID id) {
         StockTransactionDto transaction = stockTransactionService.confirmTransaction(id);

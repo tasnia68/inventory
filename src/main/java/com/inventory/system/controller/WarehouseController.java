@@ -3,6 +3,8 @@ package com.inventory.system.controller;
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.CreateWarehouseRequest;
 import com.inventory.system.payload.UpdateWarehouseRequest;
+import com.inventory.system.payload.WarehouseCapacityDto;
+import com.inventory.system.payload.WarehouseCapacityUpdateRequest;
 import com.inventory.system.payload.WarehouseDto;
 import com.inventory.system.service.WarehouseService;
 import jakarta.validation.Valid;
@@ -61,6 +63,22 @@ public class WarehouseController {
     public ResponseEntity<ApiResponse<Void>> deleteWarehouse(@PathVariable UUID id) {
         warehouseService.deleteWarehouse(id);
         ApiResponse<Void> response = new ApiResponse<>(true, "Warehouse deleted successfully", null);
+        return ResponseEntity.ok(response);
+    }
+
+    @GetMapping("/{id}/capacity")
+    public ResponseEntity<ApiResponse<WarehouseCapacityDto>> getWarehouseCapacity(@PathVariable UUID id) {
+        WarehouseCapacityDto capacity = warehouseService.getWarehouseCapacity(id);
+        ApiResponse<WarehouseCapacityDto> response = new ApiResponse<>(true, "Warehouse capacity retrieved successfully", capacity);
+        return ResponseEntity.ok(response);
+    }
+
+    @PutMapping("/{id}/capacity")
+    public ResponseEntity<ApiResponse<WarehouseCapacityDto>> updateWarehouseCapacity(
+            @PathVariable UUID id,
+            @Valid @RequestBody WarehouseCapacityUpdateRequest request) {
+        WarehouseCapacityDto capacity = warehouseService.updateWarehouseCapacity(id, request);
+        ApiResponse<WarehouseCapacityDto> response = new ApiResponse<>(true, "Warehouse capacity updated successfully", capacity);
         return ResponseEntity.ok(response);
     }
 }

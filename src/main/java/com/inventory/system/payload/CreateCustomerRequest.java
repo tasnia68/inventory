@@ -1,6 +1,7 @@
 package com.inventory.system.payload;
 
 import com.inventory.system.common.entity.CustomerStatus;
+import com.inventory.system.common.entity.CustomerCategory;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
@@ -22,6 +23,8 @@ public class CreateCustomerRequest {
     private String address;
 
     private BigDecimal creditLimit;
+
+    private CustomerCategory category = CustomerCategory.OTHER;
 
     private Boolean isActive = true;
 

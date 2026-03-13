@@ -91,6 +91,27 @@ public class CycleCountServiceImpl implements CycleCountService {
 
     @Override
     @Transactional
+    public CycleCountDto scheduleCycleCount(UUID id, ScheduleCycleCountRequest request) {
+        CycleCount cycleCount = getCycleCountEntity(id);
+
+        if (request.getDueDate() != null) {
+            cycleCount.setDueDate(request.getDueDate());
+        }
+        if (request.getDescription() != null) {
+            cycleCount.setDescription(request.getDescription());
+        }
+        if (request.getAssignedUserId() != null) {
+            User user = userRepository.findById(request.getAssignedUserId())
+                    .orElseThrow(() -> new ResourceNotFoundException("User", "id", request.getAssignedUserId()));
+            cycleCount.setAssignedUser(user);
+        }
+
+        cycleCount.setStatus(CycleCountStatus.ASSIGNED);
+        return mapToDto(cycleCountRepository.save(cycleCount));
+    }
+
+    @Override
+    @Transactional
     public CycleCountDto startCycleCount(UUID id) {
         CycleCount cycleCount = getCycleCountEntity(id);
         if (cycleCount.getStatus() != CycleCountStatus.DRAFT && cycleCount.getStatus() != CycleCountStatus.ASSIGNED) {

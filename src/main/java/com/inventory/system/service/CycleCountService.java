@@ -4,6 +4,7 @@ import com.inventory.system.payload.CreateCycleCountRequest;
 import com.inventory.system.payload.CycleCountDto;
 import com.inventory.system.payload.CycleCountEntryRequest;
 import com.inventory.system.payload.CycleCountItemDto;
+import com.inventory.system.payload.ScheduleCycleCountRequest;
 import com.inventory.system.payload.UpdateCycleCountRequest;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -16,6 +17,7 @@ public interface CycleCountService {
     Page<CycleCountDto> getCycleCounts(Pageable pageable);
     CycleCountDto getCycleCount(UUID id);
     CycleCountDto updateCycleCount(UUID id, UpdateCycleCountRequest request);
+    CycleCountDto scheduleCycleCount(UUID id, ScheduleCycleCountRequest request);
     CycleCountDto startCycleCount(UUID id);
     List<CycleCountItemDto> getCycleCountItems(UUID id);
     void enterCount(UUID id, List<CycleCountEntryRequest> entries);

@@ -37,6 +37,13 @@ public class Customer extends BaseEntity {
     @Column(name = "credit_limit")
     private BigDecimal creditLimit;
 
+    @Column(name = "outstanding_balance", precision = 19, scale = 6)
+    private BigDecimal outstandingBalance = BigDecimal.ZERO;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "category")
+    private CustomerCategory category = CustomerCategory.OTHER;
+
     @Column(name = "is_active")
     private Boolean isActive = true;
 

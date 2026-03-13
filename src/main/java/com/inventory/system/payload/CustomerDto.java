@@ -1,6 +1,7 @@
 package com.inventory.system.payload;
 
 import com.inventory.system.common.entity.CustomerStatus;
+import com.inventory.system.common.entity.CustomerCategory;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -16,6 +17,9 @@ public class CustomerDto {
     private String phoneNumber;
     private String address;
     private BigDecimal creditLimit;
+    private BigDecimal outstandingBalance;
+    private BigDecimal availableCredit;
+    private CustomerCategory category;
     private Boolean isActive;
     private CustomerStatus status;
     private LocalDateTime createdAt;
