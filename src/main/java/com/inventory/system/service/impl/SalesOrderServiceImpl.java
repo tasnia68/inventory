@@ -39,6 +39,8 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         Customer customer = customerRepository.findById(request.getCustomerId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with ID: " + request.getCustomerId()));
 
+        validateCustomerEligibility(customer);
+
         Warehouse warehouse = warehouseRepository.findById(request.getWarehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with ID: " + request.getWarehouseId()));
 
@@ -147,6 +149,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
 
         Customer customer = customerRepository.findById(request.getCustomerId())
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with ID: " + request.getCustomerId()));
+        validateCustomerEligibility(customer);
         salesOrder.setCustomer(customer);
 
         Warehouse warehouse = warehouseRepository.findById(request.getWarehouseId())
@@ -199,28 +202,41 @@ public class SalesOrderServiceImpl implements SalesOrderService {
                 .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
 
         SalesOrderStatus previousStatus = salesOrder.getStatus();
+        validateStatusTransition(previousStatus, status);
 
         if (status == SalesOrderStatus.CONFIRMED && previousStatus != SalesOrderStatus.CONFIRMED) {
-            // Validate Stock and Reserve
+            validateCustomerEligibility(salesOrder.getCustomer());
+            validateCustomerCredit(salesOrder);
+
+            if (previousStatus == SalesOrderStatus.BACKORDERED) {
+                stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
+            }
+
+            boolean hasBackorder = false;
+
             for (SalesOrderItem item : salesOrder.getItems()) {
                 BigDecimal available = stockReservationService.getAvailableToPromise(item.getProductVariant().getId(), salesOrder.getWarehouse().getId());
+                BigDecimal reservableQuantity = available.min(item.getQuantity());
+                if (reservableQuantity.compareTo(BigDecimal.ZERO) > 0) {
+                    StockReservationRequest reservationRequest = new StockReservationRequest();
+                    reservationRequest.setProductVariantId(item.getProductVariant().getId());
+                    reservationRequest.setWarehouseId(salesOrder.getWarehouse().getId());
+                    reservationRequest.setQuantity(reservableQuantity);
+                    reservationRequest.setReferenceId(salesOrder.getSoNumber());
+                    reservationRequest.setNotes("Reservation for Sales Order " + salesOrder.getSoNumber());
+                    reservationRequest.setPriority(mapToReservationPriority(salesOrder.getPriority()));
+
+                    stockReservationService.reserveStock(reservationRequest);
+                }
+
                 if (available.compareTo(item.getQuantity()) < 0) {
-                     throw new BadRequestException("Insufficient stock for product: " + item.getProductVariant().getSku() + ". Available: " + available + ", Requested: " + item.getQuantity());
+                    hasBackorder = true;
                 }
             }
 
-            // Create Reservations
-            for (SalesOrderItem item : salesOrder.getItems()) {
-                 StockReservationRequest reservationRequest = new StockReservationRequest();
-                 reservationRequest.setProductVariantId(item.getProductVariant().getId());
-                 reservationRequest.setWarehouseId(salesOrder.getWarehouse().getId());
-                 reservationRequest.setQuantity(item.getQuantity());
-                 reservationRequest.setReferenceId(salesOrder.getSoNumber());
-                 reservationRequest.setNotes("Reservation for Sales Order " + salesOrder.getSoNumber());
-                 reservationRequest.setPriority(mapToReservationPriority(salesOrder.getPriority()));
-
-                 stockReservationService.reserveStock(reservationRequest);
-            }
+            salesOrder.setStatus(hasBackorder ? SalesOrderStatus.BACKORDERED : SalesOrderStatus.CONFIRMED);
+            SalesOrder savedSo = salesOrderRepository.save(salesOrder);
+            return mapToDto(savedSo);
         }
 
         if ((status == SalesOrderStatus.SHIPPED || status == SalesOrderStatus.DELIVERED)
@@ -263,6 +279,91 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             case URGENT: return ReservationPriority.CRITICAL;
             default: return ReservationPriority.MEDIUM;
         }
+    }
+
+    private void validateCustomerEligibility(Customer customer) {
+        if (customer.getIsActive() != null && !customer.getIsActive()) {
+            throw new BadRequestException("Customer is inactive and cannot be used for sales orders");
+        }
+        if (customer.getStatus() == CustomerStatus.BLOCKED || customer.getStatus() == CustomerStatus.INACTIVE) {
+            throw new BadRequestException("Customer status does not allow sales orders: " + customer.getStatus());
+        }
+    }
+
+    private void validateCustomerCredit(SalesOrder salesOrder) {
+        Customer customer = salesOrder.getCustomer();
+        if (customer.getCreditLimit() == null) {
+            return;
+        }
+
+        BigDecimal outstandingBalance = customer.getOutstandingBalance() != null
+                ? customer.getOutstandingBalance()
+                : BigDecimal.ZERO;
+        BigDecimal projectedBalance = outstandingBalance.add(salesOrder.getTotalAmount());
+        if (projectedBalance.compareTo(customer.getCreditLimit()) > 0) {
+            throw new BadRequestException(
+                    "Customer credit limit exceeded. Limit: " + customer.getCreditLimit() + ", projected exposure: " + projectedBalance
+            );
+        }
+    }
+
+    private void validateStatusTransition(SalesOrderStatus currentStatus, SalesOrderStatus targetStatus) {
+        if (currentStatus == targetStatus) {
+            return;
+        }
+
+        switch (currentStatus) {
+            case DRAFT:
+                if (targetStatus == SalesOrderStatus.PENDING_APPROVAL
+                        || targetStatus == SalesOrderStatus.APPROVED
+                        || targetStatus == SalesOrderStatus.CONFIRMED
+                        || targetStatus == SalesOrderStatus.CANCELLED) {
+                    return;
+                }
+                break;
+            case PENDING_APPROVAL:
+                if (targetStatus == SalesOrderStatus.DRAFT
+                        || targetStatus == SalesOrderStatus.APPROVED
+                        || targetStatus == SalesOrderStatus.CANCELLED) {
+                    return;
+                }
+                break;
+            case APPROVED:
+                if (targetStatus == SalesOrderStatus.CONFIRMED || targetStatus == SalesOrderStatus.CANCELLED) {
+                    return;
+                }
+                break;
+            case CONFIRMED:
+            case BACKORDERED:
+                if (targetStatus == SalesOrderStatus.CONFIRMED
+                        || targetStatus == SalesOrderStatus.BACKORDERED
+                        || targetStatus == SalesOrderStatus.PARTIALLY_SHIPPED
+                        || targetStatus == SalesOrderStatus.SHIPPED
+                        || targetStatus == SalesOrderStatus.DELIVERED
+                        || targetStatus == SalesOrderStatus.CANCELLED) {
+                    return;
+                }
+                break;
+            case PARTIALLY_SHIPPED:
+                if (targetStatus == SalesOrderStatus.SHIPPED || targetStatus == SalesOrderStatus.DELIVERED) {
+                    return;
+                }
+                break;
+            case SHIPPED:
+                if (targetStatus == SalesOrderStatus.DELIVERED || targetStatus == SalesOrderStatus.RETURNED) {
+                    return;
+                }
+                break;
+            case DELIVERED:
+                if (targetStatus == SalesOrderStatus.RETURNED) {
+                    return;
+                }
+                break;
+            default:
+                break;
+        }
+
+        throw new BadRequestException("Invalid sales order status transition from " + currentStatus + " to " + targetStatus);
     }
 
     private String generateSoNumber() {

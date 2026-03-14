@@ -199,7 +199,7 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Implement supplier rating/performance tracking
 - [x] Create supplier-product relationship
 - [x] Add supplier price lists
-- [ ] Build supplier document management
+- [x] Build supplier document management
 - [x] Implement supplier approval workflow
 
 ### 6.2 Purchase Order Management
@@ -219,7 +219,7 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Create acceptance/rejection logic
 - [x] Add partial receiving support
 - [x] Build GRN-to-stock linkage
-- [ ] Create return-to-supplier functionality
+- [x] Create return-to-supplier functionality
 
 ---
 
@@ -260,6 +260,17 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Add shipment tracking integration (optional)
 - [x] Build delivery note generation
 - [x] Implement return merchandise authorization (RMA)
+
+### 7.5 POS Terminal & Counter Sales
+- [x] Create POS terminal workspace
+- [x] Implement barcode-first item capture
+- [x] Add offline sale queue and deferred sync workflow
+- [x] Track cashier-level sales KPIs in the terminal
+- [x] Build printable invoice and receipt workflow
+- [x] Define POS terminal, shift, sale, and sale-line data model
+- [x] Build POS backend bootstrap, catalog, shift, sales, and KPI APIs
+- [x] Implement offline POS sync with idempotent client sale IDs
+- [x] Persist POS sales into backend sales orders and stock movements
 
 ---
 

@@ -7,6 +7,7 @@ import com.inventory.system.payload.UpdatePickingTaskRequest;
 import com.inventory.system.service.PickingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -24,6 +25,18 @@ public class PickingController {
     public ResponseEntity<ApiResponse<PickingListDto>> createPickingList(@Valid @RequestBody CreatePickingListRequest request) {
         PickingListDto pickingList = pickingService.createPickingList(request);
         return new ResponseEntity<>(new ApiResponse<>(true, "Picking list generated successfully", pickingList), HttpStatus.CREATED);
+    }
+
+    @GetMapping
+    public ResponseEntity<ApiResponse<Page<PickingListDto>>> getPickingLists(
+            @RequestParam(required = false) UUID warehouseId,
+            @RequestParam(required = false) com.inventory.system.common.entity.PickingStatus status,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "createdAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDirection) {
+        Page<PickingListDto> pickingLists = pickingService.getPickingLists(warehouseId, status, page, size, sortBy, sortDirection);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Picking lists retrieved successfully", pickingLists), HttpStatus.OK);
     }
 
     @GetMapping("/{id}")

@@ -3,6 +3,7 @@ package com.inventory.system.service.impl;
 import com.inventory.system.common.entity.ReturnMerchandiseAuthorization;
 import com.inventory.system.common.entity.ReturnMerchandiseItem;
 import com.inventory.system.common.entity.ReturnMerchandiseStatus;
+import com.inventory.system.common.entity.PickingStatus;
 import com.inventory.system.common.entity.SalesOrder;
 import com.inventory.system.common.entity.SalesOrderItem;
 import com.inventory.system.common.entity.SalesOrderStatus;
@@ -26,8 +27,11 @@ import com.inventory.system.payload.ShipmentSearchRequest;
 import com.inventory.system.payload.UpdateRmaStatusRequest;
 import com.inventory.system.payload.UpdateShipmentTrackingRequest;
 import com.inventory.system.repository.ReturnMerchandiseAuthorizationRepository;
+import com.inventory.system.repository.ReturnMerchandiseItemRepository;
+import com.inventory.system.repository.PickingTaskRepository;
 import com.inventory.system.repository.SalesOrderRepository;
 import com.inventory.system.repository.ShipmentRepository;
+import com.inventory.system.repository.ShipmentItemRepository;
 import com.inventory.system.service.ShipmentService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -41,11 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
@@ -56,14 +56,19 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final ShipmentRepository shipmentRepository;
     private final SalesOrderRepository salesOrderRepository;
     private final ReturnMerchandiseAuthorizationRepository rmaRepository;
+    private final PickingTaskRepository pickingTaskRepository;
+    private final ShipmentItemRepository shipmentItemRepository;
+    private final ReturnMerchandiseItemRepository returnMerchandiseItemRepository;
 
     @Override
     public ShipmentDto createShipment(CreateShipmentRequest request) {
         SalesOrder salesOrder = salesOrderRepository.findById(request.getSalesOrderId())
                 .orElseThrow(() -> new ResourceNotFoundException("Sales Order", "id", request.getSalesOrderId()));
 
-        if (salesOrder.getStatus() != SalesOrderStatus.CONFIRMED && salesOrder.getStatus() != SalesOrderStatus.PARTIALLY_SHIPPED) {
-            throw new BadRequestException("Shipment can only be created for CONFIRMED or PARTIALLY_SHIPPED sales orders");
+        if (salesOrder.getStatus() != SalesOrderStatus.CONFIRMED
+            && salesOrder.getStatus() != SalesOrderStatus.BACKORDERED
+            && salesOrder.getStatus() != SalesOrderStatus.PARTIALLY_SHIPPED) {
+            throw new BadRequestException("Shipment can only be created for CONFIRMED, BACKORDERED or PARTIALLY_SHIPPED sales orders");
         }
 
         Map<UUID, SalesOrderItem> orderItemsById = new HashMap<>();
@@ -94,6 +99,20 @@ public class ShipmentServiceImpl implements ShipmentService {
             }
             if (itemRequest.getQuantity().compareTo(remaining) > 0) {
                 throw new BadRequestException("Shipment quantity exceeds remaining quantity for sales order item " + salesOrderItem.getId());
+            }
+
+            BigDecimal completedPickedQuantity = pickingTaskRepository.sumPickedQuantityBySalesOrderItemIdForCompletedLists(
+                    salesOrderItem.getId(),
+                    PickingStatus.COMPLETED
+            );
+            BigDecimal shippableQuantity = completedPickedQuantity.subtract(salesOrderItem.getShippedQuantity());
+            if (itemRequest.getQuantity().compareTo(shippableQuantity) > 0) {
+                throw new BadRequestException(
+                        "Shipment quantity exceeds completed picked quantity for sales order item "
+                                + salesOrderItem.getId()
+                                + ". Picked and not yet shipped: "
+                                + shippableQuantity
+                );
             }
 
             ShipmentItem shipmentItem = new ShipmentItem();
@@ -156,6 +175,10 @@ public class ShipmentServiceImpl implements ShipmentService {
         Shipment shipment = shipmentRepository.findById(shipmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Shipment", "id", shipmentId));
 
+        if (shipment.getStatus() == ShipmentStatus.CANCELLED || shipment.getStatus() == ShipmentStatus.RETURNED) {
+            throw new BadRequestException("Tracking cannot be updated for closed shipments");
+        }
+
         if (request.getTrackingNumber() != null && !request.getTrackingNumber().isBlank()) {
             shipment.setTrackingNumber(request.getTrackingNumber().trim());
             if (request.getTrackingUrl() == null || request.getTrackingUrl().isBlank()) {
@@ -178,6 +201,10 @@ public class ShipmentServiceImpl implements ShipmentService {
         Shipment shipment = shipmentRepository.findById(shipmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Shipment", "id", shipmentId));
 
+        if (shipment.getStatus() == ShipmentStatus.CANCELLED || shipment.getStatus() == ShipmentStatus.RETURNED) {
+            throw new BadRequestException("Shipping labels cannot be generated for closed shipments");
+        }
+
         String baseLabelUrl = "https://labels.inventory.local/shipments/" + shipment.getShipmentNumber() + ".pdf";
         if (request != null && request.getServiceLevel() != null && !request.getServiceLevel().isBlank()) {
             shipment.setShippingLabelUrl(baseLabelUrl + "?serviceLevel=" + request.getServiceLevel());
@@ -193,6 +220,13 @@ public class ShipmentServiceImpl implements ShipmentService {
     public ShipmentDto confirmDelivery(UUID shipmentId, DeliveryConfirmationRequest request) {
         Shipment shipment = shipmentRepository.findById(shipmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Shipment", "id", shipmentId));
+
+        if (shipment.getStatus() == ShipmentStatus.CANCELLED || shipment.getStatus() == ShipmentStatus.RETURNED) {
+            throw new BadRequestException("Cancelled or returned shipments cannot be delivered");
+        }
+        if (shipment.getStatus() == ShipmentStatus.DELIVERED) {
+            throw new BadRequestException("Shipment has already been delivered");
+        }
 
         shipment.setStatus(ShipmentStatus.DELIVERED);
         shipment.setDeliveredDate(request != null && request.getDeliveredAt() != null ? request.getDeliveredAt() : LocalDateTime.now());
@@ -236,6 +270,10 @@ public class ShipmentServiceImpl implements ShipmentService {
         SalesOrder salesOrder = salesOrderRepository.findById(request.getSalesOrderId())
                 .orElseThrow(() -> new ResourceNotFoundException("Sales Order", "id", request.getSalesOrderId()));
 
+        if (salesOrder.getStatus() != SalesOrderStatus.SHIPPED && salesOrder.getStatus() != SalesOrderStatus.DELIVERED && salesOrder.getStatus() != SalesOrderStatus.RETURNED) {
+            throw new BadRequestException("RMA can only be created for shipped or delivered sales orders");
+        }
+
         Shipment shipment = null;
         if (request.getShipmentId() != null) {
             shipment = shipmentRepository.findById(request.getShipmentId())
@@ -266,8 +304,39 @@ public class ShipmentServiceImpl implements ShipmentService {
                 throw new BadRequestException("Sales order item " + itemRequest.getSalesOrderItemId() + " does not belong to this sales order");
             }
 
-            if (itemRequest.getQuantity().compareTo(salesOrderItem.getShippedQuantity()) > 0) {
-                throw new BadRequestException("RMA quantity cannot exceed shipped quantity for sales order item " + salesOrderItem.getId());
+                BigDecimal alreadyRequestedForReturn = shipment != null
+                    ? returnMerchandiseItemRepository.sumQuantityBySalesOrderItemIdAndShipmentIdAndRmaStatusIn(
+                        salesOrderItem.getId(),
+                        shipment.getId(),
+                        EnumSet.of(
+                            ReturnMerchandiseStatus.REQUESTED,
+                            ReturnMerchandiseStatus.APPROVED,
+                            ReturnMerchandiseStatus.RECEIVED,
+                            ReturnMerchandiseStatus.COMPLETED
+                        )
+                    )
+                    : returnMerchandiseItemRepository.sumQuantityBySalesOrderItemIdAndRmaStatusIn(
+                        salesOrderItem.getId(),
+                        EnumSet.of(
+                            ReturnMerchandiseStatus.REQUESTED,
+                            ReturnMerchandiseStatus.APPROVED,
+                            ReturnMerchandiseStatus.RECEIVED,
+                            ReturnMerchandiseStatus.COMPLETED
+                        )
+                    );
+
+                BigDecimal maxReturnableQuantity = shipment != null
+                    ? shipmentItemRepository.sumQuantityBySalesOrderItemIdAndShipmentId(salesOrderItem.getId(), shipment.getId())
+                    : salesOrderItem.getShippedQuantity();
+
+                BigDecimal remainingReturnable = maxReturnableQuantity.subtract(alreadyRequestedForReturn);
+                if (itemRequest.getQuantity().compareTo(remainingReturnable) > 0) {
+                throw new BadRequestException(
+                    "RMA quantity cannot exceed remaining returnable quantity for sales order item "
+                        + salesOrderItem.getId()
+                        + ". Remaining: "
+                        + remainingReturnable
+                );
             }
 
             ReturnMerchandiseItem rmaItem = new ReturnMerchandiseItem();
@@ -319,6 +388,8 @@ public class ShipmentServiceImpl implements ShipmentService {
         ReturnMerchandiseAuthorization rma = rmaRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("RMA", "id", id));
 
+        validateRmaStatusTransition(rma.getStatus(), request.getStatus());
+
         rma.setStatus(request.getStatus());
         if (request.getNotes() != null && !request.getNotes().isBlank()) {
             rma.setNotes(request.getNotes());
@@ -333,7 +404,16 @@ public class ShipmentServiceImpl implements ShipmentService {
         if (request.getStatus() == ReturnMerchandiseStatus.COMPLETED) {
             rma.setCompletedAt(LocalDateTime.now());
             SalesOrder salesOrder = rma.getSalesOrder();
-            salesOrder.setStatus(SalesOrderStatus.RETURNED);
+            boolean fullyReturned = salesOrder.getItems().stream().allMatch(item -> {
+                BigDecimal completedReturns = returnMerchandiseItemRepository.sumQuantityBySalesOrderItemIdAndRmaStatusIn(
+                        item.getId(),
+                        EnumSet.of(ReturnMerchandiseStatus.COMPLETED)
+                );
+                return completedReturns.compareTo(item.getShippedQuantity()) >= 0;
+            });
+            if (fullyReturned) {
+                salesOrder.setStatus(SalesOrderStatus.RETURNED);
+            }
             salesOrderRepository.save(salesOrder);
         }
 
@@ -352,6 +432,36 @@ public class ShipmentServiceImpl implements ShipmentService {
         if (anyShipped) {
             salesOrder.setStatus(SalesOrderStatus.PARTIALLY_SHIPPED);
         }
+    }
+
+    private void validateRmaStatusTransition(ReturnMerchandiseStatus currentStatus, ReturnMerchandiseStatus targetStatus) {
+        if (currentStatus == targetStatus) {
+            return;
+        }
+
+        switch (currentStatus) {
+            case REQUESTED:
+                if (targetStatus == ReturnMerchandiseStatus.APPROVED
+                        || targetStatus == ReturnMerchandiseStatus.REJECTED
+                        || targetStatus == ReturnMerchandiseStatus.CANCELLED) {
+                    return;
+                }
+                break;
+            case APPROVED:
+                if (targetStatus == ReturnMerchandiseStatus.RECEIVED || targetStatus == ReturnMerchandiseStatus.CANCELLED) {
+                    return;
+                }
+                break;
+            case RECEIVED:
+                if (targetStatus == ReturnMerchandiseStatus.COMPLETED || targetStatus == ReturnMerchandiseStatus.CANCELLED) {
+                    return;
+                }
+                break;
+            default:
+                break;
+        }
+
+        throw new BadRequestException("Invalid RMA status transition from " + currentStatus + " to " + targetStatus);
     }
 
     private String generateShipmentNumber() {

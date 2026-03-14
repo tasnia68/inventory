@@ -6,6 +6,7 @@ import com.inventory.system.common.entity.PickingTask;
 import com.inventory.system.common.entity.PickingType;
 import com.inventory.system.common.entity.SalesOrder;
 import com.inventory.system.common.entity.SalesOrderItem;
+import com.inventory.system.common.entity.SalesOrderStatus;
 import com.inventory.system.common.entity.Stock;
 import com.inventory.system.common.entity.User;
 import com.inventory.system.common.exception.ResourceNotFoundException;
@@ -21,6 +22,11 @@ import com.inventory.system.repository.StockRepository;
 import com.inventory.system.repository.UserRepository;
 import com.inventory.system.service.PickingService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,8 +65,8 @@ public class PickingServiceImpl implements PickingService {
             if (!so.getWarehouse().getId().equals(warehouseId)) {
                 throw new BadRequestException("All Sales Orders must belong to the same warehouse");
             }
-            if (so.getStatus() != com.inventory.system.common.entity.SalesOrderStatus.CONFIRMED) {
-                 throw new BadRequestException("Sales Order " + so.getSoNumber() + " is not in CONFIRMED status");
+            if (so.getStatus() != SalesOrderStatus.CONFIRMED && so.getStatus() != SalesOrderStatus.BACKORDERED) {
+                 throw new BadRequestException("Sales Order " + so.getSoNumber() + " must be in CONFIRMED or BACKORDERED status");
             }
         }
 
@@ -82,7 +88,13 @@ public class PickingServiceImpl implements PickingService {
 
         for (SalesOrder so : salesOrders) {
             for (SalesOrderItem item : so.getItems()) {
-                BigDecimal remainingQuantity = item.getQuantity().subtract(item.getShippedQuantity());
+            BigDecimal alreadyAllocated = pickingTaskRepository.sumRequestedQuantityBySalesOrderItemIdExcludingListStatus(
+                item.getId(),
+                PickingStatus.CANCELLED
+            );
+            BigDecimal remainingQuantity = item.getQuantity()
+                .subtract(item.getShippedQuantity())
+                .subtract(alreadyAllocated);
                 if (remainingQuantity.compareTo(BigDecimal.ZERO) <= 0) continue;
 
                 // Find stock
@@ -127,6 +139,26 @@ public class PickingServiceImpl implements PickingService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<PickingListDto> getPickingLists(UUID warehouseId, PickingStatus status, int page, int size, String sortBy, String sortDirection) {
+        Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortBy);
+        Pageable pageable = PageRequest.of(page, size, sort);
+
+        Specification<PickingList> spec = (root, query, cb) -> {
+            List<jakarta.persistence.criteria.Predicate> predicates = new ArrayList<>();
+            if (warehouseId != null) {
+                predicates.add(cb.equal(root.get("warehouse").get("id"), warehouseId));
+            }
+            if (status != null) {
+                predicates.add(cb.equal(root.get("status"), status));
+            }
+            return cb.and(predicates.toArray(new jakarta.persistence.criteria.Predicate[0]));
+        };
+
+        return pickingListRepository.findAll(spec, pageable).map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public PickingListDto getPickingList(UUID id) {
         PickingList pickingList = pickingListRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Picking List", "id", id));
@@ -154,6 +186,10 @@ public class PickingServiceImpl implements PickingService {
     public PickingListDto updatePickingTask(UUID taskId, UpdatePickingTaskRequest request) {
         PickingTask task = pickingTaskRepository.findById(taskId)
                 .orElseThrow(() -> new ResourceNotFoundException("Picking Task", "id", taskId));
+
+        if (task.getPickingList().getStatus() == PickingStatus.COMPLETED || task.getPickingList().getStatus() == PickingStatus.CANCELLED) {
+            throw new BadRequestException("Cannot update tasks for a closed picking list");
+        }
 
         if (request.getPickedQuantity().compareTo(task.getRequestedQuantity()) > 0) {
              throw new BadRequestException("Picked quantity cannot exceed requested quantity");
@@ -185,6 +221,10 @@ public class PickingServiceImpl implements PickingService {
     public PickingListDto completePickingList(UUID pickingListId) {
         PickingList pickingList = pickingListRepository.findById(pickingListId)
                 .orElseThrow(() -> new ResourceNotFoundException("Picking List", "id", pickingListId));
+
+        if (pickingList.getStatus() == PickingStatus.CANCELLED) {
+            throw new BadRequestException("Cannot complete a cancelled picking list");
+        }
 
         boolean allCompleted = pickingList.getTasks().stream()
                 .allMatch(t -> t.getStatus() == PickingStatus.COMPLETED || t.getPickedQuantity().compareTo(t.getRequestedQuantity()) >= 0);
