@@ -7,6 +7,7 @@ import com.inventory.system.common.entity.SerialNumberStatus;
 import com.inventory.system.common.entity.Stock;
 import com.inventory.system.common.entity.StockMovement;
 import com.inventory.system.common.entity.StockMovementSerialNumber;
+import com.inventory.system.common.entity.StockStatus;
 import com.inventory.system.common.entity.StorageLocation;
 import com.inventory.system.common.entity.Warehouse;
 import com.inventory.system.common.exception.BadRequestException;
@@ -125,28 +126,8 @@ public class StockServiceImpl implements StockService {
             }
         }
 
-        Stock stock;
-        if (location != null) {
-            if (batch != null) {
-                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchId(
-                                variant.getId(), warehouse.getId(), location.getId(), batch.getId())
-                        .orElse(createStock(variant, warehouse, location, batch));
-            } else {
-                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdIsNull(
-                                variant.getId(), warehouse.getId(), location.getId())
-                        .orElse(createStock(variant, warehouse, location, null));
-            }
-        } else {
-            if (batch != null) {
-                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchId(
-                                variant.getId(), warehouse.getId(), batch.getId())
-                        .orElse(createStock(variant, warehouse, null, batch));
-            } else {
-                stock = stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(
-                                variant.getId(), warehouse.getId())
-                        .orElse(createStock(variant, warehouse, null, null));
-            }
-        }
+        StockStatus stockStatus = dto.getStockStatus() != null ? dto.getStockStatus() : StockStatus.AVAILABLE;
+        Stock stock = resolveStock(variant, warehouse, location, batch, stockStatus);
 
         BigDecimal quantityChange = dto.getQuantity();
         BigDecimal currentQuantity = stock.getQuantity();
@@ -212,13 +193,13 @@ public class StockServiceImpl implements StockService {
             if (dto.getSerialNumbers() == null || dto.getSerialNumbers().isEmpty()) {
                 throw new BadRequestException("Serial numbers are required for this product");
             }
-            processSerialNumbers(dto, variant, warehouse, location, batch, movement);
+            processSerialNumbers(dto, variant, warehouse, location, batch, movement, stockStatus);
         }
 
         return mapToDto(movement);
     }
 
-    private void processSerialNumbers(StockAdjustmentDto dto, ProductVariant variant, Warehouse warehouse, StorageLocation location, Batch batch, StockMovement movement) {
+    private void processSerialNumbers(StockAdjustmentDto dto, ProductVariant variant, Warehouse warehouse, StorageLocation location, Batch batch, StockMovement movement, StockStatus stockStatus) {
         boolean isInbound = dto.getType() == StockMovement.StockMovementType.IN ||
                             dto.getType() == StockMovement.StockMovementType.TRANSFER_IN ||
                             (dto.getType() == StockMovement.StockMovementType.ADJUSTMENT && dto.getQuantity().compareTo(BigDecimal.ZERO) > 0);
@@ -236,13 +217,13 @@ public class StockServiceImpl implements StockService {
                 serial.setWarehouse(warehouse);
                 serial.setStorageLocation(location);
                 serial.setBatch(batch);
-                serial.setStatus(SerialNumberStatus.AVAILABLE);
+                serial.setStatus(stockStatus == StockStatus.QUARANTINE ? SerialNumberStatus.QUARANTINED : SerialNumberStatus.AVAILABLE);
             } else {
                 // Outbound
                 if (serial == null) {
                     throw new IllegalArgumentException("Serial number not found: " + sn);
                 }
-                if (serial.getStatus() != SerialNumberStatus.AVAILABLE) {
+                if (serial.getStatus() != SerialNumberStatus.AVAILABLE && serial.getStatus() != SerialNumberStatus.QUARANTINED) {
                     throw new IllegalArgumentException("Serial number not available: " + sn);
                 }
                 if (!serial.getWarehouse().getId().equals(warehouse.getId())) {
@@ -324,13 +305,41 @@ public class StockServiceImpl implements StockService {
     }
 
     private Stock createStock(ProductVariant v, Warehouse w, StorageLocation l, Batch b) {
+        return createStock(v, w, l, b, StockStatus.AVAILABLE);
+    }
+
+    private Stock createStock(ProductVariant v, Warehouse w, StorageLocation l, Batch b, StockStatus status) {
         Stock s = new Stock();
         s.setProductVariant(v);
         s.setWarehouse(w);
         s.setStorageLocation(l);
         s.setBatch(b);
+        s.setStatus(status);
         s.setQuantity(BigDecimal.ZERO);
         return s;
+    }
+
+    private Stock resolveStock(ProductVariant variant, Warehouse warehouse, StorageLocation location, Batch batch, StockStatus stockStatus) {
+        if (location != null) {
+            if (batch != null) {
+                return stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdAndStatus(
+                                variant.getId(), warehouse.getId(), location.getId(), batch.getId(), stockStatus)
+                        .orElse(createStock(variant, warehouse, location, batch, stockStatus));
+            }
+            return stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdIsNullAndStatus(
+                            variant.getId(), warehouse.getId(), location.getId(), stockStatus)
+                    .orElse(createStock(variant, warehouse, location, null, stockStatus));
+        }
+
+        if (batch != null) {
+            return stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdAndStatus(
+                            variant.getId(), warehouse.getId(), batch.getId(), stockStatus)
+                    .orElse(createStock(variant, warehouse, null, batch, stockStatus));
+        }
+
+        return stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNullAndStatus(
+                        variant.getId(), warehouse.getId(), stockStatus)
+                .orElse(createStock(variant, warehouse, null, null, stockStatus));
     }
 
     private StockDto mapToDto(Stock stock) {
@@ -348,6 +357,7 @@ public class StockServiceImpl implements StockService {
             dto.setBatchId(stock.getBatch().getId());
             dto.setBatchNumber(stock.getBatch().getBatchNumber());
         }
+        dto.setStatus(stock.getStatus());
         dto.setQuantity(stock.getQuantity());
         dto.setCreatedAt(stock.getCreatedAt());
         dto.setUpdatedAt(stock.getUpdatedAt());

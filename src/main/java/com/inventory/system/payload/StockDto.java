@@ -1,5 +1,6 @@
 package com.inventory.system.payload;
 
+import com.inventory.system.common.entity.StockStatus;
 import lombok.Data;
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -16,6 +17,7 @@ public class StockDto {
     private String storageLocationName;
     private UUID batchId;
     private String batchNumber;
+    private StockStatus status;
     private BigDecimal quantity;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

@@ -2,6 +2,8 @@ package com.inventory.system.common.entity;
 
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
+import jakarta.persistence.EnumType;
+import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
@@ -32,6 +34,10 @@ public class Stock extends BaseEntity {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "batch_id")
     private Batch batch;
+
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false)
+    private StockStatus status;
 
     @Column(nullable = false, precision = 19, scale = 6)
     private BigDecimal quantity;

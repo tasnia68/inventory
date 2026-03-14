@@ -2,10 +2,13 @@ package com.inventory.system.controller;
 
 import com.inventory.system.common.entity.GoodsReceiptNoteStatus;
 import com.inventory.system.payload.ApiResponse;
+import com.inventory.system.payload.CreateDamageRecordFromGrnRequest;
 import com.inventory.system.payload.CreateGoodsReceiptNoteRequest;
+import com.inventory.system.payload.DamageRecordDto;
 import com.inventory.system.payload.GoodsReceiptNoteDto;
 import com.inventory.system.payload.GoodsReceiptNoteSearchRequest;
 import com.inventory.system.payload.UpdateGoodsReceiptNoteItemRequest;
+import com.inventory.system.service.DamageRecordService;
 import com.inventory.system.service.GoodsReceiptNoteService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +37,7 @@ import java.util.UUID;
 public class GoodsReceiptNoteController {
 
     private final GoodsReceiptNoteService grnService;
+    private final DamageRecordService damageRecordService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<GoodsReceiptNoteDto>> createGrn(@Valid @RequestBody CreateGoodsReceiptNoteRequest request) {
@@ -94,5 +98,13 @@ public class GoodsReceiptNoteController {
     public ResponseEntity<ApiResponse<GoodsReceiptNoteDto>> confirmGrn(@PathVariable UUID id) {
         GoodsReceiptNoteDto grn = grnService.confirmGrn(id);
         return ResponseEntity.ok(ApiResponse.success(grn, "GRN confirmed successfully"));
+    }
+
+    @PostMapping("/{id}/damage-records")
+    public ResponseEntity<ApiResponse<DamageRecordDto>> createDamageRecordFromGrn(
+            @PathVariable UUID id,
+            @Valid @RequestBody CreateDamageRecordFromGrnRequest request) {
+        DamageRecordDto record = damageRecordService.createDamageRecordFromGoodsReceipt(id, request);
+        return new ResponseEntity<>(ApiResponse.success(record, "Damage record created from GRN successfully"), HttpStatus.CREATED);
     }
 }

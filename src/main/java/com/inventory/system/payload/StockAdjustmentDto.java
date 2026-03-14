@@ -1,5 +1,6 @@
 package com.inventory.system.payload;
 
+import com.inventory.system.common.entity.StockStatus;
 import com.inventory.system.common.entity.StockMovement.StockMovementType;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -23,6 +24,8 @@ public class StockAdjustmentDto {
     private UUID batchId;
 
     private BigDecimal unitCost;
+
+    private StockStatus stockStatus;
 
     @NotNull(message = "Movement type is required")
     private StockMovementType type;

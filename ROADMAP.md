@@ -277,39 +277,113 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 ## Phase 8: Reporting & Analytics
 
 ### 8.1 Standard Reports
-- [ ] Create report configuration entity
-- [ ] Build current stock report endpoint
-- [ ] Implement stock movement report
-- [ ] Create aging analysis report (fast/slow moving)
-- [ ] Build stock valuation report
-- [ ] Add purchase order report
-- [ ] Create sales order report
-- [ ] Implement supplier performance report
+- [x] Create report configuration entity
+- [x] Build current stock report endpoint
+- [x] Implement stock movement report
+- [x] Create aging analysis report (fast/slow moving)
+- [x] Build stock valuation report
+- [x] Add purchase order report
+- [x] Create sales order report
+- [x] Implement supplier performance report
 
 ### 8.2 Dashboard & KPIs
-- [ ] Design dashboard data structure
-- [ ] Create inventory turnover calculation
-- [ ] Build stock-out incidents tracking
-- [ ] Implement order fulfillment rate
-- [ ] Add warehouse utilization metrics
-- [ ] Create real-time stock alerts endpoint
-- [ ] Build customizable dashboard widgets
+- [x] Design dashboard data structure
+- [x] Create inventory turnover calculation
+- [x] Build stock-out incidents tracking
+- [x] Implement order fulfillment rate
+- [x] Add warehouse utilization metrics
+- [x] Create real-time stock alerts endpoint
+- [x] Build customizable dashboard widgets
 
 ### 8.3 Custom Report Builder
-- [ ] Design report template schema
-- [ ] Create report builder endpoint
-- [ ] Implement dynamic query generation
-- [ ] Build report scheduling
-- [ ] Add report export (PDF, Excel, CSV)
-- [ ] Create report sharing functionality
+- [x] Design report template schema
+- [x] Create report builder endpoint
+- [x] Implement dynamic query generation
+- [x] Build report scheduling
+- [x] Add report export (PDF, Excel, CSV)
+- [x] Create report sharing functionality
 
 ### 8.4 Data Export & Integration
-- [ ] Build bulk data export endpoints
-- [ ] Create data import templates
-- [ ] Implement data validation on import
-- [ ] Add async import processing
-- [ ] Create import history tracking
-- [ ] Build webhook support for events
+- [x] Build bulk data export endpoints
+- [x] Create data import templates
+- [x] Implement data validation on import
+- [x] Add async import processing
+- [x] Create import history tracking
+- [x] Build webhook support for events
+
+---
+
+## Phase 8.5: Commercial & Operational Controls
+
+### 8.5.1 Damage, Quarantine & Write-Off Management
+- [x] Create inventory damage record entity (product, warehouse, quantity, batch/serial, reason, status)
+- [x] Implement damage intake workflow from warehouse, receiving, and sales return flows
+- [x] Create quarantine stock status and quarantine location handling
+- [x] Build approval workflow for write-off and disposal actions
+- [x] Add reason codes for damage, expiry, shrinkage, and internal use
+- [x] Implement attachment support for photos and supporting documents
+- [x] Create supplier claim linkage for damaged or rejected receipts
+- [x] Build damage, quarantine, and write-off reporting
+
+### 8.5.2 Refunds, Exchanges & Store Credit
+- [ ] Create sales refund entity and refund line model
+- [ ] Implement full and partial refund workflows
+- [ ] Build exchange workflow with replacement item and price difference handling
+- [ ] Create store credit / credit balance support per customer
+- [ ] Implement refund-to-original-payment-method rules where applicable
+- [ ] Add return disposition rules (return to stock, quarantine, scrap, supplier claim)
+- [ ] Create credit note / refund document generation
+- [ ] Build refund and exchange audit trail with approval support
+
+### 8.5.3 Promotions, Coupons & Pricing Rules
+- [ ] Create promotion and coupon entities with validity period, scope, and status
+- [ ] Implement fixed amount, percentage, bundle, and buy-X-get-Y discount rules
+- [ ] Build coupon code validation and redemption tracking
+- [ ] Add pricing rule engine for customer group, channel, warehouse, and terminal overrides
+- [ ] Implement discount stacking and exclusion rules
+- [ ] Create cashier override permissions for manual discounting
+- [ ] Add promotion usage analytics and abuse monitoring
+- [ ] Build promotion and coupon management UI/API support
+
+### 8.5.4 Payment, Cash Control & POS Settlement
+- [ ] Implement split tender support (cash, card, transfer, wallet, mixed)
+- [ ] Create cash drawer session reconciliation and over/short tracking
+- [ ] Build end-of-shift and end-of-day settlement workflow
+- [ ] Add suspended sale / hold cart / resume cart functionality
+- [ ] Implement refund tender handling and settlement impact tracking
+- [ ] Create cash movement logging (pay-in, pay-out, petty cash, float adjustments)
+- [ ] Build cashier settlement summary and discrepancy reporting
+- [ ] Add POS settlement approval and audit controls
+
+### 8.5.5 Inventory Status Model & Disposition Control
+- [ ] Extend stock model to support statuses such as available, reserved, damaged, quarantine, expired, blocked, and in-transit
+- [ ] Build status-aware allocation and picking rules
+- [ ] Implement inventory disposition transitions with approvals where required
+- [ ] Add FEFO/FIFO allocation policy support by product or category
+- [ ] Create blocked stock and hold-release workflows
+- [ ] Build inventory status reporting by warehouse, product, batch, and serial
+
+### 8.5.6 Quality, Compliance & Traceability Operations
+- [ ] Create non-conformance / inspection hold workflow for received and returned stock
+- [ ] Build lot recall and traceability investigation support
+- [ ] Implement expiry disposition rules and expired stock controls
+- [ ] Add corrective action tracking for repeated damage or quality failures
+- [ ] Create regulated inventory support hooks for pharma, food, and warranty-driven sectors
+- [ ] Build compliance-ready audit reports for traceability and stock disposition changes
+
+### 8.5.7 Supplier Claims, Discrepancies & Commercial Documents
+- [ ] Create supplier discrepancy workflow for shortage, overage, damage, and invoice mismatch
+- [ ] Build claim records linked to goods receipts, purchase orders, and supplier returns
+- [ ] Implement commercial document support for quotation, invoice, credit note, debit note, and sales return documents
+- [ ] Add document numbering rules, status transitions, and reference linkage
+- [ ] Build discrepancy aging and resolution reporting
+
+### 8.5.8 Warehouse Execution Enhancements
+- [ ] Create putaway task and rule engine by zone, capacity, and product class
+- [ ] Build replenishment execution tasks from forward pick to reserve locations
+- [ ] Implement pack verification and shipment exception handling
+- [ ] Add handheld scanning workflow support for receive, putaway, pick, pack, and count operations
+- [ ] Create operational task dashboards for warehouse supervisors
 
 ---
 

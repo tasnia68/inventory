@@ -1,9 +1,12 @@
 package com.inventory.system.controller;
 
 import com.inventory.system.payload.ApiResponse;
+import com.inventory.system.payload.CreateDamageRecordFromRmaRequest;
 import com.inventory.system.payload.CreateRmaRequest;
+import com.inventory.system.payload.DamageRecordDto;
 import com.inventory.system.payload.RmaDto;
 import com.inventory.system.payload.UpdateRmaStatusRequest;
+import com.inventory.system.service.DamageRecordService;
 import com.inventory.system.service.ShipmentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +30,7 @@ import java.util.UUID;
 public class RmaController {
 
     private final ShipmentService shipmentService;
+    private final DamageRecordService damageRecordService;
 
     @PostMapping
     public ResponseEntity<ApiResponse<RmaDto>> createRma(@Valid @RequestBody CreateRmaRequest request) {
@@ -58,5 +62,13 @@ public class RmaController {
                                                                 @Valid @RequestBody UpdateRmaStatusRequest request) {
         RmaDto rma = shipmentService.updateRmaStatus(id, request);
         return ResponseEntity.ok(ApiResponse.success(rma, "RMA status updated successfully"));
+    }
+
+    @PostMapping("/{id}/damage-records")
+    public ResponseEntity<ApiResponse<DamageRecordDto>> createDamageRecordFromRma(
+            @PathVariable UUID id,
+            @Valid @RequestBody CreateDamageRecordFromRmaRequest request) {
+        DamageRecordDto record = damageRecordService.createDamageRecordFromRma(id, request);
+        return new ResponseEntity<>(ApiResponse.success(record, "Damage record created from RMA successfully"), HttpStatus.CREATED);
     }
 }

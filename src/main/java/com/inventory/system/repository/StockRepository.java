@@ -1,5 +1,6 @@
 package com.inventory.system.repository;
 
+import com.inventory.system.common.entity.StockStatus;
 import com.inventory.system.common.entity.Stock;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -30,7 +31,15 @@ public interface StockRepository extends JpaRepository<Stock, UUID>, JpaSpecific
 
     Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(UUID productVariantId, UUID warehouseId);
 
-    @Query("SELECT SUM(s.quantity) FROM Stock s WHERE s.productVariant.id = :productVariantId AND s.warehouse.id = :warehouseId")
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdAndStatus(UUID productVariantId, UUID warehouseId, UUID storageLocationId, UUID batchId, StockStatus status);
+
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdAndStatus(UUID productVariantId, UUID warehouseId, UUID batchId, StockStatus status);
+
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdAndBatchIdIsNullAndStatus(UUID productVariantId, UUID warehouseId, UUID storageLocationId, StockStatus status);
+
+    Optional<Stock> findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNullAndStatus(UUID productVariantId, UUID warehouseId, StockStatus status);
+
+    @Query("SELECT SUM(s.quantity) FROM Stock s WHERE s.productVariant.id = :productVariantId AND s.warehouse.id = :warehouseId AND s.status = 'AVAILABLE'")
     BigDecimal countTotalQuantityByProductVariantAndWarehouse(@Param("productVariantId") UUID productVariantId, @Param("warehouseId") UUID warehouseId);
 
         @Query("""
@@ -40,12 +49,16 @@ public interface StockRepository extends JpaRepository<Stock, UUID>, JpaSpecific
               AND s.warehouse.id = :warehouseId
               AND ((:storageLocationId IS NULL AND s.storageLocation IS NULL) OR s.storageLocation.id = :storageLocationId)
               AND ((:batchId IS NULL AND s.batch IS NULL) OR s.batch.id = :batchId)
+                            AND s.status = 'AVAILABLE'
             """)
         BigDecimal countTotalQuantityByInventoryPosition(
             @Param("productVariantId") UUID productVariantId,
             @Param("warehouseId") UUID warehouseId,
             @Param("storageLocationId") UUID storageLocationId,
             @Param("batchId") UUID batchId);
+
+    @Query("SELECT SUM(s.quantity) FROM Stock s WHERE s.productVariant.id = :productVariantId AND s.warehouse.id = :warehouseId AND s.status = :status")
+    BigDecimal countTotalQuantityByProductVariantAndWarehouseAndStatus(@Param("productVariantId") UUID productVariantId, @Param("warehouseId") UUID warehouseId, @Param("status") StockStatus status);
 
     @Query("select s from Stock s join s.productVariant pv join s.warehouse w " +
             "where lower(pv.sku) like lower(concat('%', :q, '%')) " +
