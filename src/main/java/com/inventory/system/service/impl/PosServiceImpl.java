@@ -7,24 +7,43 @@ import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.CategoryDto;
 import com.inventory.system.payload.ClosePosShiftRequest;
 import com.inventory.system.payload.CreatePosSaleRequest;
+import com.inventory.system.payload.CreateSuspendedPosSaleRequest;
 import com.inventory.system.payload.CreatePosShiftRequest;
 import com.inventory.system.payload.CreatePosTerminalRequest;
 import com.inventory.system.payload.CustomerDto;
 import com.inventory.system.payload.PosBootstrapDto;
+import com.inventory.system.payload.PosCashMovementDto;
+import com.inventory.system.payload.PosCashMovementRequest;
 import com.inventory.system.payload.PosCatalogItemDto;
+import com.inventory.system.payload.PosDailySettlementDto;
 import com.inventory.system.payload.PosKpiDto;
 import com.inventory.system.payload.PosSaleDto;
 import com.inventory.system.payload.PosSaleItemDto;
 import com.inventory.system.payload.PosSaleItemRequest;
+import com.inventory.system.payload.PosSalePaymentDto;
+import com.inventory.system.payload.PosSalePaymentRequest;
 import com.inventory.system.payload.PosShiftDto;
+import com.inventory.system.payload.PosShiftSettlementDto;
+import com.inventory.system.payload.PosShiftTenderCountDto;
+import com.inventory.system.payload.PosShiftTenderCountRequest;
+import com.inventory.system.payload.PosSettlementApprovalRequest;
+import com.inventory.system.payload.PosRefundSettlementImpactDto;
+import com.inventory.system.payload.PosSuspendedSaleDto;
 import com.inventory.system.payload.PosTerminalDto;
 import com.inventory.system.payload.StockAdjustmentDto;
+import com.inventory.system.payload.SuspendedPosSaleItemDto;
+import com.inventory.system.payload.SuspendedPosSaleItemRequest;
 import com.inventory.system.payload.UpdatePosTerminalStatusRequest;
 import com.inventory.system.payload.WarehouseDto;
 import com.inventory.system.repository.CategoryRepository;
 import com.inventory.system.repository.CustomerRepository;
+import com.inventory.system.repository.PosCashMovementRepository;
+import com.inventory.system.repository.PosRefundSettlementImpactRepository;
 import com.inventory.system.repository.PosSaleRepository;
+import com.inventory.system.repository.PosSalePaymentRepository;
 import com.inventory.system.repository.PosShiftRepository;
+import com.inventory.system.repository.PosShiftTenderCountRepository;
+import com.inventory.system.repository.PosSuspendedSaleRepository;
 import com.inventory.system.repository.PosTerminalRepository;
 import com.inventory.system.repository.ProductVariantRepository;
 import com.inventory.system.repository.SalesOrderRepository;
@@ -55,9 +74,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
+import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -72,6 +94,11 @@ public class PosServiceImpl implements PosService {
     private final PosTerminalRepository posTerminalRepository;
     private final PosShiftRepository posShiftRepository;
     private final PosSaleRepository posSaleRepository;
+    private final PosSalePaymentRepository posSalePaymentRepository;
+    private final PosCashMovementRepository posCashMovementRepository;
+    private final PosShiftTenderCountRepository posShiftTenderCountRepository;
+    private final PosSuspendedSaleRepository posSuspendedSaleRepository;
+    private final PosRefundSettlementImpactRepository posRefundSettlementImpactRepository;
     private final WarehouseRepository warehouseRepository;
     private final CustomerRepository customerRepository;
     private final CategoryRepository categoryRepository;
@@ -247,9 +274,23 @@ public class PosServiceImpl implements PosService {
             throw new BadRequestException("Only open shifts can be closed");
         }
 
+        SettlementSnapshot snapshot = buildSettlementSnapshot(shift);
+        persistTenderCounts(shift, snapshot.expectedByMethod, request == null ? List.of() : request.getTenderCounts());
+        SettlementSnapshot updatedSnapshot = buildSettlementSnapshot(shift);
+
         shift.setStatus(PosShiftStatus.CLOSED);
         shift.setClosedAt(LocalDateTime.now());
-        shift.setClosingNotes(request.getClosingNotes());
+        shift.setClosingNotes(request == null ? null : blankToNull(request.getClosingNotes()));
+        shift.setExpectedCashAmount(updatedSnapshot.expectedByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO));
+        shift.setDeclaredCashAmount(updatedSnapshot.declaredByMethod.getOrDefault(PosPaymentMethod.CASH, updatedSnapshot.expectedByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO)));
+        shift.setOverShortAmount(updatedSnapshot.varianceByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO));
+        boolean hasVariance = updatedSnapshot.varianceByMethod.values().stream().anyMatch(value -> value.compareTo(ZERO) != 0);
+        shift.setSettlementApprovalStatus(hasVariance ? PosSettlementApprovalStatus.PENDING_APPROVAL : PosSettlementApprovalStatus.APPROVED);
+        if (!hasVariance) {
+            shift.setSettlementApprovedAt(LocalDateTime.now());
+            shift.setSettlementApprovedBy(getCurrentUser());
+            shift.setSettlementApprovalNotes("Auto-approved: no settlement variance detected");
+        }
         return mapShift(posShiftRepository.save(shift));
     }
 
@@ -259,6 +300,205 @@ public class PosServiceImpl implements PosService {
         PosShift shift = posShiftRepository.findFirstByTerminalIdAndStatusOrderByOpenedAtDesc(terminalId, PosShiftStatus.OPEN)
                 .orElseThrow(() -> new ResourceNotFoundException("No open shift found for terminal: " + terminalId));
         return mapShift(shift);
+    }
+
+    @Override
+    @Transactional
+    public PosCashMovementDto recordCashMovement(UUID shiftId, PosCashMovementRequest request) {
+        if (!hasAuthority("POS:CASH_CONTROL")) {
+            throw new BadRequestException("Current user does not have permission to record POS cash movements");
+        }
+        PosShift shift = posShiftRepository.findById(shiftId)
+                .orElseThrow(() -> new ResourceNotFoundException("POS shift not found with ID: " + shiftId));
+        if (shift.getStatus() != PosShiftStatus.OPEN) {
+            throw new BadRequestException("Cash movements can only be recorded against open shifts");
+        }
+
+        PosCashMovement movement = new PosCashMovement();
+        movement.setShift(shift);
+        movement.setTerminal(shift.getTerminal());
+        movement.setCashier(getCurrentUser());
+        movement.setType(request.getType());
+        movement.setAmount(scale(request.getAmount()));
+        movement.setOccurredAt(LocalDateTime.now());
+        movement.setReason(request.getReason().trim());
+        movement.setReferenceNumber(blankToNull(request.getReferenceNumber()));
+        movement.setNotes(blankToNull(request.getNotes()));
+        return mapCashMovement(posCashMovementRepository.save(movement));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PosCashMovementDto> getCashMovements(UUID shiftId) {
+        return posCashMovementRepository.findByShiftIdOrderByOccurredAtDesc(shiftId).stream()
+                .map(this::mapCashMovement)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PosShiftSettlementDto getShiftSettlement(UUID shiftId) {
+        PosShift shift = posShiftRepository.findById(shiftId)
+                .orElseThrow(() -> new ResourceNotFoundException("POS shift not found with ID: " + shiftId));
+        return mapSettlement(buildSettlementSnapshot(shift));
+    }
+
+    @Override
+    @Transactional
+    public PosShiftSettlementDto approveShiftSettlement(UUID shiftId, PosSettlementApprovalRequest request) {
+        if (!hasAuthority("POS:SETTLEMENT_APPROVE")) {
+            throw new BadRequestException("Current user does not have permission to approve POS settlements");
+        }
+
+        PosShift shift = posShiftRepository.findById(shiftId)
+                .orElseThrow(() -> new ResourceNotFoundException("POS shift not found with ID: " + shiftId));
+        if (shift.getStatus() != PosShiftStatus.CLOSED) {
+            throw new BadRequestException("Only closed shifts can be approved or rejected");
+        }
+
+        shift.setSettlementApprovalStatus(Boolean.TRUE.equals(request.getApproved())
+                ? PosSettlementApprovalStatus.APPROVED
+                : PosSettlementApprovalStatus.REJECTED);
+        shift.setSettlementApprovedAt(LocalDateTime.now());
+        shift.setSettlementApprovedBy(getCurrentUser());
+        shift.setSettlementApprovalNotes(blankToNull(request.getNotes()));
+        return mapSettlement(buildSettlementSnapshot(posShiftRepository.save(shift)));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PosDailySettlementDto getDailySettlement(LocalDate businessDate, UUID terminalId) {
+        LocalDate date = businessDate == null ? LocalDate.now() : businessDate;
+        LocalDateTime from = date.atStartOfDay();
+        LocalDateTime to = date.atTime(23, 59, 59);
+        List<PosShift> shifts = terminalId == null
+                ? posShiftRepository.findByOpenedAtBetweenOrderByOpenedAtDesc(from, to)
+                : posShiftRepository.findByTerminalIdAndOpenedAtBetweenOrderByOpenedAtDesc(terminalId, from, to);
+
+        PosDailySettlementDto dto = new PosDailySettlementDto();
+        dto.setBusinessDate(date);
+        if (terminalId != null && !shifts.isEmpty()) {
+            dto.setTerminalId(shifts.get(0).getTerminal().getId());
+            dto.setTerminalName(shifts.get(0).getTerminal().getName());
+        }
+        dto.setShiftCount(shifts.size());
+        dto.setOpenShiftCount(shifts.stream().filter(shift -> shift.getStatus() == PosShiftStatus.OPEN).count());
+        dto.setTotalSales(ZERO);
+        dto.setTotalRefunds(ZERO);
+        dto.setTotalCashInflows(ZERO);
+        dto.setTotalCashOutflows(ZERO);
+        dto.setExpectedCash(ZERO);
+        dto.setDeclaredCash(ZERO);
+        dto.setOverShortAmount(ZERO);
+
+        for (PosShift shift : shifts) {
+            SettlementSnapshot snapshot = buildSettlementSnapshot(shift);
+            dto.setTotalSales(dto.getTotalSales().add(snapshot.totalSales));
+            dto.setTotalRefunds(dto.getTotalRefunds().add(snapshot.totalRefunds));
+            dto.setTotalCashInflows(dto.getTotalCashInflows().add(snapshot.totalCashInflows));
+            dto.setTotalCashOutflows(dto.getTotalCashOutflows().add(snapshot.totalCashOutflows));
+            dto.setExpectedCash(dto.getExpectedCash().add(snapshot.shift.getExpectedCashAmount() == null ? ZERO : snapshot.shift.getExpectedCashAmount()));
+            dto.setDeclaredCash(dto.getDeclaredCash().add(snapshot.shift.getDeclaredCashAmount() == null ? ZERO : snapshot.shift.getDeclaredCashAmount()));
+            dto.setOverShortAmount(dto.getOverShortAmount().add(snapshot.shift.getOverShortAmount() == null ? ZERO : snapshot.shift.getOverShortAmount()));
+            if (dto.getTerminalId() == null) {
+                dto.setTerminalId(shift.getTerminal().getId());
+                dto.setTerminalName(shift.getTerminal().getName());
+            }
+        }
+        return dto;
+    }
+
+    @Override
+    @Transactional
+    public PosSuspendedSaleDto suspendSale(CreateSuspendedPosSaleRequest request) {
+        if (!hasAuthority("POS:SUSPEND_SALE")) {
+            throw new BadRequestException("Current user does not have permission to suspend POS sales");
+        }
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            throw new BadRequestException("Suspended POS sale must contain at least one item");
+        }
+
+        PosTerminal terminal = resolveTerminal(request.getTerminalId());
+        Warehouse warehouse = resolveWarehouse(request.getWarehouseId());
+        if (!warehouse.getId().equals(terminal.getWarehouse().getId())) {
+            throw new BadRequestException("POS terminal warehouse and suspended sale warehouse must match");
+        }
+
+        Customer customer = resolveCustomer(request.getCustomerId());
+        Map<UUID, ProductVariant> variantMap = resolveVariantMap(request.getItems().stream()
+                .map(SuspendedPosSaleItemRequest::getProductVariantId)
+                .collect(Collectors.toSet()));
+
+        PosSuspendedSale suspendedSale = new PosSuspendedSale();
+        suspendedSale.setSuspendedNumber(generateSuspendedSaleNumber());
+        suspendedSale.setTerminal(terminal);
+        suspendedSale.setCashier(getCurrentUser());
+        suspendedSale.setCustomer(customer);
+        suspendedSale.setWarehouse(warehouse);
+        suspendedSale.setStatus(PosSuspendedSaleStatus.SUSPENDED);
+        suspendedSale.setSuspendedAt(LocalDateTime.now());
+        suspendedSale.setManualDiscountAmount(scale(request.getManualDiscountAmount()));
+        suspendedSale.setTaxAmount(scale(request.getTaxAmount()));
+        suspendedSale.setCurrency(defaultCurrency(request.getCurrency()));
+        suspendedSale.setCouponCodes(joinCouponCodes(request.getCouponCodes()));
+        suspendedSale.setNotes(blankToNull(request.getNotes()));
+
+        BigDecimal subtotal = ZERO;
+        for (SuspendedPosSaleItemRequest itemRequest : request.getItems()) {
+            ProductVariant variant = variantMap.get(itemRequest.getProductVariantId());
+            BigDecimal quantity = scale(itemRequest.getQuantity());
+            BigDecimal unitPrice = scale(itemRequest.getUnitPrice());
+            BigDecimal lineDiscount = scale(itemRequest.getLineDiscount());
+            BigDecimal lineTotal = unitPrice.multiply(quantity).subtract(lineDiscount).setScale(6, RoundingMode.HALF_UP);
+            if (lineTotal.compareTo(ZERO) < 0) {
+                throw new BadRequestException("Suspended sale line total cannot be negative");
+            }
+
+            PosSuspendedSaleItem item = new PosSuspendedSaleItem();
+            item.setSuspendedSale(suspendedSale);
+            item.setProductVariant(variant);
+            item.setSkuSnapshot(variant.getSku());
+            item.setDescriptionSnapshot(buildVariantDescription(variant));
+            item.setQuantity(quantity);
+            item.setUnitPrice(unitPrice);
+            item.setLineDiscount(lineDiscount);
+            item.setLineTotal(lineTotal);
+            suspendedSale.getItems().add(item);
+            subtotal = subtotal.add(lineTotal);
+        }
+
+        suspendedSale.setSubtotalAmount(subtotal);
+        suspendedSale.setTotalAmount(subtotal.subtract(suspendedSale.getManualDiscountAmount()).add(suspendedSale.getTaxAmount()).max(ZERO).setScale(6, RoundingMode.HALF_UP));
+        return mapSuspendedSale(posSuspendedSaleRepository.save(suspendedSale));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<PosSuspendedSaleDto> getSuspendedSales(UUID terminalId) {
+        return posSuspendedSaleRepository.findByTerminalIdAndStatusOrderBySuspendedAtDesc(terminalId, PosSuspendedSaleStatus.SUSPENDED).stream()
+                .map(this::mapSuspendedSale)
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public PosSuspendedSaleDto resumeSuspendedSale(UUID suspendedSaleId) {
+        PosSuspendedSale suspendedSale = posSuspendedSaleRepository.findByIdAndStatus(suspendedSaleId, PosSuspendedSaleStatus.SUSPENDED)
+                .orElseThrow(() -> new ResourceNotFoundException("Suspended POS sale not found with ID: " + suspendedSaleId));
+        return mapSuspendedSale(suspendedSale);
+    }
+
+    @Override
+    @Transactional
+    public PosSuspendedSaleDto cancelSuspendedSale(UUID suspendedSaleId) {
+        if (!hasAuthority("POS:SUSPEND_SALE")) {
+            throw new BadRequestException("Current user does not have permission to cancel suspended POS sales");
+        }
+        PosSuspendedSale suspendedSale = posSuspendedSaleRepository.findByIdAndStatus(suspendedSaleId, PosSuspendedSaleStatus.SUSPENDED)
+                .orElseThrow(() -> new ResourceNotFoundException("Suspended POS sale not found with ID: " + suspendedSaleId));
+        suspendedSale.setStatus(PosSuspendedSaleStatus.CANCELLED);
+        suspendedSale.setCancelledAt(LocalDateTime.now());
+        return mapSuspendedSale(posSuspendedSaleRepository.save(suspendedSale));
     }
 
     @Override
@@ -282,7 +522,16 @@ public class PosServiceImpl implements PosService {
 
         User cashier = getCurrentUser();
         PosShift shift = resolveShift(request.getShiftId(), terminal, cashier);
-        Customer customer = resolveCustomer(request.getCustomerId());
+    PosSuspendedSale suspendedSale = resolveSuspendedSale(request.getSuspendedSaleId());
+        if (suspendedSale != null) {
+            if (!suspendedSale.getTerminal().getId().equals(terminal.getId())) {
+                throw new BadRequestException("Suspended sale terminal does not match the POS terminal for this sale");
+            }
+            if (!suspendedSale.getWarehouse().getId().equals(warehouse.getId())) {
+                throw new BadRequestException("Suspended sale warehouse does not match the POS sale warehouse");
+            }
+        }
+    Customer customer = suspendedSale != null ? suspendedSale.getCustomer() : resolveCustomer(request.getCustomerId());
         PricingEvaluation pricingEvaluation = pricingEngineService.evaluatePosSale(customer, warehouse, terminal, request, hasManualDiscountOverridePermission());
         Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(pricingEvaluation);
 
@@ -306,7 +555,6 @@ public class PosServiceImpl implements PosService {
         salesOrder.setStatus(SalesOrderStatus.DELIVERED);
         salesOrder.setPriority(OrderPriority.MEDIUM);
         salesOrder.setCurrency(defaultCurrency(request.getCurrency()));
-        salesOrder.setNotes(buildSalesOrderNotes(request, terminal, shift));
         salesOrder.setSalesChannel(SalesChannel.POS);
         salesOrder.setSubtotalAmount(pricingEvaluation.getBaseSubtotal());
         salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
@@ -356,6 +604,9 @@ public class PosServiceImpl implements PosService {
         BigDecimal total = pricingEvaluation.getNetSubtotal().add(tax).setScale(6, RoundingMode.HALF_UP);
         BigDecimal tendered = scale(request.getTenderedAmount());
         BigDecimal change = tendered.subtract(total).max(BigDecimal.ZERO).setScale(6, RoundingMode.HALF_UP);
+        List<PosSalePaymentRequest> paymentRequests = normalizePaymentRequests(request, total);
+        PosPaymentMethod resolvedPaymentMethod = derivePaymentMethod(request, paymentRequests);
+        salesOrder.setNotes(buildSalesOrderNotes(request, terminal, shift, resolvedPaymentMethod));
 
         salesOrder.setItems(salesOrderItems);
         salesOrder.setTotalAmount(total);
@@ -385,7 +636,7 @@ public class PosServiceImpl implements PosService {
         sale.setWarehouse(warehouse);
         sale.setSalesOrder(salesOrder);
         sale.setStockTransaction(stockTransaction);
-        sale.setPaymentMethod(request.getPaymentMethod() == null ? PosPaymentMethod.OTHER : request.getPaymentMethod());
+        sale.setPaymentMethod(resolvedPaymentMethod);
         sale.setSaleTime(LocalDateTime.now());
         sale.setSubtotal(subtotal);
         sale.setDiscountAmount(discount);
@@ -395,8 +646,9 @@ public class PosServiceImpl implements PosService {
         sale.setChangeAmount(change);
         sale.setCurrency(defaultCurrency(request.getCurrency()));
         sale.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
-        sale.setNotes(request.getNotes());
+        sale.setNotes(blankToNull(request.getNotes()));
         sale.setSyncStatus(offlineSync ? PosSyncStatus.OFFLINE_SYNCED : PosSyncStatus.ONLINE);
+        sale.setSuspendedSale(suspendedSale);
 
         int itemIndex = 0;
         for (PosSaleItem saleItem : saleItems) {
@@ -416,7 +668,23 @@ public class PosServiceImpl implements PosService {
         }
         stockTransactionRepository.save(stockTransaction);
 
+        for (PosSalePaymentRequest paymentRequest : paymentRequests) {
+            PosSalePayment payment = new PosSalePayment();
+            payment.setSale(sale);
+            payment.setPaymentMethod(paymentRequest.getPaymentMethod());
+            payment.setAmount(scale(paymentRequest.getAmount()));
+            payment.setReferenceNumber(blankToNull(paymentRequest.getReferenceNumber()));
+            payment.setNotes(blankToNull(paymentRequest.getNotes()));
+            sale.getPayments().add(payment);
+        }
+
         PosSale savedSale = posSaleRepository.save(sale);
+        if (suspendedSale != null) {
+            suspendedSale.setStatus(PosSuspendedSaleStatus.COMPLETED);
+            suspendedSale.setCompletedAt(LocalDateTime.now());
+            suspendedSale.setCompletedSale(savedSale);
+            posSuspendedSaleRepository.save(suspendedSale);
+        }
         pricingEngineService.recordRedemptions(pricingEvaluation, salesOrder, savedSale, customer, SalesChannel.POS, savedSale.getReceiptNumber());
         return mapSale(savedSale);
     }
@@ -554,17 +822,22 @@ public class PosServiceImpl implements PosService {
         return variant.getTemplate() != null ? variant.getTemplate().getName() : variant.getSku();
     }
 
-    private String buildSalesOrderNotes(CreatePosSaleRequest request, PosTerminal terminal, PosShift shift) {
+    private String buildSalesOrderNotes(CreatePosSaleRequest request, PosTerminal terminal, PosShift shift, PosPaymentMethod paymentMethod) {
         List<String> parts = new ArrayList<>();
         parts.add("POS terminal " + terminal.getTerminalCode());
         if (shift != null) {
             parts.add("Shift " + shift.getId());
         }
-        parts.add("Payment " + request.getPaymentMethod());
+        parts.add("Payment " + paymentMethod);
         if (request.getNotes() != null && !request.getNotes().isBlank()) {
             parts.add(request.getNotes().trim());
         }
         return String.join(" | ", parts);
+    }
+
+    private String generateSuspendedSaleNumber() {
+        return "HOLD-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + "-"
+                + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
     }
 
     private String generateReceiptNumber() {
@@ -594,8 +867,190 @@ public class PosServiceImpl implements PosService {
         return value == null || value.isBlank() ? null : value.trim();
     }
 
+    private String joinCouponCodes(List<String> couponCodes) {
+        if (couponCodes == null || couponCodes.isEmpty()) {
+            return null;
+        }
+        return couponCodes.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .distinct()
+                .collect(Collectors.joining(", "));
+    }
+
+    private List<String> splitCouponCodes(String couponCodes) {
+        if (couponCodes == null || couponCodes.isBlank()) {
+            return List.of();
+        }
+        return List.of(couponCodes.split(","))
+                .stream()
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .toList();
+    }
+
     private BigDecimal scale(BigDecimal value) {
         return value == null ? ZERO : value.setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private PosSuspendedSale resolveSuspendedSale(UUID suspendedSaleId) {
+        if (suspendedSaleId == null) {
+            return null;
+        }
+        return posSuspendedSaleRepository.findByIdAndStatus(suspendedSaleId, PosSuspendedSaleStatus.SUSPENDED)
+                .orElseThrow(() -> new ResourceNotFoundException("Suspended POS sale not found with ID: " + suspendedSaleId));
+    }
+
+    private Map<UUID, ProductVariant> resolveVariantMap(Set<UUID> variantIds) {
+        List<ProductVariant> variants = productVariantRepository.findAllById(variantIds);
+        if (variants.size() != variantIds.size()) {
+            throw new BadRequestException("One or more POS items reference missing product variants");
+        }
+        return variants.stream().collect(Collectors.toMap(ProductVariant::getId, variant -> variant));
+    }
+
+    private List<PosSalePaymentRequest> normalizePaymentRequests(CreatePosSaleRequest request, BigDecimal total) {
+        if (request.getPayments() == null || request.getPayments().isEmpty()) {
+            if (request.getPaymentMethod() == null) {
+                throw new BadRequestException("Payment method is required when no payment allocation lines are provided");
+            }
+            if (request.getPaymentMethod() == PosPaymentMethod.MIXED) {
+                throw new BadRequestException("Mixed payment sales must provide payment allocation lines");
+            }
+            PosSalePaymentRequest payment = new PosSalePaymentRequest();
+            payment.setPaymentMethod(request.getPaymentMethod());
+            payment.setAmount(total);
+            return List.of(payment);
+        }
+
+        BigDecimal allocated = request.getPayments().stream()
+                .map(PosSalePaymentRequest::getAmount)
+                .map(this::scale)
+                .reduce(ZERO, BigDecimal::add);
+        if (allocated.compareTo(total) != 0) {
+            throw new BadRequestException("Payment allocations must equal the POS sale total");
+        }
+        return request.getPayments().stream().toList();
+    }
+
+    private PosPaymentMethod derivePaymentMethod(CreatePosSaleRequest request, List<PosSalePaymentRequest> payments) {
+        Set<PosPaymentMethod> methods = payments.stream().map(PosSalePaymentRequest::getPaymentMethod).collect(Collectors.toSet());
+        PosPaymentMethod derived = methods.size() > 1 ? PosPaymentMethod.MIXED : methods.iterator().next();
+        if (request.getPaymentMethod() != null
+                && request.getPaymentMethod() != PosPaymentMethod.MIXED
+                && request.getPaymentMethod() != derived) {
+            throw new BadRequestException("Payment method does not match payment allocation lines");
+        }
+        return derived;
+    }
+
+    private void persistTenderCounts(PosShift shift,
+                                     Map<PosPaymentMethod, BigDecimal> expectedByMethod,
+                                     List<PosShiftTenderCountRequest> declaredCounts) {
+        Map<PosPaymentMethod, BigDecimal> declaredByMethod = new EnumMap<>(PosPaymentMethod.class);
+        if (declaredCounts != null) {
+            for (PosShiftTenderCountRequest countRequest : declaredCounts) {
+                declaredByMethod.put(countRequest.getPaymentMethod(), scale(countRequest.getDeclaredAmount()));
+            }
+        }
+
+        posShiftTenderCountRepository.deleteByShiftId(shift.getId());
+
+        for (PosPaymentMethod method : EnumSet.of(PosPaymentMethod.CASH, PosPaymentMethod.CARD, PosPaymentMethod.TRANSFER, PosPaymentMethod.WALLET, PosPaymentMethod.OTHER)) {
+            BigDecimal expected = expectedByMethod.getOrDefault(method, ZERO);
+            BigDecimal declared = declaredByMethod.getOrDefault(method, expected);
+            if (expected.compareTo(ZERO) == 0 && declared.compareTo(ZERO) == 0 && method != PosPaymentMethod.CASH) {
+                continue;
+            }
+
+            PosShiftTenderCount count = new PosShiftTenderCount();
+            count.setShift(shift);
+            count.setPaymentMethod(method);
+            count.setExpectedAmount(expected);
+            count.setDeclaredAmount(declared);
+            count.setVarianceAmount(declared.subtract(expected).setScale(6, RoundingMode.HALF_UP));
+            posShiftTenderCountRepository.save(count);
+        }
+    }
+
+    private SettlementSnapshot buildSettlementSnapshot(PosShift shift) {
+        List<PosSalePayment> salePayments = posSalePaymentRepository.findByShiftId(shift.getId());
+        List<PosCashMovement> cashMovements = posCashMovementRepository.findByShiftIdOrderByOccurredAtDesc(shift.getId());
+        List<PosRefundSettlementImpact> refundImpacts = posRefundSettlementImpactRepository.findByShiftIdOrderByOccurredAtDesc(shift.getId());
+        List<PosShiftTenderCount> tenderCounts = posShiftTenderCountRepository.findByShiftIdOrderByPaymentMethodAsc(shift.getId());
+
+        Map<PosPaymentMethod, BigDecimal> salesByMethod = new EnumMap<>(PosPaymentMethod.class);
+        Map<PosPaymentMethod, BigDecimal> refundsByMethod = new EnumMap<>(PosPaymentMethod.class);
+        Map<PosPaymentMethod, BigDecimal> expectedByMethod = new EnumMap<>(PosPaymentMethod.class);
+        Map<PosPaymentMethod, BigDecimal> declaredByMethod = new EnumMap<>(PosPaymentMethod.class);
+        Map<PosPaymentMethod, BigDecimal> varianceByMethod = new EnumMap<>(PosPaymentMethod.class);
+        Set<PosPaymentMethod> countedMethods = tenderCounts.stream()
+            .map(PosShiftTenderCount::getPaymentMethod)
+            .collect(Collectors.toSet());
+        for (PosPaymentMethod method : PosPaymentMethod.values()) {
+            salesByMethod.put(method, ZERO);
+            refundsByMethod.put(method, ZERO);
+            expectedByMethod.put(method, ZERO);
+            declaredByMethod.put(method, ZERO);
+            varianceByMethod.put(method, ZERO);
+        }
+
+        BigDecimal totalSales = ZERO;
+        for (PosSalePayment payment : salePayments) {
+            BigDecimal amount = scale(payment.getAmount());
+            salesByMethod.put(payment.getPaymentMethod(), salesByMethod.get(payment.getPaymentMethod()).add(amount));
+            totalSales = totalSales.add(amount);
+        }
+
+        BigDecimal totalRefunds = ZERO;
+        for (PosRefundSettlementImpact impact : refundImpacts) {
+            BigDecimal amount = scale(impact.getAmount());
+            refundsByMethod.put(impact.getPaymentMethod(), refundsByMethod.getOrDefault(impact.getPaymentMethod(), ZERO).add(amount));
+            totalRefunds = totalRefunds.add(amount);
+        }
+
+        BigDecimal totalCashInflows = ZERO;
+        BigDecimal totalCashOutflows = ZERO;
+        for (PosCashMovement movement : cashMovements) {
+            if (isCashInflow(movement.getType())) {
+                totalCashInflows = totalCashInflows.add(scale(movement.getAmount()));
+            } else {
+                totalCashOutflows = totalCashOutflows.add(scale(movement.getAmount()));
+            }
+        }
+
+        for (PosPaymentMethod method : EnumSet.of(PosPaymentMethod.CARD, PosPaymentMethod.TRANSFER, PosPaymentMethod.WALLET, PosPaymentMethod.OTHER)) {
+            expectedByMethod.put(method, salesByMethod.getOrDefault(method, ZERO).subtract(refundsByMethod.getOrDefault(method, ZERO)).setScale(6, RoundingMode.HALF_UP));
+        }
+
+        BigDecimal expectedCash = scale(shift.getOpeningFloat())
+                .add(salesByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO))
+                .subtract(refundsByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO))
+                .add(totalCashInflows)
+                .subtract(totalCashOutflows)
+                .setScale(6, RoundingMode.HALF_UP);
+        expectedByMethod.put(PosPaymentMethod.CASH, expectedCash);
+
+        for (PosShiftTenderCount count : tenderCounts) {
+            declaredByMethod.put(count.getPaymentMethod(), scale(count.getDeclaredAmount()));
+            varianceByMethod.put(count.getPaymentMethod(), scale(count.getVarianceAmount()));
+        }
+        for (PosPaymentMethod method : expectedByMethod.keySet()) {
+            if (!countedMethods.contains(method)) {
+                declaredByMethod.put(method, expectedByMethod.getOrDefault(method, ZERO));
+            }
+            if (!countedMethods.contains(method)) {
+                varianceByMethod.put(method, declaredByMethod.get(method).subtract(expectedByMethod.getOrDefault(method, ZERO)).setScale(6, RoundingMode.HALF_UP));
+            }
+        }
+
+        return new SettlementSnapshot(shift, cashMovements, refundImpacts, tenderCounts, expectedByMethod, declaredByMethod,
+                varianceByMethod, totalSales, totalRefunds, totalCashInflows, totalCashOutflows);
+    }
+
+    private boolean isCashInflow(PosCashMovementType type) {
+        return type == PosCashMovementType.PAY_IN || type == PosCashMovementType.FLOAT_ADJUSTMENT;
     }
 
     private PosTerminalDto mapTerminal(PosTerminal terminal) {
@@ -621,6 +1076,13 @@ public class PosServiceImpl implements PosService {
         dto.setOpenedAt(shift.getOpenedAt());
         dto.setClosedAt(shift.getClosedAt());
         dto.setOpeningFloat(shift.getOpeningFloat());
+        dto.setExpectedCashAmount(shift.getExpectedCashAmount());
+        dto.setDeclaredCashAmount(shift.getDeclaredCashAmount());
+        dto.setOverShortAmount(shift.getOverShortAmount());
+        dto.setSettlementApprovalStatus(shift.getSettlementApprovalStatus());
+        dto.setSettlementApprovedAt(shift.getSettlementApprovedAt());
+        dto.setSettlementApprovedBy(shift.getSettlementApprovedBy() == null ? null : shift.getSettlementApprovedBy().getId());
+        dto.setSettlementApprovedByName(shift.getSettlementApprovedBy() == null ? null : buildCashierName(shift.getSettlementApprovedBy()));
         dto.setClosingNotes(shift.getClosingNotes());
         return dto;
     }
@@ -655,7 +1117,130 @@ public class PosServiceImpl implements PosService {
         dto.setCurrency(sale.getCurrency());
         dto.setAppliedCouponCodes(sale.getAppliedCouponCodes());
         dto.setNotes(sale.getNotes());
+        dto.setSuspendedSaleId(sale.getSuspendedSale() == null ? null : sale.getSuspendedSale().getId());
         dto.setItems(sale.getItems().stream().map(this::mapSaleItem).toList());
+        dto.setPayments(sale.getPayments().stream().map(this::mapSalePayment).toList());
+        return dto;
+    }
+
+    private PosSalePaymentDto mapSalePayment(PosSalePayment payment) {
+        PosSalePaymentDto dto = new PosSalePaymentDto();
+        dto.setId(payment.getId());
+        dto.setPaymentMethod(payment.getPaymentMethod());
+        dto.setAmount(payment.getAmount());
+        dto.setReferenceNumber(payment.getReferenceNumber());
+        dto.setNotes(payment.getNotes());
+        return dto;
+    }
+
+    private PosCashMovementDto mapCashMovement(PosCashMovement movement) {
+        PosCashMovementDto dto = new PosCashMovementDto();
+        dto.setId(movement.getId());
+        dto.setShiftId(movement.getShift().getId());
+        dto.setTerminalId(movement.getTerminal().getId());
+        dto.setTerminalName(movement.getTerminal().getName());
+        dto.setCashierId(movement.getCashier().getId());
+        dto.setCashierName(buildCashierName(movement.getCashier()));
+        dto.setType(movement.getType());
+        dto.setAmount(movement.getAmount());
+        dto.setOccurredAt(movement.getOccurredAt());
+        dto.setReason(movement.getReason());
+        dto.setReferenceNumber(movement.getReferenceNumber());
+        dto.setNotes(movement.getNotes());
+        return dto;
+    }
+
+    private PosSuspendedSaleDto mapSuspendedSale(PosSuspendedSale sale) {
+        PosSuspendedSaleDto dto = new PosSuspendedSaleDto();
+        dto.setId(sale.getId());
+        dto.setSuspendedNumber(sale.getSuspendedNumber());
+        dto.setTerminalId(sale.getTerminal().getId());
+        dto.setTerminalName(sale.getTerminal().getName());
+        dto.setCashierId(sale.getCashier().getId());
+        dto.setCashierName(buildCashierName(sale.getCashier()));
+        dto.setCustomerId(sale.getCustomer().getId());
+        dto.setCustomerName(sale.getCustomer().getName());
+        dto.setWarehouseId(sale.getWarehouse().getId());
+        dto.setWarehouseName(sale.getWarehouse().getName());
+        dto.setStatus(sale.getStatus());
+        dto.setSuspendedAt(sale.getSuspendedAt());
+        dto.setCompletedAt(sale.getCompletedAt());
+        dto.setCancelledAt(sale.getCancelledAt());
+        dto.setManualDiscountAmount(sale.getManualDiscountAmount());
+        dto.setTaxAmount(sale.getTaxAmount());
+        dto.setSubtotalAmount(sale.getSubtotalAmount());
+        dto.setTotalAmount(sale.getTotalAmount());
+        dto.setCurrency(sale.getCurrency());
+        dto.setCouponCodes(splitCouponCodes(sale.getCouponCodes()));
+        dto.setNotes(sale.getNotes());
+        dto.setItems(sale.getItems().stream().map(this::mapSuspendedSaleItem).toList());
+        return dto;
+    }
+
+    private SuspendedPosSaleItemDto mapSuspendedSaleItem(PosSuspendedSaleItem item) {
+        SuspendedPosSaleItemDto dto = new SuspendedPosSaleItemDto();
+        dto.setId(item.getId());
+        dto.setProductVariantId(item.getProductVariant().getId());
+        dto.setSku(item.getSkuSnapshot());
+        dto.setDescription(item.getDescriptionSnapshot());
+        dto.setQuantity(item.getQuantity());
+        dto.setUnitPrice(item.getUnitPrice());
+        dto.setLineDiscount(item.getLineDiscount());
+        dto.setLineTotal(item.getLineTotal());
+        return dto;
+    }
+
+    private PosRefundSettlementImpactDto mapRefundImpact(PosRefundSettlementImpact impact) {
+        PosRefundSettlementImpactDto dto = new PosRefundSettlementImpactDto();
+        dto.setId(impact.getId());
+        dto.setSalesRefundId(impact.getSalesRefund().getId());
+        dto.setShiftId(impact.getShift() == null ? null : impact.getShift().getId());
+        dto.setTerminalId(impact.getTerminal() == null ? null : impact.getTerminal().getId());
+        dto.setPaymentMethod(impact.getPaymentMethod());
+        dto.setAmount(impact.getAmount());
+        dto.setOccurredAt(impact.getOccurredAt());
+        dto.setReferenceNumber(impact.getReferenceNumber());
+        dto.setNotes(impact.getNotes());
+        return dto;
+    }
+
+    private PosShiftSettlementDto mapSettlement(SettlementSnapshot snapshot) {
+        PosShiftSettlementDto dto = new PosShiftSettlementDto();
+        dto.setShiftId(snapshot.shift.getId());
+        dto.setTerminalId(snapshot.shift.getTerminal().getId());
+        dto.setTerminalName(snapshot.shift.getTerminal().getName());
+        dto.setCashierId(snapshot.shift.getCashier().getId());
+        dto.setCashierName(buildCashierName(snapshot.shift.getCashier()));
+        dto.setShiftStatus(snapshot.shift.getStatus());
+        dto.setOpenedAt(snapshot.shift.getOpenedAt());
+        dto.setClosedAt(snapshot.shift.getClosedAt());
+        dto.setOpeningFloat(snapshot.shift.getOpeningFloat());
+        dto.setTotalSales(snapshot.totalSales);
+        dto.setTotalRefunds(snapshot.totalRefunds);
+        dto.setTotalCashInflows(snapshot.totalCashInflows);
+        dto.setTotalCashOutflows(snapshot.totalCashOutflows);
+        dto.setExpectedCashAmount(snapshot.expectedByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO));
+        dto.setDeclaredCashAmount(snapshot.declaredByMethod.getOrDefault(PosPaymentMethod.CASH, snapshot.expectedByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO)));
+        dto.setOverShortAmount(snapshot.varianceByMethod.getOrDefault(PosPaymentMethod.CASH, ZERO));
+        dto.setSettlementApprovalStatus(snapshot.shift.getSettlementApprovalStatus());
+        dto.setSettlementApprovedAt(snapshot.shift.getSettlementApprovedAt());
+        dto.setSettlementApprovedBy(snapshot.shift.getSettlementApprovedBy() == null ? null : snapshot.shift.getSettlementApprovedBy().getId());
+        dto.setSettlementApprovedByName(snapshot.shift.getSettlementApprovedBy() == null ? null : buildCashierName(snapshot.shift.getSettlementApprovedBy()));
+        dto.setSettlementApprovalNotes(snapshot.shift.getSettlementApprovalNotes());
+        dto.setClosingNotes(snapshot.shift.getClosingNotes());
+        dto.setTenderCounts(snapshot.tenderCounts.stream().map(this::mapTenderCount).toList());
+        dto.setCashMovements(snapshot.cashMovements.stream().map(this::mapCashMovement).toList());
+        dto.setRefundImpacts(snapshot.refundImpacts.stream().map(this::mapRefundImpact).toList());
+        return dto;
+    }
+
+    private PosShiftTenderCountDto mapTenderCount(PosShiftTenderCount count) {
+        PosShiftTenderCountDto dto = new PosShiftTenderCountDto();
+        dto.setId(count.getId());
+        dto.setPaymentMethod(count.getPaymentMethod());
+        dto.setExpectedAmount(count.getExpectedAmount());
+        dto.setDeclaredAmount(count.getDeclaredAmount());
+        dto.setVarianceAmount(count.getVarianceAmount());
         return dto;
     }
 
@@ -743,5 +1328,48 @@ public class PosServiceImpl implements PosService {
             throw new BadRequestException("Unable to resolve pricing line for product variant: " + productVariantId);
         }
         return lines.removeFirst();
+    }
+
+    private boolean hasAuthority(String authorityName) {
+        return SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .anyMatch(authority -> authorityName.equals(authority.getAuthority()));
+    }
+
+    private static class SettlementSnapshot {
+        private final PosShift shift;
+        private final List<PosCashMovement> cashMovements;
+        private final List<PosRefundSettlementImpact> refundImpacts;
+        private final List<PosShiftTenderCount> tenderCounts;
+        private final Map<PosPaymentMethod, BigDecimal> expectedByMethod;
+        private final Map<PosPaymentMethod, BigDecimal> declaredByMethod;
+        private final Map<PosPaymentMethod, BigDecimal> varianceByMethod;
+        private final BigDecimal totalSales;
+        private final BigDecimal totalRefunds;
+        private final BigDecimal totalCashInflows;
+        private final BigDecimal totalCashOutflows;
+
+        private SettlementSnapshot(PosShift shift,
+                                   List<PosCashMovement> cashMovements,
+                                   List<PosRefundSettlementImpact> refundImpacts,
+                                   List<PosShiftTenderCount> tenderCounts,
+                                   Map<PosPaymentMethod, BigDecimal> expectedByMethod,
+                                   Map<PosPaymentMethod, BigDecimal> declaredByMethod,
+                                   Map<PosPaymentMethod, BigDecimal> varianceByMethod,
+                                   BigDecimal totalSales,
+                                   BigDecimal totalRefunds,
+                                   BigDecimal totalCashInflows,
+                                   BigDecimal totalCashOutflows) {
+            this.shift = shift;
+            this.cashMovements = cashMovements;
+            this.refundImpacts = refundImpacts;
+            this.tenderCounts = tenderCounts;
+            this.expectedByMethod = expectedByMethod;
+            this.declaredByMethod = declaredByMethod;
+            this.varianceByMethod = varianceByMethod;
+            this.totalSales = totalSales;
+            this.totalRefunds = totalRefunds;
+            this.totalCashInflows = totalCashInflows;
+            this.totalCashOutflows = totalCashOutflows;
+        }
     }
 }

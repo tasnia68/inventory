@@ -346,14 +346,14 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Build promotion and coupon management UI/API support
 
 ### 8.5.4 Payment, Cash Control & POS Settlement
-- [ ] Implement split tender support (cash, card, transfer, wallet, mixed)
-- [ ] Create cash drawer session reconciliation and over/short tracking
-- [ ] Build end-of-shift and end-of-day settlement workflow
-- [ ] Add suspended sale / hold cart / resume cart functionality
-- [ ] Implement refund tender handling and settlement impact tracking
-- [ ] Create cash movement logging (pay-in, pay-out, petty cash, float adjustments)
-- [ ] Build cashier settlement summary and discrepancy reporting
-- [ ] Add POS settlement approval and audit controls
+- [x] Implement split tender support (cash, card, transfer, wallet, mixed)
+- [x] Create cash drawer session reconciliation and over/short tracking
+- [x] Build end-of-shift and end-of-day settlement workflow
+- [x] Add suspended sale / hold cart / resume cart functionality
+- [x] Implement refund tender handling and settlement impact tracking
+- [x] Create cash movement logging (pay-in, pay-out, petty cash, float adjustments)
+- [x] Build cashier settlement summary and discrepancy reporting
+- [x] Add POS settlement approval and audit controls
 
 ### 8.5.5 Inventory Status Model & Disposition Control
 - [ ] Extend stock model to support statuses such as available, reserved, damaged, quarantine, expired, blocked, and in-transit

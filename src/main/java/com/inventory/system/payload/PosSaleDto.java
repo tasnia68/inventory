@@ -40,5 +40,7 @@ public class PosSaleDto {
     private String currency;
     private String appliedCouponCodes;
     private String notes;
+    private UUID suspendedSaleId;
     private List<PosSaleItemDto> items;
+    private List<PosSalePaymentDto> payments;
 }

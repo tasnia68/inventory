@@ -26,8 +26,9 @@ public class CreatePosSaleRequest {
     @NotNull
     private UUID warehouseId;
 
-    @NotNull
     private PosPaymentMethod paymentMethod;
+
+    private UUID suspendedSaleId;
 
     @DecimalMin(value = "0.0")
     private BigDecimal discountAmount = BigDecimal.ZERO;
@@ -42,6 +43,9 @@ public class CreatePosSaleRequest {
     private String notes;
 
     private List<String> couponCodes = new ArrayList<>();
+
+    @Valid
+    private List<PosSalePaymentRequest> payments = new ArrayList<>();
 
     @Valid
     @NotEmpty

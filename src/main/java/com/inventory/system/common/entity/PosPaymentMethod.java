@@ -4,6 +4,7 @@ public enum PosPaymentMethod {
     CASH,
     CARD,
     TRANSFER,
+    WALLET,
     MIXED,
     OTHER
 }

@@ -41,6 +41,29 @@ public class PosShift extends BaseEntity {
     @Column(name = "opening_float", precision = 19, scale = 6)
     private BigDecimal openingFloat = BigDecimal.ZERO;
 
+    @Column(name = "expected_cash_amount", precision = 19, scale = 6)
+    private BigDecimal expectedCashAmount = BigDecimal.ZERO;
+
+    @Column(name = "declared_cash_amount", precision = 19, scale = 6)
+    private BigDecimal declaredCashAmount = BigDecimal.ZERO;
+
+    @Column(name = "over_short_amount", precision = 19, scale = 6)
+    private BigDecimal overShortAmount = BigDecimal.ZERO;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "settlement_approval_status", nullable = false)
+    private PosSettlementApprovalStatus settlementApprovalStatus = PosSettlementApprovalStatus.NOT_REQUIRED;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "settlement_approved_by")
+    private User settlementApprovedBy;
+
+    @Column(name = "settlement_approved_at")
+    private LocalDateTime settlementApprovedAt;
+
+    @Column(name = "settlement_approval_notes", columnDefinition = "TEXT")
+    private String settlementApprovalNotes;
+
     @Column(name = "closing_notes", columnDefinition = "TEXT")
     private String closingNotes;
 }

@@ -7,7 +7,11 @@ import com.inventory.system.common.entity.DamageDispositionType;
 import com.inventory.system.common.entity.DamageReasonCode;
 import com.inventory.system.common.entity.DamageRecordSourceType;
 import com.inventory.system.common.entity.PosPaymentMethod;
+import com.inventory.system.common.entity.PosRefundSettlementImpact;
 import com.inventory.system.common.entity.PosSale;
+import com.inventory.system.common.entity.PosShift;
+import com.inventory.system.common.entity.PosShiftStatus;
+import com.inventory.system.common.entity.PosTerminal;
 import com.inventory.system.common.entity.ProductVariant;
 import com.inventory.system.common.entity.RefundMethod;
 import com.inventory.system.common.entity.ReturnDisposition;
@@ -41,7 +45,10 @@ import com.inventory.system.payload.StockAdjustmentDto;
 import com.inventory.system.repository.BatchRepository;
 import com.inventory.system.repository.CustomerRepository;
 import com.inventory.system.repository.CustomerStoreCreditTransactionRepository;
+import com.inventory.system.repository.PosRefundSettlementImpactRepository;
 import com.inventory.system.repository.PosSaleRepository;
+import com.inventory.system.repository.PosShiftRepository;
+import com.inventory.system.repository.PosTerminalRepository;
 import com.inventory.system.repository.ProductVariantRepository;
 import com.inventory.system.repository.ReturnMerchandiseAuthorizationRepository;
 import com.inventory.system.repository.SalesOrderRepository;
@@ -90,6 +97,9 @@ public class SalesRefundServiceImpl implements SalesRefundService {
     private final SalesOrderRepository salesOrderRepository;
     private final ReturnMerchandiseAuthorizationRepository rmaRepository;
     private final PosSaleRepository posSaleRepository;
+    private final PosShiftRepository posShiftRepository;
+    private final PosTerminalRepository posTerminalRepository;
+    private final PosRefundSettlementImpactRepository posRefundSettlementImpactRepository;
     private final WarehouseRepository warehouseRepository;
     private final ProductVariantRepository productVariantRepository;
     private final CustomerRepository customerRepository;
@@ -271,6 +281,7 @@ public class SalesRefundServiceImpl implements SalesRefundService {
         refund.setStoreCreditIssued(storeCreditIssued);
         refund.setStatus(SalesRefundStatus.COMPLETED);
         refund.setCompletedAt(LocalDateTime.now());
+        recordSettlementImpact(refund, request);
         addAuditEntry(refund, SalesRefundAuditAction.COMPLETED, SalesRefundStatus.APPROVED, SalesRefundStatus.COMPLETED,
                 request == null ? null : request.getNotes());
 
@@ -472,6 +483,76 @@ public class SalesRefundServiceImpl implements SalesRefundService {
         if (posSale.getPaymentMethod() == PosPaymentMethod.MIXED || posSale.getPaymentMethod() == PosPaymentMethod.OTHER) {
             throw new BadRequestException("Original payment refund is not supported for mixed or unsupported payment methods");
         }
+    }
+
+    private void recordSettlementImpact(SalesRefund refund, RefundStatusDecisionRequest request) {
+        if (refund.getNetRefundAmount() == null || refund.getNetRefundAmount().compareTo(ZERO) <= 0) {
+            return;
+        }
+
+        PosPaymentMethod settlementMethod = resolveSettlementPaymentMethod(refund);
+        if (settlementMethod == null) {
+            return;
+        }
+
+        PosShift shift = resolveSettlementShift(refund, request);
+        PosTerminal terminal = resolveSettlementTerminal(refund, request, shift);
+        if (settlementMethod == PosPaymentMethod.CASH && shift == null) {
+            throw new BadRequestException("Cash refunds require an active or explicit POS shift for settlement tracking");
+        }
+
+        PosRefundSettlementImpact impact = new PosRefundSettlementImpact();
+        impact.setSalesRefund(refund);
+        impact.setShift(shift);
+        impact.setTerminal(terminal);
+        impact.setPaymentMethod(settlementMethod);
+        impact.setAmount(refund.getNetRefundAmount());
+        impact.setOccurredAt(LocalDateTime.now());
+        impact.setReferenceNumber(refund.getRefundNumber());
+        impact.setNotes(request == null ? null : request.getNotes());
+        posRefundSettlementImpactRepository.save(impact);
+    }
+
+    private PosPaymentMethod resolveSettlementPaymentMethod(SalesRefund refund) {
+        RefundMethod refundMethod = refund.getRefundMethod();
+        if (refundMethod == RefundMethod.STORE_CREDIT) {
+            return null;
+        }
+        if (refundMethod == RefundMethod.ORIGINAL_PAYMENT_METHOD) {
+            return refund.getOriginalPaymentMethod();
+        }
+        return switch (refundMethod) {
+            case CASH -> PosPaymentMethod.CASH;
+            case CARD -> PosPaymentMethod.CARD;
+            case TRANSFER -> PosPaymentMethod.TRANSFER;
+            case OTHER -> PosPaymentMethod.OTHER;
+            default -> null;
+        };
+    }
+
+    private PosShift resolveSettlementShift(SalesRefund refund, RefundStatusDecisionRequest request) {
+        if (request != null && request.getShiftId() != null) {
+            return posShiftRepository.findById(request.getShiftId())
+                    .orElseThrow(() -> new ResourceNotFoundException("POS shift not found with ID: " + request.getShiftId()));
+        }
+
+        PosTerminal terminal = resolveSettlementTerminal(refund, request, null);
+        if (terminal == null) {
+            return null;
+        }
+        return posShiftRepository.findFirstByTerminalIdAndStatusOrderByOpenedAtDesc(terminal.getId(), PosShiftStatus.OPEN)
+                .orElse(null);
+    }
+
+    private PosTerminal resolveSettlementTerminal(SalesRefund refund, RefundStatusDecisionRequest request, PosShift shift) {
+        if (shift != null) {
+            return shift.getTerminal();
+        }
+        if (request != null && request.getTerminalId() != null) {
+            return posTerminalRepository.findById(request.getTerminalId())
+                    .orElseThrow(() -> new ResourceNotFoundException("POS terminal not found with ID: " + request.getTerminalId()));
+        }
+        return refund.getPosSale() == null ? null : refund.getPosSale().getTerminal();
     }
 
     private Warehouse resolveWarehouse(UUID warehouseId, SalesOrder salesOrder) {

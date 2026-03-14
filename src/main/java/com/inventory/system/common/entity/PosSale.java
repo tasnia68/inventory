@@ -104,6 +104,13 @@ public class PosSale extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "suspended_sale_id")
+    private PosSuspendedSale suspendedSale;
+
     @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PosSaleItem> items = new ArrayList<>();
+
+    @OneToMany(mappedBy = "sale", cascade = CascadeType.ALL, orphanRemoval = true)
+    private List<PosSalePayment> payments = new ArrayList<>();
 }

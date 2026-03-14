@@ -3,13 +3,20 @@ package com.inventory.system.controller;
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.ClosePosShiftRequest;
 import com.inventory.system.payload.CreatePosSaleRequest;
+import com.inventory.system.payload.CreateSuspendedPosSaleRequest;
 import com.inventory.system.payload.CreatePosShiftRequest;
 import com.inventory.system.payload.CreatePosTerminalRequest;
 import com.inventory.system.payload.PosBootstrapDto;
+import com.inventory.system.payload.PosCashMovementDto;
+import com.inventory.system.payload.PosCashMovementRequest;
 import com.inventory.system.payload.PosCatalogItemDto;
+import com.inventory.system.payload.PosDailySettlementDto;
 import com.inventory.system.payload.PosKpiDto;
 import com.inventory.system.payload.PosSaleDto;
 import com.inventory.system.payload.PosShiftDto;
+import com.inventory.system.payload.PosShiftSettlementDto;
+import com.inventory.system.payload.PosSettlementApprovalRequest;
+import com.inventory.system.payload.PosSuspendedSaleDto;
 import com.inventory.system.payload.PosTerminalDto;
 import com.inventory.system.payload.UpdatePosTerminalStatusRequest;
 import com.inventory.system.service.PosService;
@@ -94,9 +101,60 @@ public class PosController {
         return ResponseEntity.ok(ApiResponse.success(posService.getCurrentShift(terminalId), "POS shift retrieved successfully"));
     }
 
+    @PostMapping("/shifts/{shiftId}/cash-movements")
+    public ResponseEntity<ApiResponse<PosCashMovementDto>> recordCashMovement(
+            @PathVariable UUID shiftId,
+            @Valid @RequestBody PosCashMovementRequest request) {
+        return new ResponseEntity<>(ApiResponse.success(posService.recordCashMovement(shiftId, request), "POS cash movement recorded successfully"), HttpStatus.CREATED);
+    }
+
+    @GetMapping("/shifts/{shiftId}/cash-movements")
+    public ResponseEntity<ApiResponse<List<PosCashMovementDto>>> getCashMovements(@PathVariable UUID shiftId) {
+        return ResponseEntity.ok(ApiResponse.success(posService.getCashMovements(shiftId), "POS cash movements retrieved successfully"));
+    }
+
+    @GetMapping("/shifts/{shiftId}/settlement")
+    public ResponseEntity<ApiResponse<PosShiftSettlementDto>> getShiftSettlement(@PathVariable UUID shiftId) {
+        return ResponseEntity.ok(ApiResponse.success(posService.getShiftSettlement(shiftId), "POS shift settlement retrieved successfully"));
+    }
+
+    @PostMapping("/shifts/{shiftId}/settlement-approval")
+    public ResponseEntity<ApiResponse<PosShiftSettlementDto>> approveShiftSettlement(
+            @PathVariable UUID shiftId,
+            @Valid @RequestBody PosSettlementApprovalRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(posService.approveShiftSettlement(shiftId, request), "POS shift settlement decision recorded successfully"));
+    }
+
+    @GetMapping("/settlement/daily")
+    public ResponseEntity<ApiResponse<PosDailySettlementDto>> getDailySettlement(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate businessDate,
+            @RequestParam(required = false) UUID terminalId) {
+        return ResponseEntity.ok(ApiResponse.success(posService.getDailySettlement(businessDate, terminalId), "POS daily settlement retrieved successfully"));
+    }
+
     @PostMapping("/sales")
     public ResponseEntity<ApiResponse<PosSaleDto>> createSale(@Valid @RequestBody CreatePosSaleRequest request) {
         return new ResponseEntity<>(ApiResponse.success(posService.createSale(request, false), "POS sale recorded successfully"), HttpStatus.CREATED);
+    }
+
+    @PostMapping("/suspended-sales")
+    public ResponseEntity<ApiResponse<PosSuspendedSaleDto>> suspendSale(@Valid @RequestBody CreateSuspendedPosSaleRequest request) {
+        return new ResponseEntity<>(ApiResponse.success(posService.suspendSale(request), "POS sale suspended successfully"), HttpStatus.CREATED);
+    }
+
+    @GetMapping("/suspended-sales")
+    public ResponseEntity<ApiResponse<List<PosSuspendedSaleDto>>> getSuspendedSales(@RequestParam UUID terminalId) {
+        return ResponseEntity.ok(ApiResponse.success(posService.getSuspendedSales(terminalId), "Suspended POS sales retrieved successfully"));
+    }
+
+    @PostMapping("/suspended-sales/{suspendedSaleId}/resume")
+    public ResponseEntity<ApiResponse<PosSuspendedSaleDto>> resumeSuspendedSale(@PathVariable UUID suspendedSaleId) {
+        return ResponseEntity.ok(ApiResponse.success(posService.resumeSuspendedSale(suspendedSaleId), "Suspended POS sale retrieved successfully"));
+    }
+
+    @PostMapping("/suspended-sales/{suspendedSaleId}/cancel")
+    public ResponseEntity<ApiResponse<PosSuspendedSaleDto>> cancelSuspendedSale(@PathVariable UUID suspendedSaleId) {
+        return ResponseEntity.ok(ApiResponse.success(posService.cancelSuspendedSale(suspendedSaleId), "Suspended POS sale cancelled successfully"));
     }
 
     @PostMapping("/sales/offline-sync")

@@ -1,6 +1,7 @@
 package com.inventory.system.payload;
 
 import com.inventory.system.common.entity.PosShiftStatus;
+import com.inventory.system.common.entity.PosSettlementApprovalStatus;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -18,5 +19,12 @@ public class PosShiftDto {
     private LocalDateTime openedAt;
     private LocalDateTime closedAt;
     private BigDecimal openingFloat;
+    private BigDecimal expectedCashAmount;
+    private BigDecimal declaredCashAmount;
+    private BigDecimal overShortAmount;
+    private PosSettlementApprovalStatus settlementApprovalStatus;
+    private LocalDateTime settlementApprovedAt;
+    private UUID settlementApprovedBy;
+    private String settlementApprovedByName;
     private String closingNotes;
 }

@@ -49,7 +49,10 @@ public class BootstrapDataLoader implements CommandLineRunner {
             "MENU:SALES",
             "MENU:ANALYTICS",
             "MENU:SETTINGS",
-            "POS:MANUAL_DISCOUNT_OVERRIDE");
+            "POS:MANUAL_DISCOUNT_OVERRIDE",
+            "POS:CASH_CONTROL",
+            "POS:SUSPEND_SALE",
+            "POS:SETTLEMENT_APPROVE");
 
     @Override
     public void run(String... args) throws Exception {
