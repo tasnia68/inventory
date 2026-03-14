@@ -1,0 +1,60 @@
+spring:
+  config:
+    activate:
+      on-profile: deploy
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: false
+    show-sql: false
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+  mail:
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:25}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: ${MAIL_SMTP_AUTH:false}
+          starttls:
+            enable: ${MAIL_SMTP_STARTTLS_ENABLE:false}
+
+app:
+  bootstrap:
+    admin:
+      email: ${APP_BOOTSTRAP_ADMIN_EMAIL:admin@example.com}
+      password: ${APP_BOOTSTRAP_ADMIN_PASSWORD:ChangeMe123!}
+      firstName: ${APP_BOOTSTRAP_ADMIN_FIRSTNAME:System}
+      lastName: ${APP_BOOTSTRAP_ADMIN_LASTNAME:Admin}
+      tenantId: ${APP_BOOTSTRAP_ADMIN_TENANTID:default-tenant}
+  mail:
+    from: ${APP_MAIL_FROM:noreply@inventory-system.com}
+
+logging:
+  level:
+    root: INFO
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    com.inventory.system: INFO
+
+debug: false
+
+server:
+  port: ${SERVER_PORT:8080}
+
+minio:
+  url: ${MINIO_URL}
+  access-key: ${MINIO_ACCESS_KEY}
+  secret-key: ${MINIO_SECRET_KEY}
+  bucket: ${MINIO_BUCKET:inventory-products}
