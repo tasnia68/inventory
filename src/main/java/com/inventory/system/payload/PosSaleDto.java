@@ -38,6 +38,7 @@ public class PosSaleDto {
     private BigDecimal tenderedAmount;
     private BigDecimal changeAmount;
     private String currency;
+    private String appliedCouponCodes;
     private String notes;
     private List<PosSaleItemDto> items;
 }

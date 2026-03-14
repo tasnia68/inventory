@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -26,6 +27,8 @@ public class SalesOrderRequest {
     private String currency;
 
     private String notes;
+
+    private List<String> couponCodes = new ArrayList<>();
 
     @NotEmpty(message = "Items list cannot be empty")
     @Valid

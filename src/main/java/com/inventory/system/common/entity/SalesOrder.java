@@ -53,6 +53,19 @@ public class SalesOrder extends BaseEntity {
     @Column(name = "total_amount", nullable = false)
     private BigDecimal totalAmount;
 
+    @Column(name = "subtotal_amount", precision = 19, scale = 6)
+    private BigDecimal subtotalAmount = BigDecimal.ZERO;
+
+    @Column(name = "discount_amount", precision = 19, scale = 6)
+    private BigDecimal discountAmount = BigDecimal.ZERO;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "sales_channel")
+    private SalesChannel salesChannel = SalesChannel.SALES_ORDER;
+
+    @Column(name = "applied_coupon_codes", columnDefinition = "TEXT")
+    private String appliedCouponCodes;
+
     @Column(name = "currency", length = 3)
     private String currency;
 

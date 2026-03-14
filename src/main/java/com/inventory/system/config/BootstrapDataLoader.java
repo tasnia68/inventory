@@ -48,7 +48,8 @@ public class BootstrapDataLoader implements CommandLineRunner {
             "MENU:PROCUREMENT",
             "MENU:SALES",
             "MENU:ANALYTICS",
-            "MENU:SETTINGS");
+            "MENU:SETTINGS",
+            "POS:MANUAL_DISCOUNT_OVERRIDE");
 
     @Override
     public void run(String... args) throws Exception {

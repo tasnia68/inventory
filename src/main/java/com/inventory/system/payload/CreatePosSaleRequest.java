@@ -8,6 +8,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
@@ -39,6 +40,8 @@ public class CreatePosSaleRequest {
 
     private String currency;
     private String notes;
+
+    private List<String> couponCodes = new ArrayList<>();
 
     @Valid
     @NotEmpty

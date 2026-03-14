@@ -336,14 +336,14 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Build refund and exchange audit trail with approval support
 
 ### 8.5.3 Promotions, Coupons & Pricing Rules
-- [ ] Create promotion and coupon entities with validity period, scope, and status
-- [ ] Implement fixed amount, percentage, bundle, and buy-X-get-Y discount rules
-- [ ] Build coupon code validation and redemption tracking
-- [ ] Add pricing rule engine for customer group, channel, warehouse, and terminal overrides
-- [ ] Implement discount stacking and exclusion rules
-- [ ] Create cashier override permissions for manual discounting
-- [ ] Add promotion usage analytics and abuse monitoring
-- [ ] Build promotion and coupon management UI/API support
+- [x] Create promotion and coupon entities with validity period, scope, and status
+- [x] Implement fixed amount, percentage, bundle, and buy-X-get-Y discount rules
+- [x] Build coupon code validation and redemption tracking
+- [x] Add pricing rule engine for customer group, channel, warehouse, and terminal overrides
+- [x] Implement discount stacking and exclusion rules
+- [x] Create cashier override permissions for manual discounting
+- [x] Add promotion usage analytics and abuse monitoring
+- [x] Build promotion and coupon management UI/API support
 
 ### 8.5.4 Payment, Cash Control & POS Settlement
 - [ ] Implement split tender support (cash, card, transfer, wallet, mixed)

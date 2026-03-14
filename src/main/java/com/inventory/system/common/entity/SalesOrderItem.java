@@ -28,8 +28,17 @@ public class SalesOrderItem extends BaseEntity {
     @Column(nullable = false, precision = 19, scale = 6)
     private BigDecimal quantity;
 
+    @Column(name = "base_unit_price", precision = 19, scale = 6)
+    private BigDecimal baseUnitPrice;
+
     @Column(name = "unit_price", nullable = false)
     private BigDecimal unitPrice;
+
+    @Column(name = "line_discount", precision = 19, scale = 6)
+    private BigDecimal lineDiscount = BigDecimal.ZERO;
+
+    @Column(name = "applied_promotion_codes", columnDefinition = "TEXT")
+    private String appliedPromotionCodes;
 
     @Column(name = "total_price", nullable = false)
     private BigDecimal totalPrice;

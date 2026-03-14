@@ -12,7 +12,10 @@ public class SalesOrderItemDto {
     private String productVariantName;
     private String sku;
     private BigDecimal quantity;
+    private BigDecimal baseUnitPrice;
     private BigDecimal unitPrice;
+    private BigDecimal lineDiscount;
+    private String appliedPromotionCodes;
     private BigDecimal totalPrice;
     private BigDecimal shippedQuantity;
 }

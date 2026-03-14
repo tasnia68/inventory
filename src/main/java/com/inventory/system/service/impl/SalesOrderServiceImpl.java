@@ -5,6 +5,9 @@ import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.*;
 import com.inventory.system.repository.*;
+import com.inventory.system.service.PricingEngineService;
+import com.inventory.system.service.PricingEvaluation;
+import com.inventory.system.service.PricingEvaluationLine;
 import com.inventory.system.service.SalesOrderService;
 import com.inventory.system.service.StockReservationService;
 import lombok.RequiredArgsConstructor;
@@ -32,6 +35,8 @@ public class SalesOrderServiceImpl implements SalesOrderService {
     private final ProductVariantRepository productVariantRepository;
     private final StockReservationService stockReservationService;
     private final WarehouseRepository warehouseRepository;
+    private final PricingEngineService pricingEngineService;
+    private final PromotionRedemptionRepository promotionRedemptionRepository;
 
     @Override
     @Transactional
@@ -54,6 +59,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         salesOrder.setStatus(SalesOrderStatus.DRAFT);
         salesOrder.setPriority(request.getPriority() != null ? request.getPriority() : OrderPriority.MEDIUM);
         salesOrder.setSoNumber(generateSoNumber());
+        salesOrder.setSalesChannel(SalesChannel.SALES_ORDER);
 
         Set<UUID> variantIds = request.getItems().stream()
                 .map(SalesOrderItemRequest::getProductVariantId)
@@ -66,28 +72,37 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             throw new BadRequestException("Some product variants not found");
         }
 
+        PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, request);
+        Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(pricingEvaluation);
+
         List<SalesOrderItem> items = new ArrayList<>();
-        BigDecimal totalAmount = BigDecimal.ZERO;
 
         for (SalesOrderItemRequest itemRequest : request.getItems()) {
             ProductVariant productVariant = variantMap.get(itemRequest.getProductVariantId());
+            PricingEvaluationLine pricedLine = popPricedLine(pricedLines, productVariant.getId());
 
             SalesOrderItem item = new SalesOrderItem();
             item.setSalesOrder(salesOrder);
             item.setProductVariant(productVariant);
             item.setQuantity(itemRequest.getQuantity());
-            item.setUnitPrice(itemRequest.getUnitPrice());
-            item.setTotalPrice(itemRequest.getUnitPrice().multiply(itemRequest.getQuantity()));
+            item.setBaseUnitPrice(pricedLine.getBaseUnitPrice());
+            item.setUnitPrice(pricedLine.getFinalUnitPrice());
+            item.setLineDiscount(pricedLine.getLineDiscountAmount());
+            item.setAppliedPromotionCodes(String.join(", ", pricedLine.getAppliedPromotionCodes()));
+            item.setTotalPrice(pricedLine.getLineTotalAmount());
             item.setShippedQuantity(BigDecimal.ZERO);
 
             items.add(item);
-            totalAmount = totalAmount.add(item.getTotalPrice());
         }
 
         salesOrder.setItems(items);
-        salesOrder.setTotalAmount(totalAmount);
+        salesOrder.setSubtotalAmount(pricingEvaluation.getBaseSubtotal());
+        salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
+        salesOrder.setTotalAmount(pricingEvaluation.getNetSubtotal());
+        salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
 
         SalesOrder savedSo = salesOrderRepository.save(salesOrder);
+        pricingEngineService.recordRedemptions(pricingEvaluation, savedSo, null, customer, SalesChannel.SALES_ORDER, savedSo.getSoNumber());
         return mapToDto(savedSo);
     }
 
@@ -152,6 +167,8 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         validateCustomerEligibility(customer);
         salesOrder.setCustomer(customer);
 
+        promotionRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+
         Warehouse warehouse = warehouseRepository.findById(request.getWarehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with ID: " + request.getWarehouseId()));
         salesOrder.setWarehouse(warehouse);
@@ -175,23 +192,34 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             throw new BadRequestException("Some product variants not found");
         }
 
+        PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, request);
+        Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(pricingEvaluation);
+
         for (SalesOrderItemRequest itemRequest : request.getItems()) {
             ProductVariant productVariant = variantMap.get(itemRequest.getProductVariantId());
+            PricingEvaluationLine pricedLine = popPricedLine(pricedLines, productVariant.getId());
 
             SalesOrderItem item = new SalesOrderItem();
             item.setSalesOrder(salesOrder);
             item.setProductVariant(productVariant);
             item.setQuantity(itemRequest.getQuantity());
-            item.setUnitPrice(itemRequest.getUnitPrice());
-            item.setTotalPrice(itemRequest.getUnitPrice().multiply(itemRequest.getQuantity()));
+            item.setBaseUnitPrice(pricedLine.getBaseUnitPrice());
+            item.setUnitPrice(pricedLine.getFinalUnitPrice());
+            item.setLineDiscount(pricedLine.getLineDiscountAmount());
+            item.setAppliedPromotionCodes(String.join(", ", pricedLine.getAppliedPromotionCodes()));
+            item.setTotalPrice(pricedLine.getLineTotalAmount());
             item.setShippedQuantity(BigDecimal.ZERO);
 
             salesOrder.getItems().add(item);
-            totalAmount = totalAmount.add(item.getTotalPrice());
         }
-        salesOrder.setTotalAmount(totalAmount);
+        salesOrder.setSalesChannel(SalesChannel.SALES_ORDER);
+        salesOrder.setSubtotalAmount(pricingEvaluation.getBaseSubtotal());
+        salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
+        salesOrder.setTotalAmount(pricingEvaluation.getNetSubtotal());
+        salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
 
         SalesOrder savedSo = salesOrderRepository.save(salesOrder);
+        pricingEngineService.recordRedemptions(pricingEvaluation, savedSo, null, customer, SalesChannel.SALES_ORDER, savedSo.getSoNumber());
         return mapToDto(savedSo);
     }
 
@@ -265,6 +293,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         }
 
         stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
+        promotionRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
 
         salesOrder.setStatus(SalesOrderStatus.CANCELLED);
         salesOrderRepository.save(salesOrder);
@@ -386,7 +415,11 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         dto.setExpectedDeliveryDate(so.getExpectedDeliveryDate());
         dto.setStatus(so.getStatus());
         dto.setPriority(so.getPriority());
+        dto.setSubtotalAmount(so.getSubtotalAmount());
+        dto.setDiscountAmount(so.getDiscountAmount());
         dto.setTotalAmount(so.getTotalAmount());
+        dto.setSalesChannel(so.getSalesChannel());
+        dto.setAppliedCouponCodes(so.getAppliedCouponCodes());
         dto.setCurrency(so.getCurrency());
         dto.setNotes(so.getNotes());
         dto.setCreatedAt(so.getCreatedAt());
@@ -401,7 +434,10 @@ public class SalesOrderServiceImpl implements SalesOrderService {
             itemDto.setProductVariantName(item.getProductVariant().getSku());
             itemDto.setSku(item.getProductVariant().getSku());
             itemDto.setQuantity(item.getQuantity());
+            itemDto.setBaseUnitPrice(item.getBaseUnitPrice());
             itemDto.setUnitPrice(item.getUnitPrice());
+            itemDto.setLineDiscount(item.getLineDiscount());
+            itemDto.setAppliedPromotionCodes(item.getAppliedPromotionCodes());
             itemDto.setTotalPrice(item.getTotalPrice());
             itemDto.setShippedQuantity(item.getShippedQuantity());
             return itemDto;
@@ -409,5 +445,21 @@ public class SalesOrderServiceImpl implements SalesOrderService {
 
         dto.setItems(itemDtos);
         return dto;
+    }
+
+    private Map<UUID, Deque<PricingEvaluationLine>> buildLineQueues(PricingEvaluation evaluation) {
+        Map<UUID, Deque<PricingEvaluationLine>> lines = new HashMap<>();
+        for (PricingEvaluationLine line : evaluation.getLines()) {
+            lines.computeIfAbsent(line.getProductVariant().getId(), ignored -> new ArrayDeque<>()).add(line);
+        }
+        return lines;
+    }
+
+    private PricingEvaluationLine popPricedLine(Map<UUID, Deque<PricingEvaluationLine>> linesByVariant, UUID productVariantId) {
+        Deque<PricingEvaluationLine> lines = linesByVariant.get(productVariantId);
+        if (lines == null || lines.isEmpty()) {
+            throw new BadRequestException("Unable to resolve pricing line for product variant: " + productVariantId);
+        }
+        return lines.removeFirst();
     }
 }

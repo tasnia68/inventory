@@ -98,6 +98,9 @@ public class PosSale extends BaseEntity {
     @Column(length = 3)
     private String currency;
 
+    @Column(name = "applied_coupon_codes", columnDefinition = "TEXT")
+    private String appliedCouponCodes;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 

@@ -1,6 +1,7 @@
 package com.inventory.system.payload;
 
 import com.inventory.system.common.entity.OrderPriority;
+import com.inventory.system.common.entity.SalesChannel;
 import com.inventory.system.common.entity.SalesOrderStatus;
 import lombok.Data;
 
@@ -22,7 +23,11 @@ public class SalesOrderDto {
     private LocalDate expectedDeliveryDate;
     private SalesOrderStatus status;
     private OrderPriority priority;
+    private BigDecimal subtotalAmount;
+    private BigDecimal discountAmount;
     private BigDecimal totalAmount;
+    private SalesChannel salesChannel;
+    private String appliedCouponCodes;
     private String currency;
     private String notes;
     private List<SalesOrderItemDto> items;

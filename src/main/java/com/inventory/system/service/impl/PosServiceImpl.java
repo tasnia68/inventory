@@ -1,27 +1,6 @@
 package com.inventory.system.service.impl;
 
-import com.inventory.system.common.entity.Category;
-import com.inventory.system.common.entity.Customer;
-import com.inventory.system.common.entity.CustomerCategory;
-import com.inventory.system.common.entity.CustomerStatus;
-import com.inventory.system.common.entity.OrderPriority;
-import com.inventory.system.common.entity.PosPaymentMethod;
-import com.inventory.system.common.entity.PosSale;
-import com.inventory.system.common.entity.PosSaleItem;
-import com.inventory.system.common.entity.PosShift;
-import com.inventory.system.common.entity.PosShiftStatus;
-import com.inventory.system.common.entity.PosSyncStatus;
-import com.inventory.system.common.entity.PosTerminal;
-import com.inventory.system.common.entity.ProductVariant;
-import com.inventory.system.common.entity.SalesOrder;
-import com.inventory.system.common.entity.SalesOrderItem;
-import com.inventory.system.common.entity.SalesOrderStatus;
-import com.inventory.system.common.entity.StockMovement;
-import com.inventory.system.common.entity.StockTransaction;
-import com.inventory.system.common.entity.StockTransactionItem;
-import com.inventory.system.common.entity.StockTransactionType;
-import com.inventory.system.common.entity.User;
-import com.inventory.system.common.entity.Warehouse;
+import com.inventory.system.common.entity.*;
 import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.config.tenant.TenantContext;
@@ -54,6 +33,9 @@ import com.inventory.system.repository.StockTransactionRepository;
 import com.inventory.system.repository.UserRepository;
 import com.inventory.system.repository.WarehouseRepository;
 import com.inventory.system.service.PosService;
+import com.inventory.system.service.PricingEngineService;
+import com.inventory.system.service.PricingEvaluation;
+import com.inventory.system.service.PricingEvaluationLine;
 import com.inventory.system.service.StockService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -70,8 +52,12 @@ import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -95,6 +81,7 @@ public class PosServiceImpl implements PosService {
     private final UserRepository userRepository;
     private final SalesOrderRepository salesOrderRepository;
     private final StockService stockService;
+    private final PricingEngineService pricingEngineService;
 
     @Override
     @Transactional(readOnly = true)
@@ -296,6 +283,8 @@ public class PosServiceImpl implements PosService {
         User cashier = getCurrentUser();
         PosShift shift = resolveShift(request.getShiftId(), terminal, cashier);
         Customer customer = resolveCustomer(request.getCustomerId());
+        PricingEvaluation pricingEvaluation = pricingEngineService.evaluatePosSale(customer, warehouse, terminal, request, hasManualDiscountOverridePermission());
+        Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(pricingEvaluation);
 
         Set<UUID> variantIds = request.getItems().stream().map(PosSaleItemRequest::getProductVariantId).collect(Collectors.toSet());
         List<ProductVariant> variants = productVariantRepository.findAllById(variantIds);
@@ -307,7 +296,6 @@ public class PosServiceImpl implements PosService {
         List<PosSaleItem> saleItems = new ArrayList<>();
         List<StockTransactionItem> stockTransactionItems = new ArrayList<>();
         List<SalesOrderItem> salesOrderItems = new ArrayList<>();
-        BigDecimal subtotal = ZERO;
         String receiptNumber = generateReceiptNumber();
 
         SalesOrder salesOrder = new SalesOrder();
@@ -319,19 +307,19 @@ public class PosServiceImpl implements PosService {
         salesOrder.setPriority(OrderPriority.MEDIUM);
         salesOrder.setCurrency(defaultCurrency(request.getCurrency()));
         salesOrder.setNotes(buildSalesOrderNotes(request, terminal, shift));
+        salesOrder.setSalesChannel(SalesChannel.POS);
+        salesOrder.setSubtotalAmount(pricingEvaluation.getBaseSubtotal());
+        salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
+        salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
 
         for (PosSaleItemRequest itemRequest : request.getItems()) {
             ProductVariant variant = variantMap.get(itemRequest.getProductVariantId());
+            PricingEvaluationLine pricedLine = popPricedLine(pricedLines, variant.getId());
             BigDecimal quantity = scale(itemRequest.getQuantity());
-            BigDecimal unitPrice = scale(itemRequest.getUnitPrice());
-            BigDecimal lineDiscount = scale(itemRequest.getLineDiscount());
             BigDecimal onHand = stockRepository.countTotalQuantityByProductVariantAndWarehouse(variant.getId(), warehouse.getId());
             if (onHand == null || onHand.compareTo(quantity) < 0) {
                 throw new BadRequestException("Insufficient stock for variant " + variant.getSku());
             }
-
-            BigDecimal lineTotal = unitPrice.multiply(quantity).subtract(lineDiscount).setScale(6, RoundingMode.HALF_UP);
-            subtotal = subtotal.add(lineTotal);
 
             PosSaleItem saleItem = new PosSaleItem();
             saleItem.setProductVariant(variant);
@@ -339,9 +327,9 @@ public class PosServiceImpl implements PosService {
             saleItem.setBarcodeSnapshot(variant.getBarcode());
             saleItem.setDescriptionSnapshot(buildVariantDescription(variant));
             saleItem.setQuantity(quantity);
-            saleItem.setUnitPrice(unitPrice);
-            saleItem.setLineDiscount(lineDiscount);
-            saleItem.setLineTotal(lineTotal);
+            saleItem.setUnitPrice(pricedLine.getBaseUnitPrice());
+            saleItem.setLineDiscount(pricedLine.getLineDiscountAmount());
+            saleItem.setLineTotal(pricedLine.getLineTotalAmount());
             saleItems.add(saleItem);
 
             StockTransactionItem stockTransactionItem = new StockTransactionItem();
@@ -353,15 +341,19 @@ public class PosServiceImpl implements PosService {
             orderItem.setSalesOrder(salesOrder);
             orderItem.setProductVariant(variant);
             orderItem.setQuantity(quantity);
-            orderItem.setUnitPrice(unitPrice);
-            orderItem.setTotalPrice(lineTotal);
+            orderItem.setBaseUnitPrice(pricedLine.getBaseUnitPrice());
+            orderItem.setUnitPrice(pricedLine.getFinalUnitPrice());
+            orderItem.setLineDiscount(pricedLine.getLineDiscountAmount());
+            orderItem.setAppliedPromotionCodes(String.join(", ", pricedLine.getAppliedPromotionCodes()));
+            orderItem.setTotalPrice(pricedLine.getLineTotalAmount());
             orderItem.setShippedQuantity(quantity);
             salesOrderItems.add(orderItem);
         }
 
-        BigDecimal discount = scale(request.getDiscountAmount());
         BigDecimal tax = scale(request.getTaxAmount());
-        BigDecimal total = subtotal.subtract(discount).add(tax).setScale(6, RoundingMode.HALF_UP);
+        BigDecimal subtotal = pricingEvaluation.getBaseSubtotal();
+        BigDecimal discount = pricingEvaluation.getTotalDiscount();
+        BigDecimal total = pricingEvaluation.getNetSubtotal().add(tax).setScale(6, RoundingMode.HALF_UP);
         BigDecimal tendered = scale(request.getTenderedAmount());
         BigDecimal change = tendered.subtract(total).max(BigDecimal.ZERO).setScale(6, RoundingMode.HALF_UP);
 
@@ -402,6 +394,7 @@ public class PosServiceImpl implements PosService {
         sale.setTenderedAmount(tendered);
         sale.setChangeAmount(change);
         sale.setCurrency(defaultCurrency(request.getCurrency()));
+        sale.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
         sale.setNotes(request.getNotes());
         sale.setSyncStatus(offlineSync ? PosSyncStatus.OFFLINE_SYNCED : PosSyncStatus.ONLINE);
 
@@ -423,8 +416,9 @@ public class PosServiceImpl implements PosService {
         }
         stockTransactionRepository.save(stockTransaction);
 
-        sale = posSaleRepository.save(sale);
-        return mapSale(sale);
+        PosSale savedSale = posSaleRepository.save(sale);
+        pricingEngineService.recordRedemptions(pricingEvaluation, salesOrder, savedSale, customer, SalesChannel.POS, savedSale.getReceiptNumber());
+        return mapSale(savedSale);
     }
 
     @Override
@@ -514,6 +508,11 @@ public class PosServiceImpl implements PosService {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
         return userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("Authenticated user not found"));
+    }
+
+    private boolean hasManualDiscountOverridePermission() {
+        return SecurityContextHolder.getContext().getAuthentication().getAuthorities().stream()
+                .anyMatch(authority -> "POS:MANUAL_DISCOUNT_OVERRIDE".equals(authority.getAuthority()));
     }
 
     private Customer resolveCustomer(UUID customerId) {
@@ -654,6 +653,7 @@ public class PosServiceImpl implements PosService {
         dto.setTenderedAmount(sale.getTenderedAmount());
         dto.setChangeAmount(sale.getChangeAmount());
         dto.setCurrency(sale.getCurrency());
+        dto.setAppliedCouponCodes(sale.getAppliedCouponCodes());
         dto.setNotes(sale.getNotes());
         dto.setItems(sale.getItems().stream().map(this::mapSaleItem).toList());
         return dto;
@@ -727,5 +727,21 @@ public class PosServiceImpl implements PosService {
     private String buildCashierName(User user) {
         String fullName = ((user.getFirstName() == null ? "" : user.getFirstName()) + " " + (user.getLastName() == null ? "" : user.getLastName())).trim();
         return fullName.isBlank() ? user.getEmail() : fullName;
+    }
+
+    private Map<UUID, Deque<PricingEvaluationLine>> buildLineQueues(PricingEvaluation evaluation) {
+        Map<UUID, Deque<PricingEvaluationLine>> lines = new HashMap<>();
+        for (PricingEvaluationLine line : evaluation.getLines()) {
+            lines.computeIfAbsent(line.getProductVariant().getId(), ignored -> new ArrayDeque<>()).add(line);
+        }
+        return lines;
+    }
+
+    private PricingEvaluationLine popPricedLine(Map<UUID, Deque<PricingEvaluationLine>> linesByVariant, UUID productVariantId) {
+        Deque<PricingEvaluationLine> lines = linesByVariant.get(productVariantId);
+        if (lines == null || lines.isEmpty()) {
+            throw new BadRequestException("Unable to resolve pricing line for product variant: " + productVariantId);
+        }
+        return lines.removeFirst();
     }
 }
