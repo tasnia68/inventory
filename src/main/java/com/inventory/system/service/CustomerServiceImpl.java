@@ -6,6 +6,7 @@ import com.inventory.system.common.entity.CustomerCategory;
 import com.inventory.system.common.entity.CustomerCreditTransaction;
 import com.inventory.system.common.entity.CustomerPriceList;
 import com.inventory.system.common.entity.CustomerStatus;
+import com.inventory.system.common.entity.CustomerStoreCreditTransaction;
 import com.inventory.system.common.entity.ProductVariant;
 import com.inventory.system.common.entity.SalesOrder;
 import com.inventory.system.common.exception.BadRequestException;
@@ -17,10 +18,12 @@ import com.inventory.system.payload.CustomerCreditTransactionDto;
 import com.inventory.system.payload.CustomerOrderHistoryDto;
 import com.inventory.system.payload.CustomerPriceListDto;
 import com.inventory.system.payload.CustomerPriceListRequest;
+import com.inventory.system.payload.StoreCreditTransactionDto;
 import com.inventory.system.payload.UpdateCustomerRequest;
 import com.inventory.system.repository.CustomerCreditTransactionRepository;
 import com.inventory.system.repository.CustomerPriceListRepository;
 import com.inventory.system.repository.CustomerRepository;
+import com.inventory.system.repository.CustomerStoreCreditTransactionRepository;
 import com.inventory.system.repository.ProductVariantRepository;
 import com.inventory.system.repository.SalesOrderRepository;
 import lombok.RequiredArgsConstructor;
@@ -46,6 +49,7 @@ public class CustomerServiceImpl implements CustomerService {
     private final ProductVariantRepository productVariantRepository;
     private final CustomerPriceListRepository customerPriceListRepository;
     private final CustomerCreditTransactionRepository customerCreditTransactionRepository;
+    private final CustomerStoreCreditTransactionRepository customerStoreCreditTransactionRepository;
     private final SalesOrderRepository salesOrderRepository;
 
     @Override
@@ -60,6 +64,7 @@ public class CustomerServiceImpl implements CustomerService {
         customer.setCreditLimit(request.getCreditLimit());
         customer.setCategory(request.getCategory() != null ? request.getCategory() : CustomerCategory.OTHER);
         customer.setOutstandingBalance(BigDecimal.ZERO);
+        customer.setStoreCreditBalance(BigDecimal.ZERO);
         if (request.getIsActive() != null) {
             customer.setIsActive(request.getIsActive());
         }
@@ -294,6 +299,17 @@ public class CustomerServiceImpl implements CustomerService {
 
     @Override
     @Transactional(readOnly = true)
+    public Page<StoreCreditTransactionDto> getStoreCreditTransactions(UUID customerId, int page, int size, String sortBy, String sortDirection) {
+        customerRepository.findById(customerId)
+                .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + customerId));
+
+        Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortBy);
+        Pageable pageable = PageRequest.of(page, size, sort);
+        return customerStoreCreditTransactionRepository.findByCustomerId(customerId, pageable).map(this::mapStoreCreditTxToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Page<CustomerOrderHistoryDto> getCustomerOrderHistory(UUID customerId, int page, int size, String sortBy, String sortDirection) {
         customerRepository.findById(customerId)
                 .orElseThrow(() -> new ResourceNotFoundException("Customer not found with id: " + customerId));
@@ -328,6 +344,7 @@ public class CustomerServiceImpl implements CustomerService {
         dto.setAddress(customer.getAddress());
         dto.setCreditLimit(customer.getCreditLimit());
         dto.setOutstandingBalance(customer.getOutstandingBalance() != null ? customer.getOutstandingBalance() : BigDecimal.ZERO);
+        dto.setStoreCreditBalance(customer.getStoreCreditBalance() != null ? customer.getStoreCreditBalance() : BigDecimal.ZERO);
         if (customer.getCreditLimit() != null) {
             dto.setAvailableCredit(customer.getCreditLimit().subtract(dto.getOutstandingBalance()));
         }
@@ -367,6 +384,24 @@ public class CustomerServiceImpl implements CustomerService {
         dto.setNotes(entity.getNotes());
         dto.setTransactionDate(entity.getTransactionDate());
         dto.setCreatedAt(entity.getCreatedAt());
+        return dto;
+    }
+
+    private StoreCreditTransactionDto mapStoreCreditTxToDto(CustomerStoreCreditTransaction entity) {
+        StoreCreditTransactionDto dto = new StoreCreditTransactionDto();
+        dto.setId(entity.getId());
+        dto.setCustomerId(entity.getCustomer().getId());
+        if (entity.getSalesRefund() != null) {
+            dto.setSalesRefundId(entity.getSalesRefund().getId());
+            dto.setRefundNumber(entity.getSalesRefund().getRefundNumber());
+        }
+        dto.setType(entity.getType());
+        dto.setAmount(entity.getAmount());
+        dto.setBalanceBefore(entity.getBalanceBefore());
+        dto.setBalanceAfter(entity.getBalanceAfter());
+        dto.setReferenceNumber(entity.getReferenceNumber());
+        dto.setNotes(entity.getNotes());
+        dto.setTransactionDate(entity.getTransactionDate());
         return dto;
     }
 

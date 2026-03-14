@@ -326,14 +326,14 @@ Building a multi-tenant, industry-agnostic inventory management system using Spr
 - [x] Build damage, quarantine, and write-off reporting
 
 ### 8.5.2 Refunds, Exchanges & Store Credit
-- [ ] Create sales refund entity and refund line model
-- [ ] Implement full and partial refund workflows
-- [ ] Build exchange workflow with replacement item and price difference handling
-- [ ] Create store credit / credit balance support per customer
-- [ ] Implement refund-to-original-payment-method rules where applicable
-- [ ] Add return disposition rules (return to stock, quarantine, scrap, supplier claim)
-- [ ] Create credit note / refund document generation
-- [ ] Build refund and exchange audit trail with approval support
+- [x] Create sales refund entity and refund line model
+- [x] Implement full and partial refund workflows
+- [x] Build exchange workflow with replacement item and price difference handling
+- [x] Create store credit / credit balance support per customer
+- [x] Implement refund-to-original-payment-method rules where applicable
+- [x] Add return disposition rules (return to stock, quarantine, scrap, supplier claim)
+- [x] Create credit note / refund document generation
+- [x] Build refund and exchange audit trail with approval support
 
 ### 8.5.3 Promotions, Coupons & Pricing Rules
 - [ ] Create promotion and coupon entities with validity period, scope, and status

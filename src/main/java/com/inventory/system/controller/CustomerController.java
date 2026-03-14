@@ -10,6 +10,7 @@ import com.inventory.system.payload.CustomerCreditTransactionDto;
 import com.inventory.system.payload.CustomerOrderHistoryDto;
 import com.inventory.system.payload.CustomerPriceListDto;
 import com.inventory.system.payload.CustomerPriceListRequest;
+import com.inventory.system.payload.StoreCreditTransactionDto;
 import com.inventory.system.payload.UpdateCustomerRequest;
 import com.inventory.system.service.CustomerService;
 import jakarta.validation.Valid;
@@ -123,6 +124,17 @@ public class CustomerController {
             @RequestParam(defaultValue = "desc") String sortDirection) {
         Page<CustomerCreditTransactionDto> data = customerService.getCreditTransactions(id, page, size, sortBy, sortDirection);
         return ResponseEntity.ok(new ApiResponse<>(true, "Customer credit transactions retrieved successfully", data));
+    }
+
+    @GetMapping("/{id}/store-credit/transactions")
+    public ResponseEntity<ApiResponse<Page<StoreCreditTransactionDto>>> getStoreCreditTransactions(
+            @PathVariable UUID id,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "transactionDate") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDirection) {
+        Page<StoreCreditTransactionDto> data = customerService.getStoreCreditTransactions(id, page, size, sortBy, sortDirection);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Customer store credit transactions retrieved successfully", data));
     }
 
     @GetMapping("/{id}/orders")

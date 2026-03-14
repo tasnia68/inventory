@@ -7,6 +7,7 @@ import com.inventory.system.payload.CustomerPriceListRequest;
 import com.inventory.system.payload.AdjustCustomerCreditRequest;
 import com.inventory.system.payload.CustomerCreditTransactionDto;
 import com.inventory.system.payload.CustomerOrderHistoryDto;
+import com.inventory.system.payload.StoreCreditTransactionDto;
 import com.inventory.system.payload.UpdateCustomerRequest;
 import com.inventory.system.common.entity.CustomerCategory;
 import com.inventory.system.common.entity.CustomerStatus;
@@ -30,6 +31,7 @@ public interface CustomerService {
 
     CustomerCreditTransactionDto adjustCredit(UUID customerId, AdjustCustomerCreditRequest request);
     Page<CustomerCreditTransactionDto> getCreditTransactions(UUID customerId, int page, int size, String sortBy, String sortDirection);
+    Page<StoreCreditTransactionDto> getStoreCreditTransactions(UUID customerId, int page, int size, String sortBy, String sortDirection);
 
     Page<CustomerOrderHistoryDto> getCustomerOrderHistory(UUID customerId, int page, int size, String sortBy, String sortDirection);
 }

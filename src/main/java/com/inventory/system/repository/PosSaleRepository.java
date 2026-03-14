@@ -15,6 +15,8 @@ import java.util.UUID;
 public interface PosSaleRepository extends JpaRepository<PosSale, UUID> {
     Optional<PosSale> findByClientSaleId(String clientSaleId);
 
+  Optional<PosSale> findFirstBySalesOrderIdOrderBySaleTimeDesc(UUID salesOrderId);
+
     Page<PosSale> findByCashierIdOrderBySaleTimeDesc(UUID cashierId, Pageable pageable);
 
     Page<PosSale> findByTerminalIdOrderBySaleTimeDesc(UUID terminalId, Pageable pageable);

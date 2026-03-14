@@ -40,6 +40,9 @@ public class Customer extends BaseEntity {
     @Column(name = "outstanding_balance", precision = 19, scale = 6)
     private BigDecimal outstandingBalance = BigDecimal.ZERO;
 
+    @Column(name = "store_credit_balance", precision = 19, scale = 6)
+    private BigDecimal storeCreditBalance = BigDecimal.ZERO;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "category")
     private CustomerCategory category = CustomerCategory.OTHER;

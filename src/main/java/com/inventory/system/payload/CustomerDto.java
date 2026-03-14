@@ -19,6 +19,7 @@ public class CustomerDto {
     private BigDecimal creditLimit;
     private BigDecimal outstandingBalance;
     private BigDecimal availableCredit;
+    private BigDecimal storeCreditBalance;
     private CustomerCategory category;
     private Boolean isActive;
     private CustomerStatus status;
