@@ -78,6 +78,7 @@ public class DamageRecordServiceImpl implements DamageRecordService {
     private final FileStorageService fileStorageService;
     private final SupplierClaimService supplierClaimService;
     private final SupplierClaimRepository supplierClaimRepository;
+    private final FinancialEventService financialEventService;
 
     @Override
     @Transactional
@@ -365,7 +366,7 @@ public class DamageRecordServiceImpl implements DamageRecordService {
         DamageRecord record = getDamageRecordEntity(id);
 
         if (record.getStatus() == DamageRecordStatus.COMPLETED) {
-            throw new BadRequestException("Damage record is already completed");
+            return mapToDto(record);
         }
         if (record.getStatus() == DamageRecordStatus.CANCELLED) {
             throw new BadRequestException("Cannot confirm a cancelled damage record");
@@ -388,7 +389,9 @@ public class DamageRecordServiceImpl implements DamageRecordService {
 
         record.setStatus(DamageRecordStatus.COMPLETED);
         record.setCompletedAt(LocalDateTime.now());
-        return mapToDto(damageRecordRepository.save(record));
+        DamageRecord saved = damageRecordRepository.save(record);
+        financialEventService.recordDamageWriteOff(saved);
+        return mapToDto(saved);
     }
 
     @Override

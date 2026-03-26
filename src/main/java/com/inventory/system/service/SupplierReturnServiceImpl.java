@@ -39,6 +39,7 @@ public class SupplierReturnServiceImpl implements SupplierReturnService {
     private final GoodsReceiptNoteRepository goodsReceiptNoteRepository;
     private final SupplierReturnRepository supplierReturnRepository;
     private final StockTransactionService stockTransactionService;
+    private final FinancialEventService financialEventService;
 
     @Override
     @Transactional
@@ -120,6 +121,10 @@ public class SupplierReturnServiceImpl implements SupplierReturnService {
         SupplierReturn supplierReturn = supplierReturnRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("SupplierReturn", "id", id));
 
+        if (supplierReturn.getStatus() == SupplierReturnStatus.COMPLETED) {
+            return mapToDto(supplierReturn);
+        }
+
         if (supplierReturn.getStatus() != SupplierReturnStatus.REQUESTED) {
             throw new BadRequestException("Only requested supplier returns can be confirmed");
         }
@@ -148,7 +153,9 @@ public class SupplierReturnServiceImpl implements SupplierReturnService {
 
         supplierReturn.setStatus(SupplierReturnStatus.COMPLETED);
         supplierReturn.setCompletedAt(LocalDateTime.now());
-        return mapToDto(supplierReturnRepository.save(supplierReturn));
+        SupplierReturn saved = supplierReturnRepository.save(supplierReturn);
+        financialEventService.recordSupplierReturn(saved);
+        return mapToDto(saved);
     }
 
     @Override

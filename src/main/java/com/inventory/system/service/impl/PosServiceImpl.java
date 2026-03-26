@@ -52,6 +52,7 @@ import com.inventory.system.repository.StockTransactionRepository;
 import com.inventory.system.repository.UserRepository;
 import com.inventory.system.repository.WarehouseRepository;
 import com.inventory.system.service.PosService;
+import com.inventory.system.service.FinancialEventService;
 import com.inventory.system.service.PricingEngineService;
 import com.inventory.system.service.PricingEvaluation;
 import com.inventory.system.service.PricingEvaluationLine;
@@ -109,6 +110,7 @@ public class PosServiceImpl implements PosService {
     private final SalesOrderRepository salesOrderRepository;
     private final StockService stockService;
     private final PricingEngineService pricingEngineService;
+    private final FinancialEventService financialEventService;
 
     @Override
     @Transactional(readOnly = true)
@@ -507,8 +509,9 @@ public class PosServiceImpl implements PosService {
         if (request.getItems() == null || request.getItems().isEmpty()) {
             throw new BadRequestException("POS sale must contain at least one item");
         }
-        if (request.getClientSaleId() != null && !request.getClientSaleId().isBlank()) {
-            PosSale existing = posSaleRepository.findByClientSaleId(request.getClientSaleId()).orElse(null);
+        String clientSaleId = blankToNull(request.getClientSaleId());
+        if (clientSaleId != null) {
+            PosSale existing = posSaleRepository.findByClientSaleId(clientSaleId).orElse(null);
             if (existing != null) {
                 return mapSale(existing);
             }
@@ -628,7 +631,7 @@ public class PosServiceImpl implements PosService {
 
         PosSale sale = new PosSale();
         sale.setReceiptNumber(receiptNumber);
-        sale.setClientSaleId(blankToNull(request.getClientSaleId()));
+        sale.setClientSaleId(clientSaleId);
         sale.setTerminal(terminal);
         sale.setShift(shift);
         sale.setCashier(cashier);
@@ -686,6 +689,7 @@ public class PosServiceImpl implements PosService {
             posSuspendedSaleRepository.save(suspendedSale);
         }
         pricingEngineService.recordRedemptions(pricingEvaluation, salesOrder, savedSale, customer, SalesChannel.POS, savedSale.getReceiptNumber());
+        financialEventService.recordPosSale(savedSale);
         return mapSale(savedSale);
     }
 

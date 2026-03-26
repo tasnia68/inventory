@@ -3,6 +3,7 @@ package com.inventory.system.config;
 import com.inventory.system.security.CustomAccessDeniedHandler;
 import com.inventory.system.security.JwtAuthenticationEntryPoint;
 import com.inventory.system.security.JwtAuthenticationFilter;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -23,18 +24,22 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@EnableConfigurationProperties(AppCorsProperties.class)
 public class SecurityConfiguration {
 
         private final JwtAuthenticationFilter jwtAuthenticationFilter;
         private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
         private final CustomAccessDeniedHandler customAccessDeniedHandler;
+        private final AppCorsProperties appCorsProperties;
 
         public SecurityConfiguration(JwtAuthenticationFilter jwtAuthenticationFilter,
                         JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
-                        CustomAccessDeniedHandler customAccessDeniedHandler) {
+                        CustomAccessDeniedHandler customAccessDeniedHandler,
+                        AppCorsProperties appCorsProperties) {
                 this.jwtAuthenticationFilter = jwtAuthenticationFilter;
                 this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
                 this.customAccessDeniedHandler = customAccessDeniedHandler;
+                this.appCorsProperties = appCorsProperties;
         }
 
         @Bean
@@ -75,9 +80,10 @@ public class SecurityConfiguration {
         @Bean
         public CorsConfigurationSource corsConfigurationSource() {
                 CorsConfiguration configuration = new CorsConfiguration();
-                configuration.setAllowedOriginPatterns(List.of("*")); // Allow all origins
+                configuration.setAllowedOrigins(appCorsProperties.getAllowedOrigins());
                 configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-                configuration.setAllowedHeaders(List.of("*")); // Allow all headers
+                configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Tenant-ID", "X-Request-ID"));
+                configuration.setExposedHeaders(List.of("X-Request-ID"));
                 configuration.setAllowCredentials(true);
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
                 source.registerCorsConfiguration("/**", configuration);

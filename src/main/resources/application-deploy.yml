@@ -40,6 +40,9 @@ app:
       tenantId: ${APP_BOOTSTRAP_ADMIN_TENANTID:default-tenant}
   mail:
     from: ${APP_MAIL_FROM:noreply@inventory-system.com}
+  security:
+    cors:
+      allowed-origins: ${APP_SECURITY_CORS_ALLOWED_ORIGINS:https://logistra.me}
 
 logging:
   level:

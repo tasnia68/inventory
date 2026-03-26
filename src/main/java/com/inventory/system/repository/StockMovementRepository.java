@@ -15,6 +15,8 @@ import java.util.UUID;
 @Repository
 public interface StockMovementRepository extends JpaRepository<StockMovement, UUID>, JpaSpecificationExecutor<StockMovement> {
 
+    List<StockMovement> findByReferenceIdOrderByCreatedAtAsc(String referenceId);
+
     @Query("SELECT SUM(sm.quantity) FROM StockMovement sm WHERE sm.productVariant.id = :productVariantId AND sm.warehouse.id = :warehouseId AND sm.createdAt >= :fromDate AND sm.type IN :types")
     BigDecimal sumQuantityByProductAndWarehouseAndDateAndType(
             @Param("productVariantId") UUID productVariantId,

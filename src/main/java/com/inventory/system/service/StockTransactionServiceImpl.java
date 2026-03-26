@@ -40,6 +40,7 @@ public class StockTransactionServiceImpl implements StockTransactionService {
     private final ProductVariantRepository productVariantRepository;
     private final StorageLocationRepository storageLocationRepository;
     private final StockService stockService;
+    private final FinancialEventService financialEventService;
 
     @Override
     @Transactional
@@ -148,7 +149,7 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                 .orElseThrow(() -> new ResourceNotFoundException("StockTransaction", "id", id));
 
         if (transaction.getStatus() == StockTransactionStatus.COMPLETED) {
-            throw new BadRequestException("Transaction is already completed");
+            return mapToDto(transaction);
         }
         if (transaction.getStatus() == StockTransactionStatus.CANCELLED) {
             throw new BadRequestException("Cannot confirm a cancelled transaction");
@@ -164,6 +165,9 @@ public class StockTransactionServiceImpl implements StockTransactionService {
 
         transaction.setStatus(StockTransactionStatus.COMPLETED);
         transaction = stockTransactionRepository.save(transaction);
+        if (shouldEmitFinancialEvent(transaction)) {
+            financialEventService.recordStockTransaction(transaction);
+        }
         return mapToDto(transaction);
     }
 
@@ -335,6 +339,17 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                     break;
             }
         }
+    }
+
+    private boolean shouldEmitFinancialEvent(StockTransaction transaction) {
+        return switch (transaction.getType()) {
+            case TRANSFER, ADJUSTMENT -> true;
+            case INBOUND -> transaction.getReference() == null || !transaction.getReference().startsWith("GRN-");
+            case OUTBOUND -> {
+                String reference = transaction.getReference() == null ? "" : transaction.getReference();
+                yield !reference.startsWith("SRET-") && !reference.startsWith("POS ");
+            }
+        };
     }
 
     private StockTransaction buildReversalTransaction(StockTransaction original) {

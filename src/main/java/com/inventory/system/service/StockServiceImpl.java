@@ -31,6 +31,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.math.BigDecimal;
 import java.util.ArrayList;
@@ -51,6 +52,10 @@ public class StockServiceImpl implements StockService {
     private final BatchRepository batchRepository;
     private final SerialNumberRepository serialNumberRepository;
     private final StockMovementSerialNumberRepository stockMovementSerialNumberRepository;
+    private final TenantSettingService tenantSettingService;
+
+    private static final String ALLOW_NEGATIVE_STOCK_KEY = "inventory.stock.allowNegativeStock";
+    private static final String REQUIRE_MOVEMENT_REASON_KEY = "inventory.movements.requireReason";
 
     @Override
     @Transactional(readOnly = true)
@@ -86,6 +91,12 @@ public class StockServiceImpl implements StockService {
     @Override
     @Transactional
     public StockMovementDto adjustStock(StockAdjustmentDto dto) {
+        if (requiresMovementReason()
+                && !StringUtils.hasText(dto.getReason())
+                && !StringUtils.hasText(dto.getReferenceId())) {
+            throw new BadRequestException("A movement reason or reference is required by inventory policy");
+        }
+
         ProductVariant variant = productVariantRepository.findById(dto.getProductVariantId())
                 .orElseThrow(() -> new ResourceNotFoundException("ProductVariant", "id", dto.getProductVariantId()));
         Warehouse warehouse = warehouseRepository.findById(dto.getWarehouseId())
@@ -145,7 +156,7 @@ public class StockServiceImpl implements StockService {
                 if (quantityChange.compareTo(BigDecimal.ZERO) < 0) {
                     throw new IllegalArgumentException("Quantity must be positive for OUT/TRANSFER_OUT");
                 }
-                if (currentQuantity.compareTo(quantityChange) < 0) {
+                if (!allowsNegativeStock() && currentQuantity.compareTo(quantityChange) < 0) {
                     throw new IllegalArgumentException("Insufficient stock");
                 }
                 stock.setQuantity(currentQuantity.subtract(quantityChange));
@@ -155,7 +166,7 @@ public class StockServiceImpl implements StockService {
                 break;
         }
 
-        if (stock.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
+        if (!allowsNegativeStock() && stock.getQuantity().compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("Stock quantity cannot be negative");
         }
 
@@ -317,6 +328,18 @@ public class StockServiceImpl implements StockService {
         s.setStatus(status);
         s.setQuantity(BigDecimal.ZERO);
         return s;
+    }
+
+    private boolean allowsNegativeStock() {
+        return tenantSettingService.findSetting(ALLOW_NEGATIVE_STOCK_KEY)
+                .map(setting -> Boolean.parseBoolean(setting.getValue()))
+                .orElse(false);
+    }
+
+    private boolean requiresMovementReason() {
+        return tenantSettingService.findSetting(REQUIRE_MOVEMENT_REASON_KEY)
+                .map(setting -> Boolean.parseBoolean(setting.getValue()))
+                .orElse(true);
     }
 
     private Stock resolveStock(ProductVariant variant, Warehouse warehouse, StorageLocation location, Batch batch, StockStatus stockStatus) {

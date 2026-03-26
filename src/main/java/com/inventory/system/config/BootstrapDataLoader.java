@@ -47,6 +47,7 @@ public class BootstrapDataLoader implements CommandLineRunner {
             "MENU:ADVANCED_INVENTORY",
             "MENU:PROCUREMENT",
             "MENU:SALES",
+            "MENU:ACCOUNTING",
             "MENU:ANALYTICS",
             "MENU:SETTINGS",
             "POS:MANUAL_DISCOUNT_OVERRIDE",

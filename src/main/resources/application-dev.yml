@@ -36,6 +36,11 @@ app:
       tenantId: default-tenant
   mail:
     from: noreply@inventory-system.com
+  security:
+    cors:
+      allowed-origins:
+        - http://localhost:5173
+        - http://localhost:4173
 
 logging:
   level:

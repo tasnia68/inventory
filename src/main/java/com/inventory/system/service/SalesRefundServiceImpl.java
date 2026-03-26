@@ -108,6 +108,7 @@ public class SalesRefundServiceImpl implements SalesRefundService {
     private final BatchRepository batchRepository;
     private final StockService stockService;
     private final DamageRecordService damageRecordService;
+    private final FinancialEventService financialEventService;
 
     @Override
     @Transactional
@@ -261,6 +262,9 @@ public class SalesRefundServiceImpl implements SalesRefundService {
     @Transactional
     public SalesRefundDto completeRefund(UUID id, RefundStatusDecisionRequest request) {
         SalesRefund refund = getRefundEntity(id);
+        if (refund.getStatus() == SalesRefundStatus.COMPLETED) {
+            return mapToDto(refund);
+        }
         if (refund.getStatus() != SalesRefundStatus.APPROVED) {
             throw new BadRequestException("Only approved refunds can be completed");
         }
@@ -285,7 +289,9 @@ public class SalesRefundServiceImpl implements SalesRefundService {
         addAuditEntry(refund, SalesRefundAuditAction.COMPLETED, SalesRefundStatus.APPROVED, SalesRefundStatus.COMPLETED,
                 request == null ? null : request.getNotes());
 
-        return mapToDto(salesRefundRepository.save(refund));
+        SalesRefund saved = salesRefundRepository.save(refund);
+        financialEventService.recordSalesRefund(saved);
+        return mapToDto(saved);
     }
 
     @Override

@@ -30,6 +30,30 @@ app:
       expiration: 86400000 # 24 hours
       refresh-token:
         expiration: 604800000 # 7 days
+    cors:
+      allowed-origins:
+        - http://localhost:5173
+        - http://localhost:4173
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: when_authorized
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+
+logging:
+  pattern:
+    level: "%5p [tenant:%X{tenant_id:-na}] [request:%X{request_id:-na}] [user:%X{user_name:-anonymous}]"
 
 bucket4j:
   enabled: false

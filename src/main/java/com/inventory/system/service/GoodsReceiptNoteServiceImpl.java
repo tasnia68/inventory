@@ -33,6 +33,7 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
     private final WarehouseRepository warehouseRepository;
     private final StockTransactionService stockTransactionService;
     private final PurchaseOrderService purchaseOrderService;
+    private final FinancialEventService financialEventService;
 
     @Override
     @Transactional
@@ -192,6 +193,10 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
         GoodsReceiptNote grn = grnRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("GoodsReceiptNote", "id", id));
 
+        if (grn.getStatus() == GoodsReceiptNoteStatus.COMPLETED) {
+            return mapToDto(grn);
+        }
+
         if (grn.getStatus() != GoodsReceiptNoteStatus.VERIFIED) {
             throw new BadRequestException("GRN must be verified before confirmation");
         }
@@ -242,6 +247,7 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
         // 4. Update GRN Status
         grn.setStatus(GoodsReceiptNoteStatus.COMPLETED);
         GoodsReceiptNote savedGrn = grnRepository.save(grn);
+        financialEventService.recordGoodsReceipt(savedGrn);
 
         return mapToDto(savedGrn);
     }
