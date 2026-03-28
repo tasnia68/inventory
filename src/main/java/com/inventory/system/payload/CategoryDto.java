@@ -17,6 +17,11 @@ public class CategoryDto {
     private UUID id;
     private String name;
     private String description;
+    private Boolean publishedToStorefront;
+    private String storefrontSlug;
+    private String storefrontTitle;
+    private String storefrontDescription;
+    private Integer storefrontSortOrder;
     private UUID parentId;
     private List<CategoryDto> children = new ArrayList<>();
     private Set<UUID> attributeIds = new HashSet<>();

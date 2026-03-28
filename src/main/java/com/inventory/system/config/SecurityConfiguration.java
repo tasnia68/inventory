@@ -57,6 +57,12 @@ public class SecurityConfiguration {
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/auth/**"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                                                                "/api/v1/storefront/public/**"),
+                                                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                                                                "/api/v1/storefront/assets/file"),
+                                                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                                                                "/api/v1/product-images/*/file"),
+                                                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/users/invite/accept"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/error"))

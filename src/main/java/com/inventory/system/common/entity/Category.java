@@ -30,6 +30,21 @@ public class Category extends BaseEntity {
     @Column(columnDefinition = "TEXT")
     private String description;
 
+    @Column(name = "published_to_storefront", nullable = false)
+    private Boolean publishedToStorefront = false;
+
+    @Column(name = "storefront_slug")
+    private String storefrontSlug;
+
+    @Column(name = "storefront_title")
+    private String storefrontTitle;
+
+    @Column(name = "storefront_description", columnDefinition = "TEXT")
+    private String storefrontDescription;
+
+    @Column(name = "storefront_sort_order")
+    private Integer storefrontSortOrder;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "parent_id")
     private Category parent;

@@ -29,6 +29,15 @@ public class ProductVariant extends BaseEntity {
     @Column(nullable = false)
     private BigDecimal price;
 
+    @Column(name = "compare_at_price")
+    private BigDecimal compareAtPrice;
+
+    @Column(name = "storefront_badge")
+    private String storefrontBadge;
+
+    @Column(name = "storefront_featured", nullable = false)
+    private Boolean storefrontFeatured = false;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "template_id", nullable = false)
     private ProductTemplate template;

@@ -15,6 +15,13 @@ public class ProductTemplateDto {
     private String categoryName;
     private UUID uomId;
     private String uomName;
+    private Boolean publishedToStorefront;
+    private String storefrontSlug;
+    private String storefrontTitle;
+    private String storefrontDescription;
+    private Integer storefrontSortOrder;
+    private String storefrontSeoTitle;
+    private String storefrontSeoDescription;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private String createdBy;

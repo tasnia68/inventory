@@ -48,4 +48,30 @@ public class SmtpEmailService implements EmailService {
             throw new RuntimeException("Failed to send invitation email", e);
         }
     }
+
+    @Override
+    public void sendStorefrontLoginEmail(String to, String otpCode, String magicLink) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(to);
+            message.setSubject("Your storefront sign-in code");
+            message.setText(
+                    "Hello,\n\n" +
+                            "Use this one-time code to sign in to your storefront account:\n\n" +
+                            otpCode + "\n\n" +
+                            "Or click the sign-in link below:\n\n" +
+                            magicLink + "\n\n" +
+                            "This code and link expire in 15 minutes.\n\n" +
+                            "If you did not request this email, you can ignore it.\n\n" +
+                            "Best regards,\n" +
+                            "The Storefront Team");
+
+            mailSender.send(message);
+            logger.info("Storefront login email sent successfully to: {}", to);
+        } catch (Exception e) {
+            logger.error("Failed to send storefront login email to {}: {}", to, e.getMessage());
+            throw new RuntimeException("Failed to send storefront login email", e);
+        }
+    }
 }

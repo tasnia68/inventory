@@ -8,10 +8,13 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 @Repository
 public interface CustomerRepository extends JpaRepository<Customer, UUID>, JpaSpecificationExecutor<Customer> {
 	List<Customer> findByCategory(CustomerCategory category);
 	List<Customer> findByStatus(CustomerStatus status);
+	Optional<Customer> findFirstByEmailIgnoreCase(String email);
+	Optional<Customer> findFirstByPhoneNumber(String phoneNumber);
 }

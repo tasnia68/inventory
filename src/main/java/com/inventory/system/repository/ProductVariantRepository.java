@@ -18,6 +18,10 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     Optional<ProductVariant> findBySku(String sku);
     boolean existsBySku(String sku);
     List<ProductVariant> findByTemplateId(UUID templateId);
+    List<ProductVariant> findByTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue();
+    org.springframework.data.domain.Page<ProductVariant> findByTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue(Pageable pageable);
+    @Query("select v from ProductVariant v join v.template t where t.publishedToStorefront = true and t.isActive = true and t.storefrontSlug = :slug")
+    Optional<ProductVariant> findPublishedStorefrontVariantBySlug(@Param("slug") String slug);
 
     @Query("select v from ProductVariant v join v.template t " +
             "where lower(v.sku) like lower(concat('%', :q, '%')) " +

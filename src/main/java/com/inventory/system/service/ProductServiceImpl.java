@@ -63,6 +63,13 @@ public class ProductServiceImpl implements ProductService {
         template.setName(productTemplateDto.getName());
         template.setDescription(productTemplateDto.getDescription());
         template.setIsActive(productTemplateDto.getIsActive() != null ? productTemplateDto.getIsActive() : true);
+        template.setPublishedToStorefront(productTemplateDto.getPublishedToStorefront() != null ? productTemplateDto.getPublishedToStorefront() : false);
+        template.setStorefrontSlug(normalizeStorefrontSlug(productTemplateDto.getStorefrontSlug(), productTemplateDto.getName()));
+        template.setStorefrontTitle(productTemplateDto.getStorefrontTitle());
+        template.setStorefrontDescription(productTemplateDto.getStorefrontDescription());
+        template.setStorefrontSortOrder(productTemplateDto.getStorefrontSortOrder());
+        template.setStorefrontSeoTitle(productTemplateDto.getStorefrontSeoTitle());
+        template.setStorefrontSeoDescription(productTemplateDto.getStorefrontSeoDescription());
 
         if (productTemplateDto.getCategoryId() != null) {
             Category category = categoryRepository.findById(productTemplateDto.getCategoryId())
@@ -92,6 +99,27 @@ public class ProductServiceImpl implements ProductService {
         template.setDescription(productTemplateDto.getDescription());
         if (productTemplateDto.getIsActive() != null) {
             template.setIsActive(productTemplateDto.getIsActive());
+        }
+        if (productTemplateDto.getPublishedToStorefront() != null) {
+            template.setPublishedToStorefront(productTemplateDto.getPublishedToStorefront());
+        }
+        if (productTemplateDto.getStorefrontSlug() != null || productTemplateDto.getName() != null) {
+            template.setStorefrontSlug(normalizeStorefrontSlug(productTemplateDto.getStorefrontSlug(), productTemplateDto.getName() != null ? productTemplateDto.getName() : template.getName()));
+        }
+        if (productTemplateDto.getStorefrontTitle() != null) {
+            template.setStorefrontTitle(productTemplateDto.getStorefrontTitle());
+        }
+        if (productTemplateDto.getStorefrontDescription() != null) {
+            template.setStorefrontDescription(productTemplateDto.getStorefrontDescription());
+        }
+        if (productTemplateDto.getStorefrontSortOrder() != null) {
+            template.setStorefrontSortOrder(productTemplateDto.getStorefrontSortOrder());
+        }
+        if (productTemplateDto.getStorefrontSeoTitle() != null) {
+            template.setStorefrontSeoTitle(productTemplateDto.getStorefrontSeoTitle());
+        }
+        if (productTemplateDto.getStorefrontSeoDescription() != null) {
+            template.setStorefrontSeoDescription(productTemplateDto.getStorefrontSeoDescription());
         }
 
         if (productTemplateDto.getCategoryId() != null) {
@@ -268,6 +296,9 @@ public class ProductServiceImpl implements ProductService {
         ProductVariant variant = new ProductVariant();
         variant.setTemplate(template);
         variant.setPrice(dto.getPrice());
+        variant.setCompareAtPrice(dto.getCompareAtPrice());
+        variant.setStorefrontBadge(normalizeOptionalText(dto.getStorefrontBadge()));
+        variant.setStorefrontFeatured(Boolean.TRUE.equals(dto.getStorefrontFeatured()));
         String barcode = dto.getBarcode();
         if (barcode != null && barcode.isBlank()) {
             barcode = null;
@@ -367,6 +398,11 @@ public class ProductServiceImpl implements ProductService {
 
         if (dto.getPrice() != null) {
             variant.setPrice(dto.getPrice());
+        }
+        variant.setCompareAtPrice(dto.getCompareAtPrice());
+        variant.setStorefrontBadge(normalizeOptionalText(dto.getStorefrontBadge()));
+        if (dto.getStorefrontFeatured() != null) {
+            variant.setStorefrontFeatured(dto.getStorefrontFeatured());
         }
 
         if (dto.getAttributeValues() != null) {
@@ -598,6 +634,13 @@ public class ProductServiceImpl implements ProductService {
         templateDto.setCategoryId(dto.getCategoryId());
         templateDto.setUomId(dto.getUomId());
         templateDto.setIsActive(dto.getIsActive() != null ? dto.getIsActive() : true);
+        templateDto.setPublishedToStorefront(dto.getPublishedToStorefront());
+        templateDto.setStorefrontSlug(dto.getStorefrontSlug());
+        templateDto.setStorefrontTitle(dto.getStorefrontTitle());
+        templateDto.setStorefrontDescription(dto.getStorefrontDescription());
+        templateDto.setStorefrontSortOrder(dto.getStorefrontSortOrder());
+        templateDto.setStorefrontSeoTitle(dto.getStorefrontSeoTitle());
+        templateDto.setStorefrontSeoDescription(dto.getStorefrontSeoDescription());
 
         ProductTemplateDto createdTemplate = createTemplate(templateDto);
 
@@ -607,6 +650,9 @@ public class ProductServiceImpl implements ProductService {
         variantDto.setSku(dto.getSku());
         variantDto.setBarcode(dto.getBarcode());
         variantDto.setPrice(dto.getPrice());
+        variantDto.setCompareAtPrice(dto.getCompareAtPrice());
+        variantDto.setStorefrontBadge(dto.getStorefrontBadge());
+        variantDto.setStorefrontFeatured(dto.getStorefrontFeatured());
         variantDto.setAttributeValues(null); // Simple products don't have attributes
 
         return createProductVariant(variantDto);
@@ -620,6 +666,13 @@ public class ProductServiceImpl implements ProductService {
         dto.setName(template.getName());
         dto.setDescription(template.getDescription());
         dto.setIsActive(template.getIsActive());
+        dto.setPublishedToStorefront(template.getPublishedToStorefront());
+        dto.setStorefrontSlug(template.getStorefrontSlug());
+        dto.setStorefrontTitle(template.getStorefrontTitle());
+        dto.setStorefrontDescription(template.getStorefrontDescription());
+        dto.setStorefrontSortOrder(template.getStorefrontSortOrder());
+        dto.setStorefrontSeoTitle(template.getStorefrontSeoTitle());
+        dto.setStorefrontSeoDescription(template.getStorefrontSeoDescription());
         dto.setCreatedAt(template.getCreatedAt());
         dto.setUpdatedAt(template.getUpdatedAt());
         dto.setCreatedBy(template.getCreatedBy());
@@ -673,6 +726,9 @@ public class ProductServiceImpl implements ProductService {
         dto.setSku(variant.getSku());
         dto.setBarcode(variant.getBarcode());
         dto.setPrice(variant.getPrice());
+        dto.setCompareAtPrice(variant.getCompareAtPrice());
+        dto.setStorefrontBadge(variant.getStorefrontBadge());
+        dto.setStorefrontFeatured(variant.getStorefrontFeatured());
         if (variant.getTemplate() != null) {
             dto.setTemplateId(variant.getTemplate().getId());
             setMainImageFields(dto, variant.getTemplate().getId());
@@ -708,6 +764,16 @@ public class ProductServiceImpl implements ProductService {
                             dto.setMainImageId(image.getId());
                             dto.setMainImageUrl("/api/v1/product-images/" + image.getId() + "/file");
                         }));
+    }
+
+    private String normalizeStorefrontSlug(String requestedSlug, String fallbackName) {
+        String base = requestedSlug != null && !requestedSlug.isBlank() ? requestedSlug : fallbackName;
+        if (base == null || base.isBlank()) {
+            return null;
+        }
+        return base.trim().toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("(^-|-$)", "");
     }
 
     private void validateAttributeValue(ProductAttribute attribute, String value) {
@@ -774,6 +840,9 @@ public class ProductServiceImpl implements ProductService {
         snapshot.put("sku", variant.getSku());
         snapshot.put("barcode", variant.getBarcode());
         snapshot.put("price", variant.getPrice());
+        snapshot.put("compareAtPrice", variant.getCompareAtPrice());
+        snapshot.put("storefrontBadge", variant.getStorefrontBadge());
+        snapshot.put("storefrontFeatured", variant.getStorefrontFeatured());
         snapshot.put("templateId", variant.getTemplate() != null ? variant.getTemplate().getId() : null);
         snapshot.put("attributeValues", variant.getAttributeValues() == null ? List.of() : variant.getAttributeValues().stream().map(v -> {
             Map<String, Object> row = new LinkedHashMap<>();
@@ -810,5 +879,13 @@ public class ProductServiceImpl implements ProductService {
             return "\"" + escaped + "\"";
         }
         return escaped;
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }

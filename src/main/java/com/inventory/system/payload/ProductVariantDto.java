@@ -13,6 +13,9 @@ public class ProductVariantDto {
     private String sku;
     private String barcode;
     private BigDecimal price;
+    private BigDecimal compareAtPrice;
+    private String storefrontBadge;
+    private Boolean storefrontFeatured;
     private UUID templateId;
     private UUID mainImageId;
     private String mainImageUrl;

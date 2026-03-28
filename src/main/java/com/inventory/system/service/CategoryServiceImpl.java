@@ -37,6 +37,11 @@ public class CategoryServiceImpl implements CategoryService {
         Category category = new Category();
         category.setName(dto.getName());
         category.setDescription(dto.getDescription());
+        category.setPublishedToStorefront(dto.getPublishedToStorefront() != null ? dto.getPublishedToStorefront() : false);
+        category.setStorefrontSlug(normalizeStorefrontSlug(dto.getStorefrontSlug(), dto.getName()));
+        category.setStorefrontTitle(dto.getStorefrontTitle());
+        category.setStorefrontDescription(dto.getStorefrontDescription());
+        category.setStorefrontSortOrder(dto.getStorefrontSortOrder());
 
         if (dto.getParentId() != null) {
             Category parent = categoryRepository.findById(dto.getParentId())
@@ -61,6 +66,21 @@ public class CategoryServiceImpl implements CategoryService {
 
         category.setName(dto.getName());
         category.setDescription(dto.getDescription());
+        if (dto.getPublishedToStorefront() != null) {
+            category.setPublishedToStorefront(dto.getPublishedToStorefront());
+        }
+        if (dto.getStorefrontSlug() != null || dto.getName() != null) {
+            category.setStorefrontSlug(normalizeStorefrontSlug(dto.getStorefrontSlug(), dto.getName() != null ? dto.getName() : category.getName()));
+        }
+        if (dto.getStorefrontTitle() != null) {
+            category.setStorefrontTitle(dto.getStorefrontTitle());
+        }
+        if (dto.getStorefrontDescription() != null) {
+            category.setStorefrontDescription(dto.getStorefrontDescription());
+        }
+        if (dto.getStorefrontSortOrder() != null) {
+            category.setStorefrontSortOrder(dto.getStorefrontSortOrder());
+        }
 
         if (dto.getParentId() != null) {
             if (dto.getParentId().equals(id)) {
@@ -182,6 +202,11 @@ public class CategoryServiceImpl implements CategoryService {
         dto.setId(category.getId());
         dto.setName(category.getName());
         dto.setDescription(category.getDescription());
+        dto.setPublishedToStorefront(category.getPublishedToStorefront());
+        dto.setStorefrontSlug(category.getStorefrontSlug());
+        dto.setStorefrontTitle(category.getStorefrontTitle());
+        dto.setStorefrontDescription(category.getStorefrontDescription());
+        dto.setStorefrontSortOrder(category.getStorefrontSortOrder());
 
         if (category.getParent() != null) {
             dto.setParentId(category.getParent().getId());
@@ -200,6 +225,16 @@ public class CategoryServiceImpl implements CategoryService {
         }
 
         return dto;
+    }
+
+    private String normalizeStorefrontSlug(String requestedSlug, String fallbackName) {
+        String base = requestedSlug != null && !requestedSlug.isBlank() ? requestedSlug : fallbackName;
+        if (base == null || base.isBlank()) {
+            return null;
+        }
+        return base.trim().toLowerCase()
+                .replaceAll("[^a-z0-9]+", "-")
+                .replaceAll("(^-|-$)", "");
     }
 
     private CategoryPermissionDto mapPermissionToDto(CategoryPermission permission) {

@@ -31,12 +31,17 @@ public class TenantContextFilter implements Filter {
 
         // Skip tenant validation for auth endpoints
         String requestPath = req.getRequestURI();
-        if (requestPath.startsWith("/api/v1/auth/") || requestPath.equals("/error")) {
+        if (requestPath.startsWith("/api/v1/auth/")
+                || requestPath.startsWith("/api/v1/storefront/public/")
+                || requestPath.equals("/error")) {
             chain.doFilter(request, response);
             return;
         }
 
         String tenantId = req.getHeader(TENANT_HEADER);
+        if (!StringUtils.hasText(tenantId)) {
+            tenantId = req.getParameter("tenantId");
+        }
 
         if (!StringUtils.hasText(tenantId)) {
             // Strict Mode: Require Tenant ID

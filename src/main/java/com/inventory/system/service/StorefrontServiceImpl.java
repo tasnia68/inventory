@@ -1,0 +1,2184 @@
+package com.inventory.system.service;
+
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.inventory.system.common.entity.Category;
+import com.inventory.system.common.entity.Customer;
+import com.inventory.system.common.entity.CustomerCategory;
+import com.inventory.system.common.entity.CustomerStatus;
+import com.inventory.system.common.entity.OrderPriority;
+import com.inventory.system.common.entity.ProductImage;
+import com.inventory.system.common.entity.ProductVariant;
+import com.inventory.system.common.entity.SalesChannel;
+import com.inventory.system.common.entity.SalesOrder;
+import com.inventory.system.common.entity.SalesOrderItem;
+import com.inventory.system.common.entity.SalesOrderStatus;
+import com.inventory.system.common.entity.StorefrontAccount;
+import com.inventory.system.common.entity.StorefrontAccountSession;
+import com.inventory.system.common.entity.StorefrontLoginChallenge;
+import com.inventory.system.common.entity.StorefrontPublishVersion;
+import com.inventory.system.common.entity.Warehouse;
+import com.inventory.system.common.exception.BadRequestException;
+import com.inventory.system.common.exception.ResourceNotFoundException;
+import com.inventory.system.config.tenant.TenantContext;
+import com.inventory.system.payload.StorefrontAssetUploadDto;
+import com.inventory.system.payload.StorefrontAccountAuthDto;
+import com.inventory.system.payload.StorefrontAccountOrderDto;
+import com.inventory.system.payload.StorefrontAccountOrderItemDto;
+import com.inventory.system.payload.StorefrontAccountProfileDto;
+import com.inventory.system.payload.StorefrontAccountUpdateRequest;
+import com.inventory.system.payload.StorefrontBannerDto;
+import com.inventory.system.payload.StorefrontCartDto;
+import com.inventory.system.payload.StorefrontCartItemRequest;
+import com.inventory.system.payload.StorefrontCartLineDto;
+import com.inventory.system.payload.StorefrontCartRequest;
+import com.inventory.system.payload.StorefrontCheckoutDto;
+import com.inventory.system.payload.StorefrontCheckoutRequest;
+import com.inventory.system.payload.StorefrontConfigDto;
+import com.inventory.system.payload.StorefrontCollectionDto;
+import com.inventory.system.payload.StorefrontNavItemDto;
+import com.inventory.system.payload.StorefrontLoginChallengeDto;
+import com.inventory.system.payload.StorefrontLoginRequest;
+import com.inventory.system.payload.StorefrontLoginVerifyRequest;
+import com.inventory.system.payload.StorefrontOrderLookupRequest;
+import com.inventory.system.payload.StorefrontOrderTrackingDto;
+import com.inventory.system.payload.StorefrontPageDto;
+import com.inventory.system.payload.StorefrontPublishRequest;
+import com.inventory.system.payload.StorefrontPublishVersionDto;
+import com.inventory.system.payload.StorefrontProductPageDto;
+import com.inventory.system.payload.StorefrontProductDto;
+import com.inventory.system.payload.StorefrontSectionDto;
+import com.inventory.system.payload.StorefrontSiteDto;
+import com.inventory.system.payload.StorefrontThemeDto;
+import com.inventory.system.payload.StorefrontThemeBlockDto;
+import com.inventory.system.payload.StorefrontThemeDocumentDto;
+import com.inventory.system.payload.StorefrontThemeEditorDto;
+import com.inventory.system.payload.StorefrontThemeSectionDto;
+import com.inventory.system.payload.StorefrontThemeSnapshotDto;
+import com.inventory.system.payload.StorefrontThemeTemplateDto;
+import com.inventory.system.payload.StorefrontVariantOptionDto;
+import com.inventory.system.payload.SalesOrderDto;
+import com.inventory.system.payload.SalesOrderItemDto;
+import com.inventory.system.payload.SalesOrderItemRequest;
+import com.inventory.system.payload.SalesOrderRequest;
+import com.inventory.system.payload.TenantSettingDto;
+import com.inventory.system.payload.UpdateStorefrontConfigRequest;
+import com.inventory.system.repository.CategoryRepository;
+import com.inventory.system.repository.CustomerRepository;
+import com.inventory.system.repository.ProductVariantRepository;
+import com.inventory.system.repository.SalesOrderRepository;
+import com.inventory.system.repository.StorefrontAccountRepository;
+import com.inventory.system.repository.StorefrontAccountSessionRepository;
+import com.inventory.system.repository.StorefrontLoginChallengeRepository;
+import com.inventory.system.repository.StorefrontPublishVersionRepository;
+import com.inventory.system.repository.WarehouseRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.math.BigDecimal;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.Deque;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.function.Function;
+import java.util.regex.Pattern;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class StorefrontServiceImpl implements StorefrontService {
+
+    private static final String SITE_KEY = "storefront.site";
+    private static final String THEME_KEY = "storefront.theme";
+    private static final String NAVIGATION_KEY = "storefront.navigation";
+    private static final String BANNERS_KEY = "storefront.banners";
+    private static final String HOMEPAGE_KEY = "storefront.homepage";
+    private static final String DRAFT_THEME_DOCUMENT_KEY = "storefront.themeDocument.draft";
+    private static final String THEME_SCHEMA_VERSION_KEY = "storefront.themeSchemaVersion";
+    private static final String ACTIVE_REVISION_ID_KEY = "storefront.activeRevisionId";
+    private static final String PUBLIC_BASE_URL_KEY = "storefront.publicBaseUrl";
+    private static final String CATEGORY = "STOREFRONT";
+    private static final String THEME_SCHEMA_VERSION = "v1";
+    private static final Pattern SLUG_NON_ALNUM = Pattern.compile("[^a-z0-9]+");
+
+    private final TenantSettingService tenantSettingService;
+    private final ProductVariantRepository productVariantRepository;
+    private final CategoryRepository categoryRepository;
+    private final CustomerRepository customerRepository;
+    private final WarehouseRepository warehouseRepository;
+    private final SalesOrderRepository salesOrderRepository;
+    private final StorefrontAccountRepository storefrontAccountRepository;
+    private final StorefrontLoginChallengeRepository storefrontLoginChallengeRepository;
+    private final StorefrontAccountSessionRepository storefrontAccountSessionRepository;
+    private final PricingEngineService pricingEngineService;
+    private final StockReservationService stockReservationService;
+    private final StorefrontPublishVersionRepository storefrontPublishVersionRepository;
+    private final FileStorageService fileStorageService;
+    private final EmailService emailService;
+    private final ObjectMapper objectMapper;
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontConfigDto getAdminConfig() {
+        return deriveLegacyConfig(loadDraftThemeDocument());
+    }
+
+    @Override
+    @Transactional
+    public StorefrontConfigDto updateConfig(UpdateStorefrontConfigRequest request) {
+        StorefrontConfigDto current = loadConfig();
+
+        StorefrontSiteDto site = request.getSite() != null ? request.getSite() : current.getSite();
+        StorefrontThemeDto theme = request.getTheme() != null ? request.getTheme() : current.getTheme();
+        List<StorefrontNavItemDto> navigationItems = request.getNavigationItems() != null && !request.getNavigationItems().isEmpty()
+                ? request.getNavigationItems()
+                : current.getNavigationItems();
+        List<StorefrontBannerDto> banners = request.getBanners() != null && !request.getBanners().isEmpty()
+                ? request.getBanners()
+                : current.getBanners();
+        StorefrontPageDto headerPage = request.getHeaderPage() != null ? request.getHeaderPage() : current.getHeaderPage();
+        StorefrontPageDto homePage = request.getHomePage() != null ? request.getHomePage() : current.getHomePage();
+        StorefrontPageDto footerPage = request.getFooterPage() != null ? request.getFooterPage() : current.getFooterPage();
+
+        StorefrontConfigDto updated = new StorefrontConfigDto(site, theme, navigationItems, banners, headerPage, homePage, footerPage);
+        persistConfig(updated);
+        persistDraftThemeDocument(migrateLegacyConfigToThemeDocument(updated));
+        return deriveLegacyConfig(loadDraftThemeDocument());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontThemeEditorDto getAdminThemeEditor() {
+        StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
+        StorefrontThemeDocumentDto published = loadPublishedThemeDocument().orElse(null);
+        return new StorefrontThemeEditorDto(
+                THEME_SCHEMA_VERSION,
+                readStringSetting(ACTIVE_REVISION_ID_KEY, null),
+                draft,
+                published,
+                buildThemeSchema(draft != null ? draft.getTemplateKey() : defaultSite().getTemplateKey()),
+                getThemeRevisions()
+        );
+    }
+
+    @Override
+    @Transactional
+    public StorefrontThemeDocumentDto updateDraftTheme(StorefrontThemeDocumentDto request) {
+        StorefrontThemeDocumentDto normalized = normalizeThemeDocument(request);
+        persistDraftThemeDocument(normalized);
+        persistConfig(deriveLegacyConfig(normalized));
+        return normalized;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StorefrontPublishVersionDto> getThemeRevisions() {
+        return getPublishVersions();
+    }
+
+    @Override
+    @Transactional
+    public StorefrontPublishVersionDto publishDraftTheme(StorefrontPublishRequest request) {
+        return publishCurrentConfig(request);
+    }
+
+    @Override
+    @Transactional
+    public StorefrontPublishVersionDto restoreThemeRevision(UUID versionId, StorefrontPublishRequest request) {
+        return rollbackToVersion(versionId, request);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontConfigDto getAdminThemePreview() {
+        return deriveLegacyConfig(loadDraftThemeDocument());
+    }
+
+    @Override
+    @Transactional
+    public StorefrontLoginChallengeDto requestAccountLogin(StorefrontLoginRequest request) {
+        String email = request.getEmail().trim().toLowerCase();
+        LocalDateTime now = LocalDateTime.now();
+
+        storefrontLoginChallengeRepository.findByEmailIgnoreCaseOrderByCreatedAtDesc(email).stream()
+                .filter(challenge -> challenge.getConsumedAt() == null)
+                .forEach(challenge -> challenge.setConsumedAt(now));
+
+        StorefrontLoginChallenge challenge = new StorefrontLoginChallenge();
+        challenge.setEmail(email);
+        challenge.setOtpCode(generateOtpCode());
+        challenge.setMagicToken(UUID.randomUUID().toString() + UUID.randomUUID().toString().replace("-", ""));
+        challenge.setExpiresAt(now.plusMinutes(15));
+        StorefrontLoginChallenge saved = storefrontLoginChallengeRepository.save(challenge);
+
+        emailService.sendStorefrontLoginEmail(email, saved.getOtpCode(), buildStorefrontMagicLink(saved.getMagicToken()));
+        return new StorefrontLoginChallengeDto(email, saved.getExpiresAt().toString());
+    }
+
+    @Override
+    @Transactional
+    public StorefrontAccountAuthDto verifyAccountLogin(StorefrontLoginVerifyRequest request) {
+        StorefrontLoginChallenge challenge = resolveLoginChallenge(request);
+        if (challenge.getConsumedAt() != null || challenge.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BadRequestException("This storefront login code has expired");
+        }
+        challenge.setConsumedAt(LocalDateTime.now());
+
+        StorefrontAccount account = resolveOrCreateStorefrontAccount(challenge.getEmail());
+        account.setLastLoginAt(LocalDateTime.now());
+        if (account.getEmailVerifiedAt() == null) {
+            account.setEmailVerifiedAt(LocalDateTime.now());
+        }
+        StorefrontAccount savedAccount = storefrontAccountRepository.save(account);
+
+        StorefrontAccountSession session = new StorefrontAccountSession();
+        session.setStorefrontAccount(savedAccount);
+        session.setSessionToken(UUID.randomUUID().toString() + UUID.randomUUID().toString().replace("-", ""));
+        session.setLastSeenAt(LocalDateTime.now());
+        session.setExpiresAt(LocalDateTime.now().plusDays(30));
+        StorefrontAccountSession savedSession = storefrontAccountSessionRepository.save(session);
+
+        return new StorefrontAccountAuthDto(
+                savedSession.getSessionToken(),
+                savedSession.getExpiresAt().toString(),
+                mapStorefrontAccountProfile(savedAccount)
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontAccountProfileDto getAccountProfile(String sessionToken) {
+        return mapStorefrontAccountProfile(requireStorefrontSession(sessionToken).getStorefrontAccount());
+    }
+
+    @Override
+    @Transactional
+    public StorefrontAccountProfileDto updateAccountProfile(String sessionToken, StorefrontAccountUpdateRequest request) {
+        StorefrontAccountSession session = requireStorefrontSession(sessionToken);
+        StorefrontAccount account = session.getStorefrontAccount();
+        if (request.getName() != null) {
+            account.setName(blankToNull(request.getName()));
+        }
+        if (request.getAddress() != null) {
+            account.setAddress(blankToNull(request.getAddress()));
+        }
+
+        Customer customer = account.getCustomer();
+        if (request.getName() != null && account.getName() != null) {
+            customer.setName(account.getName());
+            customer.setContactName(account.getName());
+        }
+        if (request.getAddress() != null) {
+            customer.setAddress(account.getAddress());
+        }
+        customerRepository.save(customer);
+        return mapStorefrontAccountProfile(storefrontAccountRepository.save(account));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StorefrontAccountOrderDto> getAccountOrders(String sessionToken) {
+        StorefrontAccount account = requireStorefrontSession(sessionToken).getStorefrontAccount();
+        return salesOrderRepository.findByCustomerId(account.getCustomer().getId(), PageRequest.of(0, 50, Sort.by(Sort.Direction.DESC, "orderDate")))
+                .stream()
+                .map(order -> new StorefrontAccountOrderDto(
+                        order.getSoNumber(),
+                        order.getStatus() != null ? order.getStatus().name() : null,
+                        order.getOrderDate() != null ? order.getOrderDate().toString() : null,
+                        order.getTotalAmount(),
+                        order.getCurrency(),
+                        order.getItems().stream()
+                                .map(item -> new StorefrontAccountOrderItemDto(
+                                        item.getProductVariant() != null ? item.getProductVariant().getSku() : null,
+                                        item.getProductVariant() != null ? item.getProductVariant().getTemplate().getName() : null,
+                                        item.getQuantity(),
+                                        item.getTotalPrice()
+                                ))
+                                .toList()
+                ))
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void logoutAccount(String sessionToken) {
+        if (sessionToken == null || sessionToken.isBlank()) {
+            return;
+        }
+        storefrontAccountSessionRepository.findFirstBySessionToken(sessionToken.trim())
+                .ifPresent(session -> {
+                    session.setRevokedAt(LocalDateTime.now());
+                    storefrontAccountSessionRepository.save(session);
+                });
+    }
+
+    @Override
+    @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
+    public StorefrontConfigDto getPublicConfig() {
+        try {
+            return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+                    .map(this::readThemeSnapshot)
+                    .map(StorefrontThemeSnapshotDto::getConfig)
+                    .orElseGet(() -> deriveLegacyConfig(loadDraftThemeDocument()));
+        } catch (RuntimeException ignored) {
+            return deriveLegacyConfig(loadDraftThemeDocument());
+        }
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StorefrontCollectionDto> getPublicCollections() {
+        List<Category> publishedCategories = categoryRepository.findByPublishedToStorefrontTrueOrderByStorefrontSortOrderAscNameAsc();
+        Map<UUID, List<Category>> childrenByParent = new LinkedHashMap<>();
+        for (Category category : publishedCategories) {
+            UUID parentId = category.getParent() != null && Boolean.TRUE.equals(category.getParent().getPublishedToStorefront())
+                    ? category.getParent().getId()
+                    : null;
+            childrenByParent.computeIfAbsent(parentId, ignored -> new ArrayList<>()).add(category);
+        }
+
+        return childrenByParent.getOrDefault(null, List.of()).stream()
+                .map(category -> mapCollection(category, childrenByParent, 0))
+                .toList();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontProductPageDto getPublicProducts(String query, String collectionSlug, String sort, Integer page, Integer size) {
+        int pageNumber = page != null && page >= 0 ? page : 0;
+        int pageSize = size != null && size > 0 ? Math.min(size, 48) : 24;
+        List<ProductVariant> publicVariants = loadPublishedStorefrontVariants();
+        Map<UUID, List<ProductVariant>> siblingsByTemplate = buildSiblingsByTemplate(publicVariants);
+        Warehouse storefrontWarehouse = resolveStorefrontWarehouse();
+        List<StorefrontProductDto> products = siblingsByTemplate.values().stream()
+                .map(this::resolvePrimaryVariant)
+                .filter(Objects::nonNull)
+                .map(variant -> mapProduct(variant, siblingsByTemplate, storefrontWarehouse, true))
+                .toList();
+
+        List<StorefrontProductDto> filteredProducts = products.stream()
+                .filter(product -> matchesQuery(product, query))
+                .filter(product -> matchesCollection(product, collectionSlug))
+                .sorted(productComparator(sort))
+                .toList();
+
+        int fromIndex = Math.min(pageNumber * pageSize, filteredProducts.size());
+        int toIndex = Math.min(fromIndex + pageSize, filteredProducts.size());
+        List<StorefrontProductDto> items = filteredProducts.subList(fromIndex, toIndex);
+        int totalPages = filteredProducts.isEmpty() ? 0 : (int) Math.ceil((double) filteredProducts.size() / pageSize);
+
+        return new StorefrontProductPageDto(
+                items,
+                pageNumber,
+                pageSize,
+                filteredProducts.size(),
+                totalPages,
+                pageNumber + 1 < totalPages,
+                pageNumber > 0 && totalPages > 0
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontProductDto getPublicProduct(String slug) {
+        List<ProductVariant> publicVariants = loadPublishedStorefrontVariants();
+        Map<UUID, List<ProductVariant>> siblingsByTemplate = buildSiblingsByTemplate(publicVariants);
+        Warehouse storefrontWarehouse = resolveStorefrontWarehouse();
+
+        return publicVariants.stream()
+                .filter(variant -> {
+                    List<ProductVariant> siblings = siblingsByTemplate.getOrDefault(variant.getTemplate().getId(), List.of());
+                    String templateSlug = buildTemplateProductSlug(variant);
+                    String variantSlug = buildProductSlug(variant, siblings);
+                    return templateSlug.equalsIgnoreCase(slug) || variantSlug.equalsIgnoreCase(slug);
+                })
+                .findFirst()
+                .map(variant -> mapProduct(variant, siblingsByTemplate, storefrontWarehouse, false))
+                .orElseThrow(() -> new ResourceNotFoundException("Storefront product", "slug", slug));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontCartDto previewCart(StorefrontCartRequest request) {
+        Warehouse warehouse = resolveWarehouse(request.getWarehouseId());
+        Customer customer = resolvePricingCustomer(request.getCustomerId(), request.getCustomerEmail(), request.getCustomerPhoneNumber());
+        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer);
+        PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, pricingRequest);
+
+        return toCartDto(warehouse, pricingEvaluation);
+    }
+
+    @Override
+    @Transactional
+    public StorefrontCheckoutDto checkout(StorefrontCheckoutRequest request) {
+        if ((request.getCustomerEmail() == null || request.getCustomerEmail().isBlank())
+                && (request.getCustomerPhoneNumber() == null || request.getCustomerPhoneNumber().isBlank())) {
+            throw new BadRequestException("Customer email or phone number is required for storefront checkout");
+        }
+
+        Warehouse warehouse = resolveWarehouse(request.getWarehouseId());
+        Customer customer = resolveOrCreateCheckoutCustomer(request);
+        validateCustomerEligibility(customer);
+
+        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer);
+        PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, pricingRequest);
+        Map<UUID, ProductVariant> variantMap = loadVariants(request.getItems());
+        Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(pricingEvaluation);
+
+        SalesOrder salesOrder = new SalesOrder();
+        salesOrder.setCustomer(customer);
+        salesOrder.setWarehouse(warehouse);
+        salesOrder.setOrderDate(LocalDateTime.now());
+        salesOrder.setExpectedDeliveryDate(request.getExpectedDeliveryDate());
+        salesOrder.setStatus(SalesOrderStatus.PENDING_APPROVAL);
+        salesOrder.setPriority(OrderPriority.HIGH);
+        salesOrder.setSoNumber(generateStorefrontOrderNumber());
+        salesOrder.setSalesChannel(SalesChannel.SALES_ORDER);
+        salesOrder.setCurrency(request.getCurrency() != null && !request.getCurrency().isBlank() ? request.getCurrency() : "BDT");
+        salesOrder.setNotes(buildStorefrontOrderNotes(request));
+        salesOrder.setSubtotalAmount(pricingEvaluation.getBaseSubtotal());
+        salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
+        salesOrder.setTotalAmount(pricingEvaluation.getNetSubtotal());
+        salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
+
+        List<SalesOrderItem> items = new ArrayList<>();
+        for (StorefrontCartItemRequest itemRequest : request.getItems()) {
+            ProductVariant productVariant = variantMap.get(itemRequest.getProductVariantId());
+            PricingEvaluationLine pricedLine = popPricedLine(pricedLines, productVariant.getId());
+
+            SalesOrderItem item = new SalesOrderItem();
+            item.setSalesOrder(salesOrder);
+            item.setProductVariant(productVariant);
+            item.setQuantity(itemRequest.getQuantity());
+            item.setBaseUnitPrice(pricedLine.getBaseUnitPrice());
+            item.setUnitPrice(pricedLine.getFinalUnitPrice());
+            item.setLineDiscount(pricedLine.getLineDiscountAmount());
+            item.setAppliedPromotionCodes(String.join(", ", pricedLine.getAppliedPromotionCodes()));
+            item.setTotalPrice(pricedLine.getLineTotalAmount());
+            item.setShippedQuantity(BigDecimal.ZERO);
+            items.add(item);
+        }
+        salesOrder.setItems(items);
+
+        SalesOrder savedOrder = salesOrderRepository.save(salesOrder);
+        pricingEngineService.recordRedemptions(pricingEvaluation, savedOrder, null, customer, SalesChannel.SALES_ORDER, savedOrder.getSoNumber());
+
+        return new StorefrontCheckoutDto(
+                "PENDING_APPROVAL",
+                "Storefront order created and queued for backoffice review.",
+                mapSalesOrder(savedOrder)
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontOrderTrackingDto lookupOrder(StorefrontOrderLookupRequest request) {
+        String orderNumber = request.getOrderNumber().trim();
+        if ((request.getCustomerEmail() == null || request.getCustomerEmail().isBlank())
+                && (request.getCustomerPhoneNumber() == null || request.getCustomerPhoneNumber().isBlank())) {
+            throw new BadRequestException("Customer email or phone number is required for storefront order lookup");
+        }
+
+        Optional<SalesOrder> order = Optional.empty();
+        if (request.getCustomerEmail() != null && !request.getCustomerEmail().isBlank()) {
+            order = salesOrderRepository.findBySoNumberAndCustomerEmailIgnoreCase(orderNumber, request.getCustomerEmail().trim());
+        }
+        if (order.isEmpty() && request.getCustomerPhoneNumber() != null && !request.getCustomerPhoneNumber().isBlank()) {
+            order = salesOrderRepository.findBySoNumberAndCustomerPhoneNumber(orderNumber, request.getCustomerPhoneNumber().trim());
+        }
+
+        SalesOrder salesOrder = order
+                .filter(found -> found.getSoNumber() != null && found.getSoNumber().startsWith("SO-WEB-"))
+                .orElseThrow(() -> new ResourceNotFoundException("Storefront order", "orderNumber", orderNumber));
+
+        return new StorefrontOrderTrackingDto(
+                salesOrder.getSoNumber(),
+                salesOrder.getStatus(),
+                salesOrder.getCustomer().getName(),
+                salesOrder.getCustomer().getEmail(),
+                salesOrder.getCustomer().getPhoneNumber(),
+                salesOrder.getWarehouse() != null ? salesOrder.getWarehouse().getName() : null,
+                salesOrder.getOrderDate(),
+                salesOrder.getExpectedDeliveryDate(),
+                salesOrder.getTotalAmount(),
+                salesOrder.getCurrency(),
+                salesOrder.getItems().stream().map(this::mapSalesOrderItem).toList()
+        );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StorefrontPublishVersionDto> getPublishVersions() {
+        return storefrontPublishVersionRepository.findAllByOrderByVersionNumberDesc().stream()
+                .map(this::mapPublishVersion)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public StorefrontPublishVersionDto publishCurrentConfig(StorefrontPublishRequest request) {
+        StorefrontThemeDocumentDto currentTheme = loadDraftThemeDocument();
+        StorefrontConfigDto current = deriveLegacyConfig(currentTheme);
+        int nextVersionNumber = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+                .map(version -> version.getVersionNumber() + 1)
+                .orElse(1);
+        LocalDateTime publishedAt = LocalDateTime.now();
+
+        current.getSite().setPublishStatus("PUBLISHED");
+        current.getSite().setPublishedVersion("Publish " + nextVersionNumber);
+        current.getSite().setLastPublishedAt(publishedAt.toString());
+        persistConfig(current);
+
+        StorefrontPublishVersion version = new StorefrontPublishVersion();
+        version.setVersionNumber(nextVersionNumber);
+        version.setPublishedAt(publishedAt);
+        version.setNote(request != null ? request.getNote() : null);
+        version.setSnapshotJson(writeThemeSnapshot(new StorefrontThemeSnapshotDto(
+                THEME_SCHEMA_VERSION,
+                null,
+                currentTheme,
+                current
+        )));
+
+        StorefrontPublishVersion saved = storefrontPublishVersionRepository.save(version);
+        writeStringSetting(ACTIVE_REVISION_ID_KEY, saved.getId().toString());
+        return mapPublishVersion(saved);
+    }
+
+    @Override
+    @Transactional
+    public StorefrontPublishVersionDto rollbackToVersion(UUID versionId, StorefrontPublishRequest request) {
+        StorefrontPublishVersion targetVersion = storefrontPublishVersionRepository.findById(versionId)
+                .orElseThrow(() -> new ResourceNotFoundException("Storefront publish version", "id", versionId));
+
+        StorefrontThemeSnapshotDto snapshot = readThemeSnapshot(targetVersion);
+        int nextVersionNumber = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+                .map(version -> version.getVersionNumber() + 1)
+                .orElse(1);
+        LocalDateTime publishedAt = LocalDateTime.now();
+
+        snapshot.getConfig().getSite().setPublishStatus("PUBLISHED");
+        snapshot.getConfig().getSite().setPublishedVersion("Publish " + nextVersionNumber);
+        snapshot.getConfig().getSite().setLastPublishedAt(publishedAt.toString());
+        persistDraftThemeDocument(snapshot.getThemeDocument());
+        persistConfig(snapshot.getConfig());
+
+        StorefrontPublishVersion rollbackVersion = new StorefrontPublishVersion();
+        rollbackVersion.setVersionNumber(nextVersionNumber);
+        rollbackVersion.setPublishedAt(publishedAt);
+        rollbackVersion.setRestoredFromVersionNumber(targetVersion.getVersionNumber());
+        rollbackVersion.setNote(request != null && request.getNote() != null && !request.getNote().isBlank()
+                ? request.getNote()
+                : "Rollback to Publish " + targetVersion.getVersionNumber());
+        rollbackVersion.setSnapshotJson(writeThemeSnapshot(new StorefrontThemeSnapshotDto(
+                THEME_SCHEMA_VERSION,
+                versionId.toString(),
+                snapshot.getThemeDocument(),
+                snapshot.getConfig()
+        )));
+
+        StorefrontPublishVersion saved = storefrontPublishVersionRepository.save(rollbackVersion);
+        writeStringSetting(ACTIVE_REVISION_ID_KEY, saved.getId().toString());
+        return mapPublishVersion(saved);
+    }
+
+    @Override
+    @Transactional
+    public StorefrontAssetUploadDto uploadAsset(MultipartFile file, String assetType) {
+        if (file == null || file.isEmpty()) {
+            throw new BadRequestException("A storefront asset file is required");
+        }
+
+        String normalizedAssetType = (assetType == null || assetType.isBlank())
+                ? "misc"
+                : assetType.trim().toLowerCase().replaceAll("[^a-z0-9-]+", "-");
+        String tenantId = TenantContext.getTenantId();
+        String folder = "storefront-assets/" + (tenantId != null && !tenantId.isBlank() ? tenantId : "default-tenant") + "/" + normalizedAssetType;
+        String storagePath = fileStorageService.uploadFile(file, folder);
+        String publicUrl = "/api/v1/storefront/assets/file?path="
+                + URLEncoder.encode(storagePath, StandardCharsets.UTF_8)
+                + "&tenantId="
+                + URLEncoder.encode(tenantId != null && !tenantId.isBlank() ? tenantId : "default-tenant", StandardCharsets.UTF_8);
+
+        return new StorefrontAssetUploadDto(
+                normalizedAssetType,
+                file.getOriginalFilename(),
+                storagePath,
+                publicUrl
+        );
+    }
+
+    private StorefrontConfigDto loadConfig() {
+        Optional<StorefrontThemeDocumentDto> themeDocument = readThemeDocumentSetting(DRAFT_THEME_DOCUMENT_KEY);
+        if (themeDocument.isPresent()) {
+            return deriveLegacyConfig(themeDocument.get());
+        }
+        StorefrontConfigDto legacy = new StorefrontConfigDto(
+                readSetting(SITE_KEY, new TypeReference<>() {}, defaultSite()),
+                readSetting(THEME_KEY, new TypeReference<>() {}, defaultTheme()),
+                readSetting(NAVIGATION_KEY, new TypeReference<>() {}, defaultNavigation()),
+                readSetting(BANNERS_KEY, new TypeReference<>() {}, defaultBanners()),
+                defaultHeaderPage(),
+                readSetting(HOMEPAGE_KEY, new TypeReference<>() {}, defaultHomePage()),
+                defaultFooterPage()
+        );
+        persistDraftThemeDocument(migrateLegacyConfigToThemeDocument(legacy));
+        return legacy;
+    }
+
+    private void persistConfig(StorefrontConfigDto config) {
+        writeJsonSetting(SITE_KEY, config.getSite());
+        writeJsonSetting(THEME_KEY, config.getTheme());
+        writeJsonSetting(NAVIGATION_KEY, config.getNavigationItems());
+        writeJsonSetting(BANNERS_KEY, config.getBanners());
+        writeJsonSetting(HOMEPAGE_KEY, config.getHomePage());
+    }
+
+    private <T> T readSetting(String key, TypeReference<T> typeReference, T fallback) {
+        Optional<TenantSettingDto> setting = tenantSettingService.findSetting(key);
+        if (setting.isEmpty() || setting.get().getValue() == null || setting.get().getValue().isBlank()) {
+            return fallback;
+        }
+        try {
+            return objectMapper.readValue(setting.get().getValue(), typeReference);
+        } catch (JsonProcessingException exception) {
+            return fallback;
+        }
+    }
+
+    private void writeJsonSetting(String key, Object value) {
+        try {
+            tenantSettingService.updateSetting(key, objectMapper.writeValueAsString(value), "JSON", CATEGORY);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to persist storefront setting " + key, exception);
+        }
+    }
+
+    private void writeStringSetting(String key, String value) {
+        tenantSettingService.updateSetting(key, value, "STRING", CATEGORY);
+    }
+
+    private String readStringSetting(String key, String fallback) {
+        return tenantSettingService.findSetting(key)
+                .map(TenantSettingDto::getValue)
+                .filter(value -> value != null && !value.isBlank())
+                .orElse(fallback);
+    }
+
+    private String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private String generateOtpCode() {
+        int value = 100000 + (int) (Math.random() * 900000);
+        return String.valueOf(value);
+    }
+
+    private String buildStorefrontMagicLink(String magicToken) {
+        StorefrontSiteDto site = deriveLegacyConfig(loadDraftThemeDocument()).getSite();
+        String configured = readStringSetting(PUBLIC_BASE_URL_KEY, null);
+        String baseUrl;
+        if (configured != null && !configured.isBlank()) {
+            baseUrl = configured.trim().replaceAll("/+$", "");
+        } else if (site.getDomain() != null && !site.getDomain().isBlank()) {
+            String domain = site.getDomain().trim();
+            baseUrl = domain.startsWith("http://") || domain.startsWith("https://") ? domain : "https://" + domain;
+        } else {
+            baseUrl = "http://localhost:5173";
+        }
+        return baseUrl + "/account/verify?token=" + URLEncoder.encode(magicToken, StandardCharsets.UTF_8);
+    }
+
+    private StorefrontLoginChallenge resolveLoginChallenge(StorefrontLoginVerifyRequest request) {
+        if (request.getMagicToken() != null && !request.getMagicToken().isBlank()) {
+            return storefrontLoginChallengeRepository.findFirstByMagicToken(request.getMagicToken().trim())
+                    .orElseThrow(() -> new ResourceNotFoundException("Storefront login challenge", "magicToken", request.getMagicToken()));
+        }
+        if (request.getEmail() == null || request.getEmail().isBlank() || request.getOtpCode() == null || request.getOtpCode().isBlank()) {
+            throw new BadRequestException("Email and OTP code are required");
+        }
+        return storefrontLoginChallengeRepository.findByEmailIgnoreCaseOrderByCreatedAtDesc(request.getEmail().trim().toLowerCase()).stream()
+                .filter(challenge -> challenge.getConsumedAt() == null)
+                .filter(challenge -> challenge.getOtpCode().equals(request.getOtpCode().trim()))
+                .findFirst()
+                .orElseThrow(() -> new BadRequestException("Invalid storefront login code"));
+    }
+
+    private StorefrontAccount resolveOrCreateStorefrontAccount(String email) {
+        Optional<StorefrontAccount> existingAccount = storefrontAccountRepository.findFirstByEmailIgnoreCase(email);
+        if (existingAccount.isPresent()) {
+            return existingAccount.get();
+        }
+
+        Customer customer = customerRepository.findFirstByEmailIgnoreCase(email)
+                .orElseGet(() -> {
+                    Customer created = new Customer();
+                    created.setName("Storefront Customer");
+                    created.setContactName(null);
+                    created.setEmail(email);
+                    created.setPhoneNumber(null);
+                    created.setAddress(null);
+                    created.setCategory(CustomerCategory.OTHER);
+                    created.setStatus(CustomerStatus.ACTIVE);
+                    created.setIsActive(true);
+                    return customerRepository.save(created);
+                });
+
+        StorefrontAccount linkedAccount = storefrontAccountRepository.findFirstByCustomerId(customer.getId()).orElse(null);
+        if (linkedAccount != null) {
+            if (linkedAccount.getEmail() == null || linkedAccount.getEmail().isBlank()) {
+                linkedAccount.setEmail(email);
+            }
+            return linkedAccount;
+        }
+
+        StorefrontAccount account = new StorefrontAccount();
+        account.setCustomer(customer);
+        account.setEmail(email);
+        account.setName(blankToNull(customer.getName()));
+        account.setAddress(blankToNull(customer.getAddress()));
+        return account;
+    }
+
+    private StorefrontAccountSession requireStorefrontSession(String sessionToken) {
+        if (sessionToken == null || sessionToken.isBlank()) {
+            throw new BadRequestException("Storefront session token is required");
+        }
+        StorefrontAccountSession session = storefrontAccountSessionRepository.findFirstBySessionToken(sessionToken.trim())
+                .orElseThrow(() -> new ResourceNotFoundException("Storefront session", "token", sessionToken));
+        if (session.getRevokedAt() != null || session.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new BadRequestException("Storefront session has expired");
+        }
+        session.setLastSeenAt(LocalDateTime.now());
+        storefrontAccountSessionRepository.save(session);
+        return session;
+    }
+
+    private StorefrontAccountProfileDto mapStorefrontAccountProfile(StorefrontAccount account) {
+        return new StorefrontAccountProfileDto(
+                account.getId().toString(),
+                account.getCustomer() != null ? account.getCustomer().getId().toString() : null,
+                account.getEmail(),
+                account.getName(),
+                account.getAddress(),
+                account.getEmailVerifiedAt() != null ? account.getEmailVerifiedAt().toString() : null,
+                account.getLastLoginAt() != null ? account.getLastLoginAt().toString() : null
+        );
+    }
+
+    private Optional<StorefrontThemeDocumentDto> readThemeDocumentSetting(String key) {
+        Optional<TenantSettingDto> setting = tenantSettingService.findSetting(key);
+        if (setting.isEmpty() || setting.get().getValue() == null || setting.get().getValue().isBlank()) {
+            return Optional.empty();
+        }
+        try {
+            return Optional.of(normalizeThemeDocument(objectMapper.readValue(setting.get().getValue(), StorefrontThemeDocumentDto.class)));
+        } catch (JsonProcessingException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private StorefrontThemeDocumentDto loadDraftThemeDocument() {
+        return readThemeDocumentSetting(DRAFT_THEME_DOCUMENT_KEY)
+                .orElseGet(() -> migrateLegacyConfigToThemeDocument(new StorefrontConfigDto(
+                        readSetting(SITE_KEY, new TypeReference<>() {}, defaultSite()),
+                        readSetting(THEME_KEY, new TypeReference<>() {}, defaultTheme()),
+                        readSetting(NAVIGATION_KEY, new TypeReference<>() {}, defaultNavigation()),
+                        readSetting(BANNERS_KEY, new TypeReference<>() {}, defaultBanners()),
+                        defaultHeaderPage(),
+                        readSetting(HOMEPAGE_KEY, new TypeReference<>() {}, defaultHomePage()),
+                        defaultFooterPage()
+                )));
+    }
+
+    private Optional<StorefrontThemeDocumentDto> loadPublishedThemeDocument() {
+        return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+                .map(this::readThemeSnapshot)
+                .map(StorefrontThemeSnapshotDto::getThemeDocument);
+    }
+
+    private void persistDraftThemeDocument(StorefrontThemeDocumentDto document) {
+        writeJsonSetting(DRAFT_THEME_DOCUMENT_KEY, normalizeThemeDocument(document));
+        writeStringSetting(THEME_SCHEMA_VERSION_KEY, THEME_SCHEMA_VERSION);
+    }
+
+    private String writeThemeSnapshot(StorefrontThemeSnapshotDto snapshot) {
+        try {
+            return objectMapper.writeValueAsString(snapshot);
+        } catch (JsonProcessingException exception) {
+            throw new IllegalStateException("Failed to serialize storefront snapshot", exception);
+        }
+    }
+
+    private StorefrontThemeSnapshotDto readThemeSnapshot(StorefrontPublishVersion version) {
+        try {
+            StorefrontThemeSnapshotDto snapshot = objectMapper.readValue(version.getSnapshotJson(), StorefrontThemeSnapshotDto.class);
+            if (snapshot.getThemeDocument() == null && snapshot.getConfig() != null) {
+                snapshot.setThemeDocument(migrateLegacyConfigToThemeDocument(snapshot.getConfig()));
+            }
+            if (snapshot.getConfig() == null && snapshot.getThemeDocument() != null) {
+                snapshot.setConfig(deriveLegacyConfig(snapshot.getThemeDocument()));
+            }
+            snapshot.setSchemaVersion(snapshot.getSchemaVersion() != null ? snapshot.getSchemaVersion() : THEME_SCHEMA_VERSION);
+            return snapshot;
+        } catch (JsonProcessingException exception) {
+            try {
+                StorefrontConfigDto legacy = objectMapper.readValue(version.getSnapshotJson(), StorefrontConfigDto.class);
+                return new StorefrontThemeSnapshotDto(
+                        THEME_SCHEMA_VERSION,
+                        version.getId().toString(),
+                        migrateLegacyConfigToThemeDocument(legacy),
+                        legacy
+                );
+            } catch (JsonProcessingException legacyException) {
+                throw new IllegalStateException("Failed to deserialize storefront snapshot", legacyException);
+            }
+        }
+    }
+
+    private StorefrontPublishVersionDto mapPublishVersion(StorefrontPublishVersion version) {
+        return new StorefrontPublishVersionDto(
+                version.getId().toString(),
+                version.getVersionNumber(),
+                "Publish " + version.getVersionNumber(),
+                version.getNote(),
+                version.getPublishedAt().toString(),
+                version.getRestoredFromVersionNumber(),
+                "PUBLISHED"
+        );
+    }
+
+    private StorefrontThemeDocumentDto normalizeThemeDocument(StorefrontThemeDocumentDto document) {
+        StorefrontThemeDocumentDto fallback = migrateLegacyConfigToThemeDocument(new StorefrontConfigDto(
+                defaultSite(),
+                defaultTheme(),
+                defaultNavigation(),
+                defaultBanners(),
+                defaultHeaderPage(),
+                defaultHomePage(),
+                defaultFooterPage()
+        ));
+        if (document == null) {
+            return fallback;
+        }
+
+        StorefrontThemeDocumentDto normalized = new StorefrontThemeDocumentDto();
+        normalized.setTemplateKey(document.getTemplateKey() != null ? document.getTemplateKey() : fallback.getTemplateKey());
+        normalized.setSchemaVersion(THEME_SCHEMA_VERSION);
+        normalized.setSettings(document.getSettings() != null ? new LinkedHashMap<>(document.getSettings()) : new LinkedHashMap<>(fallback.getSettings()));
+        normalized.setTemplates(document.getTemplates() != null ? new LinkedHashMap<>(document.getTemplates()) : new LinkedHashMap<>(fallback.getTemplates()));
+        normalized.getTemplates().computeIfAbsent("header", ignored -> fallback.getTemplates().get("header"));
+        normalized.getTemplates().computeIfAbsent("home", ignored -> fallback.getTemplates().get("home"));
+        normalized.getTemplates().computeIfAbsent("footer", ignored -> fallback.getTemplates().get("footer"));
+        return normalized;
+    }
+
+    private StorefrontThemeDocumentDto migrateLegacyConfigToThemeDocument(StorefrontConfigDto config) {
+        StorefrontSiteDto site = config.getSite() != null ? config.getSite() : defaultSite();
+        StorefrontThemeDto theme = config.getTheme() != null ? config.getTheme() : defaultTheme();
+        List<StorefrontNavItemDto> navigationItems = config.getNavigationItems() != null ? config.getNavigationItems() : defaultNavigation();
+        List<StorefrontBannerDto> banners = config.getBanners() != null ? config.getBanners() : defaultBanners();
+        StorefrontPageDto homePage = config.getHomePage() != null ? config.getHomePage() : defaultHomePage();
+        StorefrontPageDto headerPage = config.getHeaderPage() != null ? config.getHeaderPage() : buildHeaderPage(site, navigationItems);
+        StorefrontPageDto footerPage = config.getFooterPage() != null ? config.getFooterPage() : buildFooterPage(site);
+
+        Map<String, Object> settings = new LinkedHashMap<>();
+        settings.put("site", objectMapper.convertValue(site, new TypeReference<Map<String, Object>>() {}));
+        settings.put("theme", objectMapper.convertValue(theme, new TypeReference<Map<String, Object>>() {}));
+        settings.put("banners", objectMapper.convertValue(banners, new TypeReference<List<Map<String, Object>>>() {}));
+
+        List<StorefrontThemeSectionDto> homeSections = (homePage.getSections() != null ? homePage.getSections() : List.<StorefrontSectionDto>of()).stream()
+                .map(this::migrateLegacySection)
+                .toList();
+        List<StorefrontThemeSectionDto> headerSections = migrateHeaderPageToThemeSections(headerPage, site, navigationItems);
+        List<StorefrontThemeSectionDto> footerSections = migrateFooterPageToThemeSections(footerPage, site);
+
+        Map<String, StorefrontThemeTemplateDto> templates = new LinkedHashMap<>();
+        templates.put("header", new StorefrontThemeTemplateDto("header", "Header", new ArrayList<>(headerSections)));
+        templates.put("home", new StorefrontThemeTemplateDto("home", "Home page", new ArrayList<>(homeSections)));
+        templates.put("footer", new StorefrontThemeTemplateDto("footer", "Footer", new ArrayList<>(footerSections)));
+
+        return new StorefrontThemeDocumentDto(
+                site.getTemplateKey(),
+                THEME_SCHEMA_VERSION,
+                settings,
+                templates
+        );
+    }
+
+    private StorefrontThemeSectionDto migrateLegacySection(StorefrontSectionDto section) {
+        Map<String, Object> settings = section.getConfig() != null ? new LinkedHashMap<>(section.getConfig()) : new LinkedHashMap<>();
+        List<StorefrontThemeBlockDto> blocks = new ArrayList<>();
+
+        if ("hero_banner".equals(section.getType())) {
+            List<String> buttonBlockIds = new ArrayList<>();
+            if (settings.get("ctaLabel") != null || settings.get("ctaHref") != null) {
+                buttonBlockIds.add(section.getId() + "-primary");
+                blocks.add(new StorefrontThemeBlockDto(
+                        section.getId() + "-primary",
+                        "hero_button",
+                        "Primary button",
+                        true,
+                        new LinkedHashMap<>(Map.of(
+                                "label", settings.getOrDefault("ctaLabel", ""),
+                                "href", settings.getOrDefault("ctaHref", "")
+                        ))
+                ));
+            }
+            if (settings.get("secondaryCtaLabel") != null || settings.get("secondaryCtaHref") != null) {
+                buttonBlockIds.add(section.getId() + "-secondary");
+                blocks.add(new StorefrontThemeBlockDto(
+                        section.getId() + "-secondary",
+                        "hero_button",
+                        "Secondary button",
+                        true,
+                        new LinkedHashMap<>(Map.of(
+                                "label", settings.getOrDefault("secondaryCtaLabel", ""),
+                                "href", settings.getOrDefault("secondaryCtaHref", "")
+                        ))
+                ));
+            }
+            settings.remove("ctaLabel");
+            settings.remove("ctaHref");
+            settings.remove("secondaryCtaLabel");
+            settings.remove("secondaryCtaHref");
+            settings.put("buttonBlockIds", buttonBlockIds);
+        } else if ("promo_strip".equals(section.getType())) {
+            List<?> items = settings.get("items") instanceof List<?> list ? list : List.of();
+            List<String> itemBlockIds = new ArrayList<>();
+            for (int index = 0; index < items.size(); index++) {
+                itemBlockIds.add(section.getId() + "-promo-" + index);
+                blocks.add(new StorefrontThemeBlockDto(
+                        section.getId() + "-promo-" + index,
+                        "promo_item",
+                        "Promo item " + (index + 1),
+                        true,
+                        new LinkedHashMap<>(Map.of("text", items.get(index)))
+                ));
+            }
+            settings.remove("items");
+            settings.put("itemBlockIds", itemBlockIds);
+        } else if ("featured_products".equals(section.getType())) {
+            List<?> items = settings.get("productSlugs") instanceof List<?> list ? list : List.of();
+            List<String> productBlockIds = new ArrayList<>();
+            for (int index = 0; index < items.size(); index++) {
+                productBlockIds.add(section.getId() + "-product-" + index);
+                blocks.add(new StorefrontThemeBlockDto(
+                        section.getId() + "-product-" + index,
+                        "product_reference",
+                        "Product " + (index + 1),
+                        true,
+                        new LinkedHashMap<>(Map.of("productSlug", items.get(index)))
+                ));
+            }
+            settings.remove("productSlugs");
+            settings.put("productBlockIds", productBlockIds);
+        } else if ("featured_collections".equals(section.getType())) {
+            List<?> items = settings.get("collectionSlugs") instanceof List<?> list ? list : List.of();
+            List<String> collectionBlockIds = new ArrayList<>();
+            for (int index = 0; index < items.size(); index++) {
+                collectionBlockIds.add(section.getId() + "-collection-" + index);
+                blocks.add(new StorefrontThemeBlockDto(
+                        section.getId() + "-collection-" + index,
+                        "collection_reference",
+                        "Collection " + (index + 1),
+                        true,
+                        new LinkedHashMap<>(Map.of("collectionSlug", items.get(index)))
+                ));
+            }
+            settings.remove("collectionSlugs");
+            settings.put("collectionBlockIds", collectionBlockIds);
+        }
+
+        return new StorefrontThemeSectionDto(
+                section.getId(),
+                section.getType(),
+                section.getLabel(),
+                section.getVariant(),
+                section.isEnabled(),
+                settings,
+                blocks
+        );
+    }
+
+    private List<StorefrontThemeSectionDto> migrateHeaderPageToThemeSections(StorefrontPageDto headerPage,
+                                                                             StorefrontSiteDto site,
+                                                                             List<StorefrontNavItemDto> navigationItems) {
+        Map<String, StorefrontSectionDto> sectionsByType = (headerPage.getSections() != null ? headerPage.getSections() : List.<StorefrontSectionDto>of()).stream()
+                .collect(Collectors.toMap(StorefrontSectionDto::getType, Function.identity(), (left, right) -> right, LinkedHashMap::new));
+
+        StorefrontSectionDto announcementSource = sectionsByType.getOrDefault("announcement_bar", buildHeaderPage(site, navigationItems).getSections().get(0));
+        StorefrontSectionDto navSource = sectionsByType.getOrDefault("header_nav", buildHeaderPage(site, navigationItems).getSections().get(1));
+
+        List<StorefrontThemeBlockDto> navBlocks = navigationItems.stream()
+                .map(item -> new StorefrontThemeBlockDto(
+                        item.getId(),
+                        "nav_link",
+                        item.getLabel(),
+                        true,
+                        new LinkedHashMap<>(Map.of(
+                                "label", item.getLabel(),
+                                "href", item.getHref()
+                        ))
+                ))
+                .toList();
+
+        List<StorefrontThemeSectionDto> sections = new ArrayList<>();
+        sections.add(new StorefrontThemeSectionDto(
+                announcementSource.getId(),
+                "announcement_bar",
+                announcementSource.getLabel(),
+                announcementSource.getVariant(),
+                announcementSource.isEnabled(),
+                announcementSource.getConfig() != null ? new LinkedHashMap<>(announcementSource.getConfig()) : new LinkedHashMap<>(),
+                new ArrayList<>()
+        ));
+        sections.add(new StorefrontThemeSectionDto(
+                navSource.getId(),
+                "header_nav",
+                navSource.getLabel(),
+                navSource.getVariant(),
+                navSource.isEnabled(),
+                navSource.getConfig() != null ? new LinkedHashMap<>(navSource.getConfig()) : new LinkedHashMap<>(),
+                new ArrayList<>(navBlocks)
+        ));
+        return sections;
+    }
+
+    private List<StorefrontThemeSectionDto> migrateFooterPageToThemeSections(StorefrontPageDto footerPage, StorefrontSiteDto site) {
+        StorefrontSectionDto footerSource = (footerPage.getSections() != null ? footerPage.getSections() : List.<StorefrontSectionDto>of()).stream()
+                .filter(section -> "footer_links".equals(section.getType()))
+                .findFirst()
+                .orElseGet(() -> buildFooterPage(site).getSections().get(0));
+
+        List<StorefrontThemeBlockDto> footerBlocks = new ArrayList<>();
+        footerBlocks.add(buildFooterLinkBlock("footer-link-catalog", site.getFooterCatalogLabel(), "/products"));
+        footerBlocks.add(buildFooterLinkBlock("footer-link-collections", site.getFooterCollectionsLabel(), "/collections"));
+        footerBlocks.add(buildFooterLinkBlock("footer-link-tracking", site.getFooterTrackingLabel(), "/orders/track"));
+
+        return List.of(new StorefrontThemeSectionDto(
+                footerSource.getId(),
+                "footer_links",
+                footerSource.getLabel(),
+                footerSource.getVariant(),
+                footerSource.isEnabled(),
+                footerSource.getConfig() != null ? new LinkedHashMap<>(footerSource.getConfig()) : new LinkedHashMap<>(),
+                footerBlocks
+        ));
+    }
+
+    private StorefrontThemeBlockDto buildFooterLinkBlock(String id, String label, String href) {
+        LinkedHashMap<String, Object> config = new LinkedHashMap<>();
+        config.put("label", label);
+        config.put("href", href);
+        return new StorefrontThemeBlockDto(id, "footer_link", label, true, config);
+    }
+
+    private StorefrontConfigDto deriveLegacyConfig(StorefrontThemeDocumentDto document) {
+        StorefrontThemeDocumentDto normalized = normalizeThemeDocument(document);
+        Map<String, Object> siteSettings = mapSettingsGroup(normalized.getSettings(), "site");
+        Map<String, Object> themeSettings = mapSettingsGroup(normalized.getSettings(), "theme");
+        List<StorefrontBannerDto> banners = objectMapper.convertValue(
+                normalized.getSettings().getOrDefault("banners", defaultBanners()),
+                new TypeReference<List<StorefrontBannerDto>>() {}
+        );
+
+        StorefrontSiteDto site = objectMapper.convertValue(siteSettings, StorefrontSiteDto.class);
+        StorefrontThemeDto theme = objectMapper.convertValue(themeSettings, StorefrontThemeDto.class);
+
+        site = mergeSite(site);
+        theme = mergeTheme(theme);
+
+        StorefrontThemeTemplateDto headerTemplate = normalized.getTemplates().get("header");
+        List<StorefrontNavItemDto> navigationItems = deriveNavigationItems(headerTemplate);
+        applyHeaderSettings(site, headerTemplate);
+
+        StorefrontThemeTemplateDto homeTemplate = normalized.getTemplates().get("home");
+        StorefrontPageDto homePage = new StorefrontPageDto(
+                "home",
+                "Home page",
+                (homeTemplate != null ? homeTemplate.getSections() : List.<StorefrontThemeSectionDto>of()).stream()
+                        .map(this::deriveLegacySection)
+                        .toList()
+        );
+
+        StorefrontThemeTemplateDto footerTemplate = normalized.getTemplates().get("footer");
+        applyFooterSettings(site, footerTemplate);
+
+        StorefrontPageDto headerPage = new StorefrontPageDto(
+                "header",
+                "Header",
+                (headerTemplate != null ? headerTemplate.getSections() : List.<StorefrontThemeSectionDto>of()).stream()
+                        .map(this::deriveLegacySection)
+                        .toList()
+        );
+
+        StorefrontPageDto footerPage = new StorefrontPageDto(
+                "footer",
+                "Footer",
+                (footerTemplate != null ? footerTemplate.getSections() : List.<StorefrontThemeSectionDto>of()).stream()
+                        .map(this::deriveLegacySection)
+                        .toList()
+        );
+
+        return new StorefrontConfigDto(site, theme, navigationItems, banners, headerPage, homePage, footerPage);
+    }
+
+    private Map<String, Object> mapSettingsGroup(Map<String, Object> settings, String key) {
+        Object value = settings != null ? settings.get(key) : null;
+        if (value instanceof Map<?, ?> map) {
+            return new LinkedHashMap<>((Map<String, Object>) map);
+        }
+        return new LinkedHashMap<>();
+    }
+
+    private StorefrontSiteDto mergeSite(StorefrontSiteDto site) {
+        StorefrontSiteDto fallback = defaultSite();
+        return new StorefrontSiteDto(
+                site.isEnabled(),
+                site.getTemplateKey() != null ? site.getTemplateKey() : fallback.getTemplateKey(),
+                site.getName() != null ? site.getName() : fallback.getName(),
+                site.getTagline() != null ? site.getTagline() : fallback.getTagline(),
+                site.getAnnouncement() != null ? site.getAnnouncement() : fallback.getAnnouncement(),
+                site.getDomain() != null ? site.getDomain() : fallback.getDomain(),
+                site.getModulePlan() != null ? site.getModulePlan() : fallback.getModulePlan(),
+                site.getLogoUrl() != null ? site.getLogoUrl() : fallback.getLogoUrl(),
+                site.getIconUrl() != null ? site.getIconUrl() : fallback.getIconUrl(),
+                site.getLogoWidth() != null ? site.getLogoWidth() : fallback.getLogoWidth(),
+                site.getProductCardHoverMode() != null ? site.getProductCardHoverMode() : fallback.getProductCardHoverMode(),
+                site.getProductCardHoverZoom() != null ? site.getProductCardHoverZoom() : fallback.getProductCardHoverZoom(),
+                site.getDrawerButtonLabel() != null ? site.getDrawerButtonLabel() : fallback.getDrawerButtonLabel(),
+                site.getDrawerLabel() != null ? site.getDrawerLabel() : fallback.getDrawerLabel(),
+                site.getDrawerTitle() != null ? site.getDrawerTitle() : fallback.getDrawerTitle(),
+                site.getDrawerDescription() != null ? site.getDrawerDescription() : fallback.getDrawerDescription(),
+                site.getAllCollectionsLabel() != null ? site.getAllCollectionsLabel() : fallback.getAllCollectionsLabel(),
+                site.getSearchPlaceholder() != null ? site.getSearchPlaceholder() : fallback.getSearchPlaceholder(),
+                site.getCartLabel() != null ? site.getCartLabel() : fallback.getCartLabel(),
+                site.getFooterCatalogLabel() != null ? site.getFooterCatalogLabel() : fallback.getFooterCatalogLabel(),
+                site.getFooterCollectionsLabel() != null ? site.getFooterCollectionsLabel() : fallback.getFooterCollectionsLabel(),
+                site.getFooterTrackingLabel() != null ? site.getFooterTrackingLabel() : fallback.getFooterTrackingLabel(),
+                site.getPublishStatus() != null ? site.getPublishStatus() : fallback.getPublishStatus(),
+                site.getPublishedVersion(),
+                site.getLastPublishedAt()
+        );
+    }
+
+    private StorefrontThemeDto mergeTheme(StorefrontThemeDto theme) {
+        StorefrontThemeDto fallback = defaultTheme();
+        return new StorefrontThemeDto(
+                theme.getPrimary() != null ? theme.getPrimary() : fallback.getPrimary(),
+                theme.getSecondary() != null ? theme.getSecondary() : fallback.getSecondary(),
+                theme.getAccent() != null ? theme.getAccent() : fallback.getAccent(),
+                theme.getSurface() != null ? theme.getSurface() : fallback.getSurface(),
+                theme.getText() != null ? theme.getText() : fallback.getText(),
+                theme.getRadius() != null ? theme.getRadius() : fallback.getRadius(),
+                theme.getHeroAlignment() != null ? theme.getHeroAlignment() : fallback.getHeroAlignment(),
+                theme.getHeadingFont() != null ? theme.getHeadingFont() : fallback.getHeadingFont(),
+                theme.getBodyFont() != null ? theme.getBodyFont() : fallback.getBodyFont()
+        );
+    }
+
+    private List<StorefrontNavItemDto> deriveNavigationItems(StorefrontThemeTemplateDto headerTemplate) {
+        if (headerTemplate == null) {
+            return defaultNavigation();
+        }
+        return headerTemplate.getSections().stream()
+                .filter(section -> "header_nav".equals(section.getType()))
+                .findFirst()
+                .map(section -> section.getBlocks().stream()
+                        .filter(block -> Boolean.TRUE.equals(block.getEnabled()) && "nav_link".equals(block.getType()))
+                        .map(block -> new StorefrontNavItemDto(
+                                block.getId(),
+                                String.valueOf(block.getSettings().getOrDefault("label", block.getLabel())),
+                                String.valueOf(block.getSettings().getOrDefault("href", "/"))
+                        ))
+                        .toList())
+                .filter(items -> !items.isEmpty())
+                .orElseGet(this::defaultNavigation);
+    }
+
+    private void applyHeaderSettings(StorefrontSiteDto site, StorefrontThemeTemplateDto headerTemplate) {
+        if (headerTemplate == null) {
+            return;
+        }
+        headerTemplate.getSections().forEach(section -> {
+            if ("announcement_bar".equals(section.getType())) {
+                site.setAnnouncement(String.valueOf(section.getSettings().getOrDefault("text", site.getAnnouncement())));
+            }
+            if ("header_nav".equals(section.getType())) {
+                site.setDrawerButtonLabel(String.valueOf(section.getSettings().getOrDefault("drawerButtonLabel", site.getDrawerButtonLabel())));
+                site.setDrawerLabel(String.valueOf(section.getSettings().getOrDefault("drawerLabel", site.getDrawerLabel())));
+                site.setDrawerTitle(String.valueOf(section.getSettings().getOrDefault("drawerTitle", site.getDrawerTitle())));
+                site.setDrawerDescription(String.valueOf(section.getSettings().getOrDefault("drawerDescription", site.getDrawerDescription())));
+                site.setAllCollectionsLabel(String.valueOf(section.getSettings().getOrDefault("allCollectionsLabel", site.getAllCollectionsLabel())));
+                site.setSearchPlaceholder(String.valueOf(section.getSettings().getOrDefault("searchPlaceholder", site.getSearchPlaceholder())));
+                site.setCartLabel(String.valueOf(section.getSettings().getOrDefault("cartLabel", site.getCartLabel())));
+            }
+        });
+    }
+
+    private void applyFooterSettings(StorefrontSiteDto site, StorefrontThemeTemplateDto footerTemplate) {
+        if (footerTemplate == null) {
+            return;
+        }
+        footerTemplate.getSections().stream()
+                .filter(section -> "footer_links".equals(section.getType()))
+                .findFirst()
+                .ifPresent(section -> {
+                    List<StorefrontThemeBlockDto> blocks = section.getBlocks() != null ? section.getBlocks() : List.of();
+                    if (blocks.size() > 0) {
+                        site.setFooterCatalogLabel(String.valueOf(blocks.get(0).getSettings().getOrDefault("label", site.getFooterCatalogLabel())));
+                    }
+                    if (blocks.size() > 1) {
+                        site.setFooterCollectionsLabel(String.valueOf(blocks.get(1).getSettings().getOrDefault("label", site.getFooterCollectionsLabel())));
+                    }
+                    if (blocks.size() > 2) {
+                        site.setFooterTrackingLabel(String.valueOf(blocks.get(2).getSettings().getOrDefault("label", site.getFooterTrackingLabel())));
+                    }
+                });
+    }
+
+    private StorefrontSectionDto deriveLegacySection(StorefrontThemeSectionDto section) {
+        Map<String, Object> config = section.getSettings() != null ? new LinkedHashMap<>(section.getSettings()) : new LinkedHashMap<>();
+
+        if ("announcement_bar".equals(section.getType())) {
+            config.put("text", section.getSettings().getOrDefault("text", ""));
+            config.put("enabled", section.getSettings().getOrDefault("enabled", Boolean.TRUE.equals(section.getEnabled())));
+        } else if ("header_nav".equals(section.getType())) {
+            config.put("navBlockIds", (section.getBlocks() != null ? section.getBlocks() : List.<StorefrontThemeBlockDto>of()).stream()
+                    .filter(block -> Boolean.TRUE.equals(block.getEnabled()))
+                    .map(StorefrontThemeBlockDto::getId)
+                    .toList());
+        } else if ("hero_banner".equals(section.getType())) {
+            List<StorefrontThemeBlockDto> blocks = section.getBlocks() != null ? section.getBlocks() : List.of();
+            if (blocks.size() > 0) {
+                config.put("ctaLabel", blocks.get(0).getSettings().getOrDefault("label", ""));
+                config.put("ctaHref", blocks.get(0).getSettings().getOrDefault("href", ""));
+            }
+            if (blocks.size() > 1) {
+                config.put("secondaryCtaLabel", blocks.get(1).getSettings().getOrDefault("label", ""));
+                config.put("secondaryCtaHref", blocks.get(1).getSettings().getOrDefault("href", ""));
+            }
+        } else if ("promo_strip".equals(section.getType())) {
+            config.put("items", (section.getBlocks() != null ? section.getBlocks() : List.<StorefrontThemeBlockDto>of()).stream()
+                    .filter(block -> Boolean.TRUE.equals(block.getEnabled()))
+                    .map(block -> String.valueOf(block.getSettings().getOrDefault("text", "")))
+                    .toList());
+        } else if ("featured_products".equals(section.getType())) {
+            config.put("productSlugs", (section.getBlocks() != null ? section.getBlocks() : List.<StorefrontThemeBlockDto>of()).stream()
+                    .filter(block -> Boolean.TRUE.equals(block.getEnabled()))
+                    .map(block -> String.valueOf(block.getSettings().getOrDefault("productSlug", "")))
+                    .filter(value -> !value.isBlank())
+                    .toList());
+        } else if ("featured_collections".equals(section.getType())) {
+            config.put("collectionSlugs", (section.getBlocks() != null ? section.getBlocks() : List.<StorefrontThemeBlockDto>of()).stream()
+                    .filter(block -> Boolean.TRUE.equals(block.getEnabled()))
+                    .map(block -> String.valueOf(block.getSettings().getOrDefault("collectionSlug", "")))
+                    .filter(value -> !value.isBlank())
+                    .toList());
+        } else if ("footer_links".equals(section.getType())) {
+            config.put("linkBlockIds", (section.getBlocks() != null ? section.getBlocks() : List.<StorefrontThemeBlockDto>of()).stream()
+                    .filter(block -> Boolean.TRUE.equals(block.getEnabled()))
+                    .map(StorefrontThemeBlockDto::getId)
+                    .toList());
+        }
+
+        return new StorefrontSectionDto(
+                section.getId(),
+                section.getLabel(),
+                section.getType(),
+                Boolean.TRUE.equals(section.getEnabled()),
+                section.getVariant(),
+                config,
+                section.getBlocks() != null ? new ArrayList<>(section.getBlocks()) : new ArrayList<>()
+        );
+    }
+
+    private Map<String, Object> buildThemeSchema(String templateKey) {
+        Map<String, Object> schema = new LinkedHashMap<>();
+        schema.put("version", THEME_SCHEMA_VERSION);
+        schema.put("templateKey", templateKey);
+        schema.put("templateTree", List.of(
+                Map.of("id", "settings", "label", "Theme settings"),
+                Map.of("id", "header", "label", "Header"),
+                Map.of("id", "home", "label", "Home page"),
+                Map.of("id", "footer", "label", "Footer")
+        ));
+        schema.put("settingsGroups", List.of(
+                Map.of(
+                        "id", "site",
+                        "label", "Brand & storefront",
+                        "fields", List.of(
+                                field("templateKey", "Template", "select", List.of(option("marland_manor", "Marland Manor"), option("atelier", "Atelier"))),
+                                field("name", "Store name", "text"),
+                                field("tagline", "Tagline", "text"),
+                                field("announcement", "Announcement", "textarea"),
+                                field("domain", "Domain", "text"),
+                                field("logoUrl", "Logo URL", "text"),
+                                field("iconUrl", "Icon URL", "text"),
+                                field("logoWidth", "Logo width", "number"),
+                                field("productCardHoverMode", "Product hover image", "select", List.of(option("NONE", "None"), option("SECOND_IMAGE", "Second image"))),
+                                field("productCardHoverZoom", "Hover zoom", "toggle")
+                        )
+                ),
+                Map.of(
+                        "id", "theme",
+                        "label", "Theme tokens",
+                        "fields", List.of(
+                                field("primary", "Primary", "color"),
+                                field("secondary", "Secondary", "color"),
+                                field("accent", "Accent", "color"),
+                                field("surface", "Surface", "color"),
+                                field("text", "Text", "color"),
+                                field("radius", "Radius", "number"),
+                                field("headingFont", "Heading font", "text"),
+                                field("bodyFont", "Body font", "text")
+                        )
+                )
+        ));
+        schema.put("sectionDefinitions", new LinkedHashMap<>(Map.of(
+                "announcement_bar", Map.of("label", "Announcement bar", "settings", List.of(field("text", "Text", "textarea"), field("enabled", "Enabled", "toggle")), "blockTypes", List.of()),
+                "header_nav", Map.of("label", "Header navigation", "settings", List.of(
+                        field("drawerButtonLabel", "Drawer button label", "text"),
+                        field("drawerLabel", "Drawer eyebrow", "text"),
+                        field("drawerTitle", "Drawer title", "text"),
+                        field("drawerDescription", "Drawer description", "textarea"),
+                        field("allCollectionsLabel", "All collections label", "text"),
+                        field("searchPlaceholder", "Search placeholder", "text"),
+                        field("cartLabel", "Cart label", "text")
+                ), "blockTypes", List.of("nav_link")),
+                "hero_banner", Map.of("label", "Hero banner", "settings", List.of(
+                        field("eyebrow", "Eyebrow", "text"),
+                        field("headline", "Headline", "text"),
+                        field("subheadline", "Subheadline", "textarea"),
+                        field("imageUrl", "Image URL", "text")
+                ), "blockTypes", List.of("hero_button")),
+                "promo_strip", Map.of("label", "Promo strip", "settings", List.of(), "blockTypes", List.of("promo_item")),
+                "featured_products", Map.of("label", "Featured products", "settings", List.of(
+                        field("source", "Source", "select", List.of(option("manual", "Manual selection"), option("newest", "Newest products"), option("featured", "Featured products"), option("collection", "By collection"))),
+                        field("collectionSlug", "Collection source", "entity_collection"),
+                        field("limit", "Limit", "number"),
+                        field("eyebrow", "Eyebrow", "text"),
+                        field("title", "Title", "text"),
+                        field("description", "Description", "textarea"),
+                        field("ctaLabel", "CTA label", "text")
+                ), "blockTypes", List.of("product_reference")),
+                "featured_collections", Map.of("label", "Featured collections", "settings", List.of(
+                        field("limit", "Limit", "number"),
+                        field("eyebrow", "Eyebrow", "text"),
+                        field("title", "Title", "text"),
+                        field("description", "Description", "textarea"),
+                        field("ctaLabel", "CTA label", "text"),
+                        field("collectionKickerLabel", "Card kicker", "text"),
+                        field("collectionCardCtaLabel", "Card CTA", "text")
+                ), "blockTypes", List.of("collection_reference")),
+                "footer_links", Map.of("label", "Footer links", "settings", List.of(field("brandName", "Brand name", "text"), field("tagline", "Tagline", "textarea")), "blockTypes", List.of("footer_link"))
+        )));
+        schema.put("blockDefinitions", new LinkedHashMap<>(Map.of(
+                "nav_link", Map.of("label", "Navigation link", "settings", List.of(field("label", "Label", "text"), field("href", "Link", "text"))),
+                "hero_button", Map.of("label", "Hero button", "settings", List.of(field("label", "Label", "text"), field("href", "Link", "text"))),
+                "promo_item", Map.of("label", "Promo item", "settings", List.of(field("text", "Text", "text"))),
+                "product_reference", Map.of("label", "Product reference", "settings", List.of(field("productSlug", "Product", "entity_product"))),
+                "collection_reference", Map.of("label", "Collection reference", "settings", List.of(field("collectionSlug", "Collection", "entity_collection"))),
+                "footer_link", Map.of("label", "Footer link", "settings", List.of(field("label", "Label", "text"), field("href", "Link", "text")))
+        )));
+        schema.put("templatePresets", new LinkedHashMap<>(Map.of(
+                "header", List.of(Map.of("type", "announcement_bar", "label", "Announcement bar"), Map.of("type", "header_nav", "label", "Header navigation")),
+                "home", List.of(Map.of("type", "hero_banner", "label", "Hero banner"), Map.of("type", "promo_strip", "label", "Promo strip"), Map.of("type", "featured_products", "label", "Featured products"), Map.of("type", "featured_collections", "label", "Featured collections")),
+                "footer", List.of(Map.of("type", "footer_links", "label", "Footer links"))
+        )));
+        return schema;
+    }
+
+    private Map<String, Object> field(String id, String label, String type) {
+        return field(id, label, type, List.of());
+    }
+
+    private Map<String, Object> field(String id, String label, String type, List<Map<String, Object>> options) {
+        Map<String, Object> field = new LinkedHashMap<>();
+        field.put("id", id);
+        field.put("label", label);
+        field.put("type", type);
+        if (options != null && !options.isEmpty()) {
+            field.put("options", options);
+        }
+        return field;
+    }
+
+    private Map<String, Object> option(String value, String label) {
+        return Map.of("value", value, "label", label);
+    }
+
+    private StorefrontProductDto mapProduct(ProductVariant variant,
+                                            Map<UUID, List<ProductVariant>> siblingsByTemplate,
+                                            Warehouse storefrontWarehouse,
+                                            boolean useTemplateSlugAsPrimarySlug) {
+        List<ProductVariant> siblingVariants = siblingsByTemplate.getOrDefault(variant.getTemplate().getId(), List.of(variant));
+        String name = variant.getTemplate().getStorefrontTitle() != null && !variant.getTemplate().getStorefrontTitle().isBlank()
+                ? variant.getTemplate().getStorefrontTitle()
+                : variant.getTemplate().getName();
+        String templateSlug = buildTemplateProductSlug(variant);
+        String slug = useTemplateSlugAsPrimarySlug ? templateSlug : buildProductSlug(variant, siblingVariants);
+        String summary = variant.getTemplate().getStorefrontDescription() != null && !variant.getTemplate().getStorefrontDescription().isBlank()
+                ? variant.getTemplate().getStorefrontDescription()
+                : variant.getTemplate().getDescription();
+        String imageUrl = variant.getTemplate().getImages().stream()
+                .filter(image -> Boolean.TRUE.equals(image.getIsMain()))
+                .findFirst()
+                .or(() -> variant.getTemplate().getImages().stream().findFirst())
+                .map(this::resolveStorefrontImageUrl)
+                .orElse(null);
+        List<String> imageUrls = variant.getTemplate().getImages().stream()
+                .map(this::resolveStorefrontImageUrl)
+                .filter(url -> url != null && !url.isBlank())
+                .distinct()
+                .toList();
+        BigDecimal availableToPromise = resolveAvailableToPromise(variant, storefrontWarehouse);
+        String availabilityLabel = toAvailabilityLabel(availableToPromise);
+
+        StorefrontProductDto dto = new StorefrontProductDto();
+        dto.setProductTemplateId(variant.getTemplate().getId().toString());
+        dto.setProductSlug(templateSlug);
+        dto.setProductVariantId(variant.getId().toString());
+        dto.setSlug(slug);
+        dto.setSku(variant.getSku());
+        dto.setName(name);
+        dto.setCategory(variant.getTemplate().getCategory() != null ? variant.getTemplate().getCategory().getName() : "Uncategorized");
+        dto.setCollectionSlug(variant.getTemplate().getCategory() != null
+                ? (variant.getTemplate().getCategory().getStorefrontSlug() != null && !variant.getTemplate().getCategory().getStorefrontSlug().isBlank()
+                    ? variant.getTemplate().getCategory().getStorefrontSlug()
+                    : slugify(variant.getTemplate().getCategory().getName()))
+                : null);
+        dto.setCollectionTitle(variant.getTemplate().getCategory() != null
+                ? (variant.getTemplate().getCategory().getStorefrontTitle() != null && !variant.getTemplate().getCategory().getStorefrontTitle().isBlank()
+                    ? variant.getTemplate().getCategory().getStorefrontTitle()
+                    : variant.getTemplate().getCategory().getName())
+                : null);
+        dto.setParentCollectionSlug(resolveParentCollectionSlug(variant.getTemplate().getCategory()));
+        dto.setParentCollectionTitle(resolveParentCollectionTitle(variant.getTemplate().getCategory()));
+        dto.setCategoryPath(buildCategoryPath(variant.getTemplate().getCategory()));
+        dto.setCollectionTrailSlugs(buildCategoryTrailSlugs(variant.getTemplate().getCategory()));
+        dto.setCollectionTrailTitles(buildCategoryTrailTitles(variant.getTemplate().getCategory()));
+        dto.setVariantLabel(buildVariantLabel(variant));
+        dto.setPrice(variant.getPrice());
+        dto.setCompareAtPrice(variant.getCompareAtPrice());
+        dto.setCurrency("BDT");
+        dto.setSummary(summary != null && !summary.isBlank() ? summary : "Inventory-backed catalog item ready for storefront publishing.");
+        dto.setImageUrl(imageUrl);
+        dto.setImageUrls(imageUrls);
+        dto.setSeoTitle(variant.getTemplate().getStorefrontSeoTitle());
+        dto.setSeoDescription(variant.getTemplate().getStorefrontSeoDescription());
+        dto.setUomName(variant.getTemplate().getUom() != null ? variant.getTemplate().getUom().getName() : null);
+        dto.setBadge(variant.getStorefrontBadge());
+        dto.setFeatured(Boolean.TRUE.equals(variant.getStorefrontFeatured()));
+        dto.setAvailableToPromise(availableToPromise);
+        dto.setAvailabilityLabel(availabilityLabel);
+        dto.setVariants(mapVariantOptions(siblingVariants, siblingsByTemplate, storefrontWarehouse));
+        return dto;
+    }
+
+    private ProductVariant resolvePrimaryVariant(List<ProductVariant> siblingVariants) {
+        if (siblingVariants == null || siblingVariants.isEmpty()) {
+            return null;
+        }
+
+        return siblingVariants.stream()
+                .sorted(Comparator
+                        .comparing(ProductVariant::getStorefrontFeatured, Comparator.nullsLast(Boolean::compareTo)).reversed()
+                        .thenComparing(ProductVariant::getPrice, Comparator.nullsLast(BigDecimal::compareTo))
+                        .thenComparing(ProductVariant::getCreatedAt, Comparator.nullsLast(LocalDateTime::compareTo)).reversed())
+                .findFirst()
+                .orElse(siblingVariants.get(0));
+    }
+
+    private boolean matchesQuery(StorefrontProductDto product, String query) {
+        if (query == null || query.isBlank()) {
+            return true;
+        }
+        String needle = query.trim().toLowerCase();
+        return String.join(" ",
+                        product.getName() != null ? product.getName() : "",
+                        product.getSummary() != null ? product.getSummary() : "",
+                        product.getCategory() != null ? product.getCategory() : "",
+                        product.getCollectionTitle() != null ? product.getCollectionTitle() : "",
+                        product.getSku() != null ? product.getSku() : "")
+                .toLowerCase()
+                .contains(needle);
+    }
+
+    private boolean matchesCollection(StorefrontProductDto product, String collectionSlug) {
+        if (collectionSlug == null || collectionSlug.isBlank()) {
+            return true;
+        }
+        String normalizedCollectionSlug = collectionSlug.trim();
+        if (normalizedCollectionSlug.equalsIgnoreCase(product.getCollectionSlug())) {
+            return true;
+        }
+        if (normalizedCollectionSlug.equalsIgnoreCase(product.getParentCollectionSlug())) {
+            return true;
+        }
+        return product.getCollectionTrailSlugs() != null
+                && product.getCollectionTrailSlugs().stream().anyMatch(normalizedCollectionSlug::equalsIgnoreCase);
+    }
+
+    private Comparator<StorefrontProductDto> productComparator(String sort) {
+        String sortKey = sort == null ? "featured" : sort.trim().toLowerCase();
+        return switch (sortKey) {
+            case "name" -> Comparator.comparing(StorefrontProductDto::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+            case "price-asc" -> Comparator.comparing(StorefrontProductDto::getPrice, Comparator.nullsLast(BigDecimal::compareTo));
+            case "price-desc" -> Comparator.comparing(StorefrontProductDto::getPrice, Comparator.nullsLast(BigDecimal::compareTo)).reversed();
+            default -> Comparator
+                    .comparing(StorefrontProductDto::getFeatured, Comparator.nullsLast(Boolean::compareTo)).reversed()
+                    .thenComparing(StorefrontProductDto::getName, Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER));
+        };
+    }
+
+    private StorefrontCartDto toCartDto(Warehouse warehouse, PricingEvaluation pricingEvaluation) {
+        List<StorefrontCartLineDto> lines = pricingEvaluation.getLines().stream()
+                .map(line -> mapCartLine(warehouse, line))
+                .toList();
+
+        return new StorefrontCartDto(
+                "BDT",
+                warehouse.getId().toString(),
+                warehouse.getName(),
+                pricingEvaluation.getBaseSubtotal(),
+                pricingEvaluation.getTotalDiscount(),
+                pricingEvaluation.getNetSubtotal(),
+                new ArrayList<>(pricingEvaluation.getAppliedCouponCodes()),
+                lines
+        );
+    }
+
+    private StorefrontCartLineDto mapCartLine(Warehouse warehouse, PricingEvaluationLine line) {
+        ProductVariant variant = line.getProductVariant();
+        String name = variant.getTemplate().getStorefrontTitle() != null && !variant.getTemplate().getStorefrontTitle().isBlank()
+                ? variant.getTemplate().getStorefrontTitle()
+                : variant.getTemplate().getName();
+        String slug = variant.getTemplate().getStorefrontSlug() != null && !variant.getTemplate().getStorefrontSlug().isBlank()
+                ? variant.getTemplate().getStorefrontSlug()
+                : slugify(name + "-" + variant.getSku());
+        String imageUrl = variant.getTemplate().getImages().stream()
+                .filter(image -> Boolean.TRUE.equals(image.getIsMain()))
+                .findFirst()
+                .or(() -> variant.getTemplate().getImages().stream().findFirst())
+                .map(image -> image.getUrl())
+                .orElse(null);
+
+        return new StorefrontCartLineDto(
+                slug,
+                variant.getSku(),
+                name,
+                line.getQuantity(),
+                line.getBaseUnitPrice(),
+                line.getFinalUnitPrice(),
+                line.getLineDiscountAmount(),
+                line.getLineTotalAmount(),
+                stockReservationService.getAvailableToPromise(variant.getId(), warehouse.getId()),
+                imageUrl
+        );
+    }
+
+    private SalesOrderRequest toSalesOrderRequest(List<StorefrontCartItemRequest> items,
+                                                  UUID warehouseId,
+                                                  String currency,
+                                                  List<String> couponCodes,
+                                                  Customer customer) {
+        SalesOrderRequest request = new SalesOrderRequest();
+        request.setCustomerId(customer != null ? customer.getId() : null);
+        request.setWarehouseId(warehouseId);
+        request.setCurrency(currency != null && !currency.isBlank() ? currency : "BDT");
+        request.setCouponCodes(couponCodes != null ? couponCodes : List.of());
+        request.setPriority(OrderPriority.HIGH);
+        request.setExpectedDeliveryDate(LocalDate.now().plusDays(3));
+        request.setItems(items.stream().map(this::toSalesOrderItemRequest).toList());
+        return request;
+    }
+
+    private SalesOrderItemRequest toSalesOrderItemRequest(StorefrontCartItemRequest item) {
+        SalesOrderItemRequest request = new SalesOrderItemRequest();
+        request.setProductVariantId(item.getProductVariantId());
+        request.setQuantity(item.getQuantity());
+        request.setUnitPrice(null);
+        return request;
+    }
+
+    private Warehouse resolveWarehouse(UUID requestedWarehouseId) {
+        if (requestedWarehouseId != null) {
+            return warehouseRepository.findById(requestedWarehouseId)
+                    .orElseThrow(() -> new BadRequestException("Warehouse not found with ID: " + requestedWarehouseId));
+        }
+
+        return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
+                .findFirst()
+                .orElseThrow(() -> new BadRequestException("At least one warehouse is required before using storefront checkout"));
+    }
+
+    private Warehouse resolveStorefrontWarehouse() {
+        return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Customer resolvePricingCustomer(UUID customerId, String email, String phoneNumber) {
+        if (customerId != null) {
+            return customerRepository.findById(customerId)
+                    .orElseThrow(() -> new BadRequestException("Customer not found with ID: " + customerId));
+        }
+        if (email != null && !email.isBlank()) {
+            Optional<Customer> existing = customerRepository.findFirstByEmailIgnoreCase(email.trim());
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+        }
+        if (phoneNumber != null && !phoneNumber.isBlank()) {
+            Optional<Customer> existing = customerRepository.findFirstByPhoneNumber(phoneNumber.trim());
+            if (existing.isPresent()) {
+                return existing.get();
+            }
+        }
+
+        Customer guest = new Customer();
+        guest.setName("Guest Storefront Customer");
+        guest.setEmail(email);
+        guest.setPhoneNumber(phoneNumber);
+        guest.setCategory(CustomerCategory.OTHER);
+        guest.setIsActive(true);
+        guest.setStatus(CustomerStatus.ACTIVE);
+        return guest;
+    }
+
+    private List<ProductVariant> loadPublishedStorefrontVariants() {
+        return productVariantRepository.findByTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue().stream()
+                .sorted((left, right) -> {
+                    Integer leftSort = left.getTemplate().getStorefrontSortOrder() != null ? left.getTemplate().getStorefrontSortOrder() : Integer.MAX_VALUE;
+                    Integer rightSort = right.getTemplate().getStorefrontSortOrder() != null ? right.getTemplate().getStorefrontSortOrder() : Integer.MAX_VALUE;
+                    int bySort = leftSort.compareTo(rightSort);
+                    if (bySort != 0) {
+                        return bySort;
+                    }
+                    return right.getCreatedAt().compareTo(left.getCreatedAt());
+                })
+                .toList();
+    }
+
+    private Map<UUID, List<ProductVariant>> buildSiblingsByTemplate(List<ProductVariant> variants) {
+        return variants.stream().collect(Collectors.groupingBy(
+                variant -> variant.getTemplate().getId(),
+                LinkedHashMap::new,
+                Collectors.toList()
+        ));
+    }
+
+    private String buildTemplateProductSlug(ProductVariant variant) {
+        return variant.getTemplate().getStorefrontSlug() != null && !variant.getTemplate().getStorefrontSlug().isBlank()
+                ? variant.getTemplate().getStorefrontSlug()
+                : slugify((variant.getTemplate().getStorefrontTitle() != null && !variant.getTemplate().getStorefrontTitle().isBlank()
+                ? variant.getTemplate().getStorefrontTitle()
+                : variant.getTemplate().getName()));
+    }
+
+    private String buildProductSlug(ProductVariant variant, List<ProductVariant> siblings) {
+        String templateSlug = buildTemplateProductSlug(variant);
+        if (siblings.size() <= 1) {
+            return templateSlug;
+        }
+        return slugify(templateSlug + "-" + variant.getSku());
+    }
+
+    private String buildVariantLabel(ProductVariant variant) {
+        List<String> attributes = variant.getAttributeValues().stream()
+                .map(value -> {
+                    String attributeName = value.getAttribute() != null ? value.getAttribute().getName() : null;
+                    if (attributeName != null && !attributeName.isBlank()) {
+                        return attributeName + ": " + value.getValue();
+                    }
+                    return value.getValue();
+                })
+                .filter(value -> value != null && !value.isBlank())
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+        if (!attributes.isEmpty()) {
+            return String.join(" / ", attributes);
+        }
+        return variant.getSku();
+    }
+
+    private List<StorefrontVariantOptionDto> mapVariantOptions(List<ProductVariant> siblingVariants,
+                                                               Map<UUID, List<ProductVariant>> siblingsByTemplate,
+                                                               Warehouse storefrontWarehouse) {
+        return siblingVariants.stream()
+                .map(sibling -> {
+                    BigDecimal availableToPromise = resolveAvailableToPromise(sibling, storefrontWarehouse);
+                    return new StorefrontVariantOptionDto(
+                            sibling.getId().toString(),
+                            buildProductSlug(sibling, siblingsByTemplate.getOrDefault(sibling.getTemplate().getId(), List.of(sibling))),
+                            sibling.getSku(),
+                            buildVariantLabel(sibling),
+                            sibling.getPrice(),
+                            sibling.getCompareAtPrice(),
+                            availableToPromise,
+                            toAvailabilityLabel(availableToPromise),
+                            Boolean.TRUE.equals(sibling.getStorefrontFeatured()),
+                            sibling.getStorefrontBadge()
+                    );
+                })
+                .toList();
+    }
+
+    private BigDecimal resolveAvailableToPromise(ProductVariant variant, Warehouse storefrontWarehouse) {
+        if (storefrontWarehouse == null) {
+            return BigDecimal.ZERO;
+        }
+        return stockReservationService.getAvailableToPromise(variant.getId(), storefrontWarehouse.getId());
+    }
+
+    private String toAvailabilityLabel(BigDecimal availableToPromise) {
+        if (availableToPromise == null || availableToPromise.compareTo(BigDecimal.ZERO) <= 0) {
+            return "Out of stock";
+        }
+        if (availableToPromise.compareTo(new BigDecimal("5")) <= 0) {
+            return "Low stock";
+        }
+        return "In stock";
+    }
+
+    private Customer resolveOrCreateCheckoutCustomer(StorefrontCheckoutRequest request) {
+        Customer customer = resolvePricingCustomer(request.getCustomerId(), request.getCustomerEmail(), request.getCustomerPhoneNumber());
+        if (customer.getId() == null) {
+            customer.setName(request.getCustomerName().trim());
+            customer.setContactName(request.getContactName());
+            customer.setAddress(request.getShippingAddress());
+            return customerRepository.save(customer);
+        }
+
+        if ((customer.getContactName() == null || customer.getContactName().isBlank()) && request.getContactName() != null && !request.getContactName().isBlank()) {
+            customer.setContactName(request.getContactName().trim());
+        }
+        if ((customer.getAddress() == null || customer.getAddress().isBlank()) && request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
+            customer.setAddress(request.getShippingAddress().trim());
+        }
+        if ((customer.getName() == null || customer.getName().isBlank()) && request.getCustomerName() != null && !request.getCustomerName().isBlank()) {
+            customer.setName(request.getCustomerName().trim());
+        }
+        if ((customer.getEmail() == null || customer.getEmail().isBlank()) && request.getCustomerEmail() != null && !request.getCustomerEmail().isBlank()) {
+            customer.setEmail(request.getCustomerEmail().trim());
+        }
+        if ((customer.getPhoneNumber() == null || customer.getPhoneNumber().isBlank()) && request.getCustomerPhoneNumber() != null && !request.getCustomerPhoneNumber().isBlank()) {
+            customer.setPhoneNumber(request.getCustomerPhoneNumber().trim());
+        }
+        return customerRepository.save(customer);
+    }
+
+    private void validateCustomerEligibility(Customer customer) {
+        if (customer.getIsActive() != null && !customer.getIsActive()) {
+            throw new BadRequestException("Customer is inactive and cannot be used for storefront checkout");
+        }
+        if (customer.getStatus() == CustomerStatus.BLOCKED || customer.getStatus() == CustomerStatus.INACTIVE) {
+            throw new BadRequestException("Customer status does not allow storefront checkout: " + customer.getStatus());
+        }
+    }
+
+    private Map<UUID, ProductVariant> loadVariants(List<StorefrontCartItemRequest> items) {
+        Map<UUID, ProductVariant> variants = productVariantRepository.findAllById(
+                        items.stream().map(StorefrontCartItemRequest::getProductVariantId).collect(Collectors.toSet()))
+                .stream()
+                .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
+
+        if (variants.size() != items.stream().map(StorefrontCartItemRequest::getProductVariantId).collect(Collectors.toSet()).size()) {
+            throw new BadRequestException("One or more storefront cart items reference missing product variants");
+        }
+        return variants;
+    }
+
+    private Map<UUID, Deque<PricingEvaluationLine>> buildLineQueues(PricingEvaluation pricingEvaluation) {
+        Map<UUID, Deque<PricingEvaluationLine>> queues = new LinkedHashMap<>();
+        for (PricingEvaluationLine line : pricingEvaluation.getLines()) {
+            queues.computeIfAbsent(line.getProductVariant().getId(), ignored -> new ArrayDeque<>()).add(line);
+        }
+        return queues;
+    }
+
+    private PricingEvaluationLine popPricedLine(Map<UUID, Deque<PricingEvaluationLine>> queues, UUID variantId) {
+        Deque<PricingEvaluationLine> lines = queues.get(variantId);
+        if (lines == null || lines.isEmpty()) {
+            throw new BadRequestException("Pricing line mismatch for variant " + variantId);
+        }
+        return lines.removeFirst();
+    }
+
+    private String buildStorefrontOrderNotes(StorefrontCheckoutRequest request) {
+        List<String> parts = new ArrayList<>();
+        parts.add("Storefront checkout");
+        if (request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
+            parts.add("Shipping address: " + request.getShippingAddress().trim());
+        }
+        if (request.getNotes() != null && !request.getNotes().isBlank()) {
+            parts.add("Customer notes: " + request.getNotes().trim());
+        }
+        return String.join("\n", parts);
+    }
+
+    private String generateStorefrontOrderNumber() {
+        String prefix = "SO-WEB-" + LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMddHHmmss")) + "-";
+        String candidate;
+        do {
+            candidate = prefix + UUID.randomUUID().toString().substring(0, 6).toUpperCase();
+        } while (salesOrderRepository.existsBySoNumber(candidate));
+        return candidate;
+    }
+
+    private SalesOrderDto mapSalesOrder(SalesOrder order) {
+        SalesOrderDto dto = new SalesOrderDto();
+        dto.setId(order.getId());
+        dto.setSoNumber(order.getSoNumber());
+        dto.setCustomerId(order.getCustomer().getId());
+        dto.setCustomerName(order.getCustomer().getName());
+        dto.setWarehouseId(order.getWarehouse() != null ? order.getWarehouse().getId() : null);
+        dto.setWarehouseName(order.getWarehouse() != null ? order.getWarehouse().getName() : null);
+        dto.setOrderDate(order.getOrderDate());
+        dto.setExpectedDeliveryDate(order.getExpectedDeliveryDate());
+        dto.setStatus(order.getStatus());
+        dto.setPriority(order.getPriority());
+        dto.setSubtotalAmount(order.getSubtotalAmount());
+        dto.setDiscountAmount(order.getDiscountAmount());
+        dto.setTotalAmount(order.getTotalAmount());
+        dto.setSalesChannel(order.getSalesChannel());
+        dto.setAppliedCouponCodes(order.getAppliedCouponCodes());
+        dto.setCurrency(order.getCurrency());
+        dto.setNotes(order.getNotes());
+        dto.setCreatedAt(order.getCreatedAt());
+        dto.setUpdatedAt(order.getUpdatedAt());
+        dto.setCreatedBy(order.getCreatedBy());
+        dto.setUpdatedBy(order.getUpdatedBy());
+        dto.setItems(order.getItems().stream().map(this::mapSalesOrderItem).toList());
+        return dto;
+    }
+
+    private SalesOrderItemDto mapSalesOrderItem(SalesOrderItem item) {
+        SalesOrderItemDto dto = new SalesOrderItemDto();
+        dto.setId(item.getId());
+        dto.setProductVariantId(item.getProductVariant().getId());
+        dto.setProductVariantName(item.getProductVariant().getTemplate().getName());
+        dto.setSku(item.getProductVariant().getSku());
+        dto.setQuantity(item.getQuantity());
+        dto.setBaseUnitPrice(item.getBaseUnitPrice());
+        dto.setUnitPrice(item.getUnitPrice());
+        dto.setLineDiscount(item.getLineDiscount());
+        dto.setAppliedPromotionCodes(item.getAppliedPromotionCodes());
+        dto.setTotalPrice(item.getTotalPrice());
+        dto.setShippedQuantity(item.getShippedQuantity());
+        return dto;
+    }
+
+    private String slugify(String value) {
+        String normalized = value == null ? "" : value.trim().toLowerCase();
+        String slug = SLUG_NON_ALNUM.matcher(normalized).replaceAll("-");
+        return slug.replaceAll("(^-|-$)", "");
+    }
+
+    private StorefrontSiteDto defaultSite() {
+        return new StorefrontSiteDto(
+                true,
+                "marland_manor",
+                "Marl & Manor",
+                "Everyday essentials with a sharper point of view.",
+                "Shop our latest arrivals!",
+                "marlandmanor.store",
+                "Storefront Pro",
+                "/logistra.svg",
+                "/logistra.svg",
+                40,
+                "SECOND_IMAGE",
+                true,
+                "Categories",
+                "Shop by category",
+                "Catalog",
+                "Browse Men, Women, Accessories, and all storefront subcategories.",
+                "All collections",
+                "Search the catalog",
+                "Cart",
+                "Catalog",
+                "Collections",
+                "Track order",
+                "DRAFT",
+                null,
+                null
+        );
+    }
+
+    private StorefrontThemeDto defaultTheme() {
+        return new StorefrontThemeDto(
+                "#00322d",
+                "#004b44",
+                "#4a200e",
+                "#f8f9fa",
+                "#191c1d",
+                24,
+                "left",
+                "Manrope",
+                "Inter"
+        );
+    }
+
+    private List<StorefrontNavItemDto> defaultNavigation() {
+        return List.of(
+                new StorefrontNavItemDto("nav-1", "Home", "/"),
+                new StorefrontNavItemDto("nav-2", "Collections", "/collections"),
+                new StorefrontNavItemDto("nav-3", "Products", "/products"),
+                new StorefrontNavItemDto("nav-4", "Contact", "/contact")
+        );
+    }
+
+    private List<StorefrontBannerDto> defaultBanners() {
+        return List.of(
+                new StorefrontBannerDto("banner-1", "Spring campaign", "hero", true),
+                new StorefrontBannerDto("banner-2", "Warehouse bundle promo", "between-sections", true)
+        );
+    }
+
+    private StorefrontPageDto defaultHomePage() {
+        return new StorefrontPageDto(
+                "home",
+                "Home page",
+                List.of(
+                        new StorefrontSectionDto("hero", "Hero banner", "hero_banner", true, "brand-split",
+                                new LinkedHashMap<>(java.util.Map.of(
+                                        "eyebrow", "New Arrivals",
+                                        "headline", "New Arrivals",
+                                        "subheadline", "Let your day be filled with what inspires you.",
+                                        "ctaLabel", "Shop our latest arrivals!",
+                                        "ctaHref", "/products",
+                                        "secondaryCtaLabel", "View collections",
+                                        "secondaryCtaHref", "/collections",
+                                        "imageUrl", "https://marlandmanor.store/cdn/shop/files/Black_And_Gold_Elegant_Fashion_Logo_Facebook_Cover_1.png?v=1769370822&width=3840"
+                                ))),
+                        new StorefrontSectionDto("promo", "Promo strip", "promo_strip", true, "three-up",
+                                new LinkedHashMap<>(java.util.Map.of(
+                                        "items", List.of(
+                                                "Inventory-backed catalog",
+                                                "Config-managed merchandising",
+                                                "Optional storefront module"
+                                        )
+                                ))),
+                        new StorefrontSectionDto("new-arrivals", "New arrivals", "featured_products", true, "new-arrivals",
+                                new LinkedHashMap<>(java.util.Map.of(
+                                        "source", "newest",
+                                        "limit", 8,
+                                        "eyebrow", "New Arrivals",
+                                        "title", "New Arrivals",
+                                        "description", "Let your day be filled with what inspires you.",
+                                        "ctaLabel", "Shop all products"
+                                ))),
+                        new StorefrontSectionDto("bestsellers", "Best sellers", "featured_products", true, "bestsellers",
+                                new LinkedHashMap<>(java.util.Map.of(
+                                        "source", "featured",
+                                        "limit", 4,
+                                        "eyebrow", "Our Bestsellers",
+                                        "title", "OUR BESTSELLERS",
+                                        "description", "FUNCTIONAL EVERYDAY ESSENTIALS",
+                                        "ctaLabel", "View all products"
+                                ))),
+                        new StorefrontSectionDto("collections", "Collection list", "featured_collections", true, "cards",
+                                new LinkedHashMap<>(java.util.Map.of(
+                                        "limit", 4,
+                                        "collectionSlugs", List.of(),
+                                        "eyebrow", "Collections",
+                                        "title", "Collections",
+                                        "description", "Choose which collections to feature on the homepage.",
+                                        "ctaLabel", "Browse all collections",
+                                        "collectionKickerLabel", "Curated space",
+                                        "collectionCardCtaLabel", "Explore collection"
+                                )))
+                )
+        );
+    }
+
+    private StorefrontPageDto defaultHeaderPage() {
+        return buildHeaderPage(defaultSite(), defaultNavigation());
+    }
+
+    private StorefrontPageDto defaultFooterPage() {
+        return buildFooterPage(defaultSite());
+    }
+
+    private StorefrontPageDto buildHeaderPage(StorefrontSiteDto site, List<StorefrontNavItemDto> navigationItems) {
+        Map<String, Object> announcementConfig = new LinkedHashMap<>();
+        announcementConfig.put("text", site.getAnnouncement());
+        announcementConfig.put("enabled", site.getAnnouncement() != null && !site.getAnnouncement().isBlank());
+
+        Map<String, Object> navigationConfig = new LinkedHashMap<>();
+        navigationConfig.put("drawerButtonLabel", site.getDrawerButtonLabel());
+        navigationConfig.put("drawerLabel", site.getDrawerLabel());
+        navigationConfig.put("drawerTitle", site.getDrawerTitle());
+        navigationConfig.put("drawerDescription", site.getDrawerDescription());
+        navigationConfig.put("allCollectionsLabel", site.getAllCollectionsLabel());
+        navigationConfig.put("searchPlaceholder", site.getSearchPlaceholder());
+        navigationConfig.put("cartLabel", site.getCartLabel());
+        navigationConfig.put("navBlockIds", navigationItems.stream().map(StorefrontNavItemDto::getId).toList());
+
+        return new StorefrontPageDto(
+                "header",
+                "Header",
+                List.of(
+                        new StorefrontSectionDto(
+                                "header-announcement",
+                                "Announcement bar",
+                                "announcement_bar",
+                                site.getAnnouncement() != null && !site.getAnnouncement().isBlank(),
+                                "default",
+                                announcementConfig
+                        ),
+                        new StorefrontSectionDto(
+                                "header-navigation",
+                                "Header navigation",
+                                "header_nav",
+                                true,
+                                "default",
+                                navigationConfig
+                        )
+                )
+        );
+    }
+
+    private StorefrontPageDto buildFooterPage(StorefrontSiteDto site) {
+        Map<String, Object> footerConfig = new LinkedHashMap<>();
+        footerConfig.put("brandName", site.getName());
+        footerConfig.put("tagline", site.getTagline());
+        footerConfig.put("linkBlockIds", List.of("footer-link-catalog", "footer-link-collections", "footer-link-tracking"));
+
+        return new StorefrontPageDto(
+                "footer",
+                "Footer",
+                List.of(
+                        new StorefrontSectionDto(
+                                "footer-main",
+                                "Footer links",
+                                "footer_links",
+                                true,
+                                "default",
+                                footerConfig
+                        )
+                )
+        );
+    }
+
+    private StorefrontCollectionDto mapCollection(Category category, Map<UUID, List<Category>> childrenByParent, int level) {
+        return StorefrontCollectionDto.builder()
+                .id(category.getId().toString())
+                .slug(resolveCategorySlug(category))
+                .title(resolveCategoryTitle(category))
+                .description(resolveCategoryDescription(category))
+                .sortOrder(category.getStorefrontSortOrder())
+                .parentId(category.getParent() != null && Boolean.TRUE.equals(category.getParent().getPublishedToStorefront())
+                        ? category.getParent().getId().toString()
+                        : null)
+                .parentSlug(category.getParent() != null && Boolean.TRUE.equals(category.getParent().getPublishedToStorefront())
+                        ? resolveCategorySlug(category.getParent())
+                        : null)
+                .level(level)
+                .children(childrenByParent.getOrDefault(category.getId(), List.of()).stream()
+                        .map(child -> mapCollection(child, childrenByParent, level + 1))
+                        .toList())
+                .build();
+    }
+
+    private String resolveCategorySlug(Category category) {
+        if (category == null) {
+            return null;
+        }
+        return category.getStorefrontSlug() != null && !category.getStorefrontSlug().isBlank()
+                ? category.getStorefrontSlug()
+                : slugify(category.getName());
+    }
+
+    private String resolveCategoryTitle(Category category) {
+        if (category == null) {
+            return null;
+        }
+        return category.getStorefrontTitle() != null && !category.getStorefrontTitle().isBlank()
+                ? category.getStorefrontTitle()
+                : category.getName();
+    }
+
+    private String resolveCategoryDescription(Category category) {
+        if (category == null) {
+            return null;
+        }
+        return category.getStorefrontDescription() != null && !category.getStorefrontDescription().isBlank()
+                ? category.getStorefrontDescription()
+                : category.getDescription();
+    }
+
+    private String resolveParentCollectionSlug(Category category) {
+        if (category == null || category.getParent() == null || !Boolean.TRUE.equals(category.getParent().getPublishedToStorefront())) {
+            return null;
+        }
+        return resolveCategorySlug(category.getParent());
+    }
+
+    private String resolveParentCollectionTitle(Category category) {
+        if (category == null || category.getParent() == null || !Boolean.TRUE.equals(category.getParent().getPublishedToStorefront())) {
+            return null;
+        }
+        return resolveCategoryTitle(category.getParent());
+    }
+
+    private String buildCategoryPath(Category category) {
+        if (category == null) {
+            return null;
+        }
+        return String.join(" / ", buildCategoryTrailTitles(category));
+    }
+
+    private List<String> buildCategoryTrailSlugs(Category category) {
+        List<String> trail = new ArrayList<>();
+        Category current = category;
+        while (current != null) {
+            if (Boolean.TRUE.equals(current.getPublishedToStorefront())) {
+                trail.add(0, resolveCategorySlug(current));
+            }
+            current = current.getParent();
+        }
+        return trail;
+    }
+
+    private List<String> buildCategoryTrailTitles(Category category) {
+        List<String> trail = new ArrayList<>();
+        Category current = category;
+        while (current != null) {
+            if (Boolean.TRUE.equals(current.getPublishedToStorefront())) {
+                trail.add(0, resolveCategoryTitle(current));
+            }
+            current = current.getParent();
+        }
+        return trail;
+    }
+
+    private String resolveStorefrontImageUrl(ProductImage image) {
+        if (image == null || image.getId() == null) {
+            return null;
+        }
+        return "/api/v1/product-images/" + image.getId() + "/file";
+    }
+}

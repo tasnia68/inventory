@@ -14,4 +14,12 @@ public class ConsoleEmailService implements EmailService {
         logger.info("Invitation Link: {}", invitationLink);
         logger.info("--------------------------------------------------");
     }
+
+    @Override
+    public void sendStorefrontLoginEmail(String to, String otpCode, String magicLink) {
+        logger.info("Sending storefront login email to: {}", to);
+        logger.info("Storefront OTP: {}", otpCode);
+        logger.info("Storefront Magic Link: {}", magicLink);
+        logger.info("--------------------------------------------------");
+    }
 }

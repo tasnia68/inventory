@@ -32,6 +32,20 @@ public class SimpleProductDto {
     private Boolean isSerialTracked = false;
     
     private Boolean isActive = true;
+
+    private Boolean publishedToStorefront = false;
+
+    private String storefrontSlug;
+
+    private String storefrontTitle;
+
+    private String storefrontDescription;
+
+    private Integer storefrontSortOrder;
+
+    private String storefrontSeoTitle;
+
+    private String storefrontSeoDescription;
     
     // Variant fields
     @NotBlank(message = "SKU is required")
@@ -42,4 +56,10 @@ public class SimpleProductDto {
     @NotNull(message = "Price is required")
     @Positive(message = "Price must be greater than 0")
     private BigDecimal price;
+
+    private BigDecimal compareAtPrice;
+
+    private String storefrontBadge;
+
+    private Boolean storefrontFeatured = false;
 }

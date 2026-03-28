@@ -14,5 +14,7 @@ import java.util.UUID;
 public interface SalesOrderRepository extends JpaRepository<SalesOrder, UUID>, JpaSpecificationExecutor<SalesOrder> {
     boolean existsBySoNumber(String soNumber);
     Optional<SalesOrder> findBySoNumber(String soNumber);
+    Optional<SalesOrder> findBySoNumberAndCustomerEmailIgnoreCase(String soNumber, String email);
+    Optional<SalesOrder> findBySoNumberAndCustomerPhoneNumber(String soNumber, String phoneNumber);
     Page<SalesOrder> findByCustomerId(UUID customerId, Pageable pageable);
 }
