@@ -17,22 +17,6 @@ CREATE TABLE IF NOT EXISTS category_attributes (
     category_id UUID NOT NULL,
     attribute_id UUID NOT NULL,
     PRIMARY KEY (category_id, attribute_id),
-    CONSTRAINT fk_cat_attr_category FOREIGN KEY (category_id) REFERENCES categories (id),
-    CONSTRAINT fk_cat_attr_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes (id)
+    CONSTRAINT fk_cat_attr_category FOREIGN KEY (category_id) REFERENCES categories (id)
 );
 
--- Add category_id to product_templates table
-ALTER TABLE product_templates ADD COLUMN IF NOT EXISTS category_id UUID;
-
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1
-        FROM information_schema.table_constraints
-        WHERE constraint_name = 'fk_template_category'
-          AND table_name = 'product_templates'
-    ) THEN
-        ALTER TABLE product_templates
-            ADD CONSTRAINT fk_template_category FOREIGN KEY (category_id) REFERENCES categories (id);
-    END IF;
-END $$;

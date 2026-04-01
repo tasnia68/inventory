@@ -72,6 +72,45 @@ CREATE TABLE IF NOT EXISTS product_attribute_values (
     CONSTRAINT fk_val_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes (id)
 );
 
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_template_category'
+          AND table_name = 'product_templates'
+    ) THEN
+        ALTER TABLE product_templates
+            ADD CONSTRAINT fk_template_category FOREIGN KEY (category_id) REFERENCES categories (id);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_template_uom'
+          AND table_name = 'product_templates'
+    ) THEN
+        ALTER TABLE product_templates
+            ADD CONSTRAINT fk_template_uom FOREIGN KEY (uom_id) REFERENCES units_of_measure (id);
+    END IF;
+END $$;
+
+DO $$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM information_schema.table_constraints
+        WHERE constraint_name = 'fk_cat_attr_attribute'
+          AND table_name = 'category_attributes'
+    ) THEN
+        ALTER TABLE category_attributes
+            ADD CONSTRAINT fk_cat_attr_attribute FOREIGN KEY (attribute_id) REFERENCES product_attributes (id);
+    END IF;
+END $$;
+
 
 -- 2. Warehouse & Stock Tables (Ensure they exist)
 
