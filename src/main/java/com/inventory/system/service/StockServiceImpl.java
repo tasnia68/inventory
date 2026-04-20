@@ -172,6 +172,11 @@ public class StockServiceImpl implements StockService {
 
         stock = stockRepository.save(stock);
 
+        // Auto-update warehouse used capacity
+        BigDecimal totalWarehouseStock = stockRepository.sumTotalQuantityByWarehouse(warehouse.getId());
+        warehouse.setUsedCapacity(totalWarehouseStock);
+        warehouseRepository.save(warehouse);
+
         StockMovement movement = new StockMovement();
         movement.setProductVariant(variant);
         movement.setWarehouse(warehouse);

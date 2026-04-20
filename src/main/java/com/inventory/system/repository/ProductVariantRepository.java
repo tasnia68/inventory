@@ -20,6 +20,9 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
     List<ProductVariant> findByTemplateId(UUID templateId);
     List<ProductVariant> findByTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue();
     org.springframework.data.domain.Page<ProductVariant> findByTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue(Pageable pageable);
+
+    List<ProductVariant> findByTenantIdAndTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue(String tenantId);
+
     @Query("select v from ProductVariant v join v.template t where t.publishedToStorefront = true and t.isActive = true and t.storefrontSlug = :slug")
     Optional<ProductVariant> findPublishedStorefrontVariantBySlug(@Param("slug") String slug);
 
@@ -37,9 +40,9 @@ public interface ProductVariantRepository extends JpaRepository<ProductVariant, 
             "lower(v.sku) like lower(concat('%', :q, '%')) or " +
             "lower(coalesce(v.barcode, '')) like lower(concat('%', :q, '%')) or " +
             "lower(t.name) like lower(concat('%', :q, '%'))) " +
-            "and (:categoryId is null or t.category.id = :categoryId) " +
-            "and (:templateId is null or t.id = :templateId) " +
-            "and (:attributeId is null or pa.id = :attributeId) " +
+            "and (cast(:categoryId as uuid) is null or t.category.id = :categoryId) " +
+            "and (cast(:templateId as uuid) is null or t.id = :templateId) " +
+            "and (cast(:attributeId as uuid) is null or pa.id = :attributeId) " +
             "and (:attributeValue is null or :attributeValue = '' or lower(coalesce(pav.value, '')) like lower(concat('%', :attributeValue, '%')))")
         Page<ProductVariant> searchAdvanced(
             @Param("q") String q,

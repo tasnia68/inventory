@@ -417,7 +417,8 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional(readOnly = true)
     public StorefrontCmsPageDto getPublicCmsPage(String slug) {
         requirePublicStorefrontAccess();
-        StorefrontPage page = storefrontPageRepository.findBySlugAndPublishedTrue(slug)
+        String tenantId = TenantContext.getTenantId();
+        StorefrontPage page = storefrontPageRepository.findByTenantIdAndSlugAndPublishedTrue(tenantId, slug)
                 .orElseThrow(() -> new ResourceNotFoundException("StorefrontPage", "slug", slug));
         return mapCmsPage(page);
     }
@@ -595,7 +596,8 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional(readOnly = true)
     public List<StorefrontCollectionDto> getPublicCollections() {
         requirePublicStorefrontAccess();
-        List<Category> publishedCategories = categoryRepository.findByPublishedToStorefrontTrueOrderByStorefrontSortOrderAscNameAsc();
+        String tenantId = TenantContext.getTenantId();
+        List<Category> publishedCategories = categoryRepository.findByTenantIdAndPublishedToStorefrontTrueOrderByStorefrontSortOrderAscNameAsc(tenantId);
         Map<UUID, List<Category>> childrenByParent = new LinkedHashMap<>();
         for (Category category : publishedCategories) {
             UUID parentId = category.getParent() != null && Boolean.TRUE.equals(category.getParent().getPublishedToStorefront())
@@ -2025,7 +2027,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                     .orElseThrow(() -> new BadRequestException("Configured storefront warehouse not found with ID: " + configuredWarehouseId));
         }
 
-        return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
+        return warehouseRepository.findByTenantIdOrderByCreatedAtAsc(TenantContext.getTenantId()).stream()
                 .findFirst()
                 .orElseThrow(() -> new BadRequestException("At least one warehouse is required before using storefront checkout"));
     }
@@ -2035,7 +2037,8 @@ public class StorefrontServiceImpl implements StorefrontService {
         if (configuredWarehouseId != null) {
             return warehouseRepository.findById(configuredWarehouseId).orElse(null);
         }
-        return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
+        String tenantId = TenantContext.getTenantId();
+        return warehouseRepository.findByTenantIdOrderByCreatedAtAsc(tenantId).stream()
                 .findFirst()
                 .orElse(null);
     }
@@ -2086,7 +2089,8 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private List<ProductVariant> loadPublishedStorefrontVariants() {
-        return productVariantRepository.findByTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue().stream()
+        String tenantId = TenantContext.getTenantId();
+        return productVariantRepository.findByTenantIdAndTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue(tenantId).stream()
                 .sorted((left, right) -> {
                     Integer leftSort = left.getTemplate().getStorefrontSortOrder() != null ? left.getTemplate().getStorefrontSortOrder() : Integer.MAX_VALUE;
                     Integer rightSort = right.getTemplate().getStorefrontSortOrder() != null ? right.getTemplate().getStorefrontSortOrder() : Integer.MAX_VALUE;

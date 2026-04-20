@@ -44,7 +44,6 @@ public class ProductImageController {
     }
 
     @GetMapping("/product-images/{id}/file")
-    @PreAuthorize("hasAnyRole('ADMIN', 'MANAGER', 'USER', 'VIEWER')")
     public ResponseEntity<InputStreamResource> getImageFile(@PathVariable UUID id) {
         ProductImageDto image = productImageService.getImage(id);
         InputStreamResource resource = new InputStreamResource(fileStorageService.getFile(image.getUrl()));

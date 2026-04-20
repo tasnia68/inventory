@@ -11,5 +11,6 @@ import java.util.UUID;
 public interface StorefrontPageRepository extends JpaRepository<StorefrontPage, UUID> {
     Optional<StorefrontPage> findBySlug(String slug);
     Optional<StorefrontPage> findBySlugAndPublishedTrue(String slug);
+    Optional<StorefrontPage> findByTenantIdAndSlugAndPublishedTrue(String tenantId, String slug);
     boolean existsBySlug(String slug);
 }

@@ -52,6 +52,8 @@ public class TenantContextFilter implements Filter {
             return;
         }
 
+        boolean isPublicImageRequest = requestPath.startsWith("/api/v1/product-images/") && requestPath.endsWith("/file");
+
         String tenantId;
         if (requestPath.startsWith("/api/v1/storefront/public/")) {
             tenantId = resolveStorefrontTenant(req);
@@ -61,22 +63,21 @@ public class TenantContextFilter implements Filter {
             }
         } else {
             tenantId = resolveTenantId(req);
-            if (!StringUtils.hasText(tenantId)) {
+            if (!StringUtils.hasText(tenantId) && !isPublicImageRequest) {
                 res.sendError(HttpServletResponse.SC_BAD_REQUEST, "Missing tenant context");
                 return;
             }
         }
 
-        TenantContext.setTenantId(tenantId);
-        try {
-            // Enable the Hibernate Filter for this request/session
-            Session session = entityManager.unwrap(Session.class);
-            session.enableFilter("tenantFilter").setParameter("tenantId", tenantId);
-        } catch (Exception e) {
-            // If we cannot enable the filter, we must block the request to prevent data
-            // leakage
-            res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to initialize tenant context");
-            return;
+        if (StringUtils.hasText(tenantId)) {
+            TenantContext.setTenantId(tenantId);
+            try {
+                Session session = entityManager.unwrap(Session.class);
+                session.enableFilter("tenantFilter").setParameter("tenantId", tenantId);
+            } catch (Exception e) {
+                res.sendError(HttpServletResponse.SC_INTERNAL_SERVER_ERROR, "Failed to initialize tenant context");
+                return;
+            }
         }
 
         try {
