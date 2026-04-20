@@ -24,6 +24,11 @@ spring:
     baseline-on-migrate: true
 
 app:
+  storefront:
+    domains:
+      platform-base-domain: ${APP_STOREFRONT_BASE_DOMAIN:localhost}
+      admin-domain: ${APP_ADMIN_DOMAIN:localhost}
+      verification-target: ${APP_STOREFRONT_VERIFICATION_TARGET:localhost}
   security:
     jwt:
       secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
@@ -33,7 +38,11 @@ app:
     cors:
       allowed-origins:
         - http://localhost:5173
+        - http://127.0.0.1:5173
+        - http://localhost:5174
+        - http://127.0.0.1:5174
         - http://localhost:4173
+        - http://127.0.0.1:4173
 
 management:
   endpoints:

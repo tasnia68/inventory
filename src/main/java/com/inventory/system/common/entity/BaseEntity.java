@@ -41,6 +41,8 @@ public abstract class BaseEntity extends AuditableEntity {
 
     @PrePersist
     public void prePersist() {
-        this.tenantId = TenantContext.getTenantId();
+        if (this.tenantId == null || this.tenantId.isBlank()) {
+            this.tenantId = TenantContext.getTenantId();
+        }
     }
 }

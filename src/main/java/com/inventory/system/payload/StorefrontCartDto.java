@@ -17,6 +17,8 @@ public class StorefrontCartDto {
     private String warehouseName;
     private BigDecimal subtotalAmount;
     private BigDecimal discountAmount;
+    private BigDecimal shippingAmount;
+    private BigDecimal taxAmount;
     private BigDecimal totalAmount;
     private List<String> appliedCouponCodes = new ArrayList<>();
     private List<StorefrontCartLineDto> lines = new ArrayList<>();

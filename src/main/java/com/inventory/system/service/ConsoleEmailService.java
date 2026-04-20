@@ -22,4 +22,11 @@ public class ConsoleEmailService implements EmailService {
         logger.info("Storefront Magic Link: {}", magicLink);
         logger.info("--------------------------------------------------");
     }
+
+    @Override
+    public void sendOrderConfirmationEmail(String to, String customerName, String orderNumber, String orderTotal, String currency) {
+        logger.info("Sending order confirmation email to: {}", to);
+        logger.info("Customer: {}, Order: {}, Total: {} {}", customerName, orderNumber, currency, orderTotal);
+        logger.info("--------------------------------------------------");
+    }
 }

@@ -27,6 +27,7 @@ public class StorefrontSiteDto {
     private String allCollectionsLabel;
     private String searchPlaceholder;
     private String cartLabel;
+    private String warehouseId;
     private String footerCatalogLabel;
     private String footerCollectionsLabel;
     private String footerTrackingLabel;

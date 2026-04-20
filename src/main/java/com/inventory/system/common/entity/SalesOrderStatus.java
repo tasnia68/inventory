@@ -10,5 +10,7 @@ public enum SalesOrderStatus {
     SHIPPED,
     DELIVERED,
     CANCELLED,
-    RETURNED
+    RETURNED,
+    UNASSIGNED,
+    DELIVERY_FAILED
 }

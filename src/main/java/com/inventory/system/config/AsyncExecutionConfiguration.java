@@ -1,5 +1,6 @@
 package com.inventory.system.config;
 
+import com.inventory.system.config.tenant.TenantAwareTaskDecorator;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.task.TaskExecutor;
@@ -16,6 +17,7 @@ public class AsyncExecutionConfiguration {
         executor.setMaxPoolSize(8);
         executor.setQueueCapacity(200);
         executor.setThreadNamePrefix("reporting-");
+        executor.setTaskDecorator(new TenantAwareTaskDecorator());
         executor.initialize();
         return executor;
     }

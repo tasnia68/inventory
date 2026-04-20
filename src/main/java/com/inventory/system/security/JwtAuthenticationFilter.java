@@ -33,6 +33,13 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             @NonNull HttpServletResponse response,
             @NonNull FilterChain filterChain
     ) throws ServletException, IOException {
+        String requestPath = request.getRequestURI();
+        if (requestPath.startsWith("/api/v1/storefront/public/")
+                || requestPath.startsWith("/api/v1/auth/")) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+
         final String authHeader = request.getHeader("Authorization");
         final String jwt;
         final String userEmail;
@@ -43,11 +50,22 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
 
         jwt = authHeader.substring(7);
-        userEmail = jwtService.extractUsername(jwt);
-        String tokenTenantId = jwtService.extractTenantId(jwt);
+        try {
+            userEmail = jwtService.extractUsername(jwt);
+        } catch (RuntimeException exception) {
+            filterChain.doFilter(request, response);
+            return;
+        }
+        String tokenTenantId;
+        try {
+            tokenTenantId = jwtService.extractTenantId(jwt);
+        } catch (RuntimeException exception) {
+            filterChain.doFilter(request, response);
+            return;
+        }
         String currentTenantId = TenantContext.getTenantId();
 
-        if (tokenTenantId != null && !tokenTenantId.equals(currentTenantId)) {
+        if (tokenTenantId != null && currentTenantId != null && !tokenTenantId.equals(currentTenantId)) {
             // Token tenant mismatch
             response.sendError(HttpServletResponse.SC_FORBIDDEN, "Tenant mismatch in token");
             return;

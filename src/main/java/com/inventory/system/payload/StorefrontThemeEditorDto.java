@@ -18,4 +18,5 @@ public class StorefrontThemeEditorDto {
     private StorefrontThemeDocumentDto publishedThemeDocument;
     private Map<String, Object> schema = new LinkedHashMap<>();
     private List<StorefrontPublishVersionDto> revisions;
+    private StorefrontDomainContextDto domains;
 }

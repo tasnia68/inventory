@@ -75,7 +75,6 @@ class AuthIntegrationTest {
                 .andExpect(status().isUnauthorized());
     }
 
-    /*
     @Test
     void shouldReturn401WhenTenantDoesNotMatch() throws Exception {
         // Setup user in Tenant A
@@ -92,11 +91,13 @@ class AuthIntegrationTest {
         loginRequest.setEmail("user@tenantA.com");
         loginRequest.setPassword("password");
 
+        // Login attempt for a Tenant-A user but presenting Tenant-B header.
+        // TenantContextFilter now sets the Hibernate filter for auth endpoints, so
+        // findByEmail is scoped to Tenant-B and the user is not found → 401.
         mockMvc.perform(post("/api/v1/auth/login")
                         .header("X-Tenant-ID", "tenant-B")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(loginRequest)))
                 .andExpect(status().isUnauthorized());
     }
-    */
 }

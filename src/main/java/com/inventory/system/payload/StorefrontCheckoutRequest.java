@@ -24,6 +24,8 @@ public class StorefrontCheckoutRequest {
     private UUID warehouseId;
     private String currency;
     private String notes;
+    private String paymentMethod;
+    private String paymentReference;
     private LocalDate expectedDeliveryDate;
     private List<String> couponCodes = new ArrayList<>();
 

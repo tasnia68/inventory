@@ -3,6 +3,7 @@ package com.inventory.system.service.impl;
 import com.inventory.system.common.entity.ReturnMerchandiseAuthorization;
 import com.inventory.system.common.entity.ReturnMerchandiseItem;
 import com.inventory.system.common.entity.ReturnMerchandiseStatus;
+import com.inventory.system.common.entity.CourierDispatchStatus;
 import com.inventory.system.common.entity.PickingStatus;
 import com.inventory.system.common.entity.SalesOrder;
 import com.inventory.system.common.entity.SalesOrderItem;
@@ -81,9 +82,16 @@ public class ShipmentServiceImpl implements ShipmentService {
         shipment.setSalesOrder(salesOrder);
         shipment.setWarehouse(salesOrder.getWarehouse());
         shipment.setCarrier(request.getCarrier());
+        shipment.setCourierProvider(trimToNull(request.getCourierProvider()));
+        shipment.setCourierService(trimToNull(request.getCourierService()));
+        shipment.setCourierReference(trimToNull(request.getCourierReference()));
+        shipment.setCashOnDeliveryAmount(request.getCashOnDeliveryAmount());
+        shipment.setDeliveryFee(request.getDeliveryFee());
         shipment.setNotes(request.getNotes());
-        shipment.setStatus(ShipmentStatus.IN_TRANSIT);
-        shipment.setShippedDate(LocalDateTime.now());
+        shipment.setStatus(ShipmentStatus.READY_TO_SHIP);
+        shipment.setCourierDispatchStatus(
+                shipment.getCourierProvider() != null ? CourierDispatchStatus.BOOKED : CourierDispatchStatus.UNASSIGNED
+        );
 
         List<ShipmentItem> shipmentItems = new ArrayList<>();
 
@@ -179,6 +187,18 @@ public class ShipmentServiceImpl implements ShipmentService {
             throw new BadRequestException("Tracking cannot be updated for closed shipments");
         }
 
+        if (request.getCarrier() != null) {
+            shipment.setCarrier(trimToNull(request.getCarrier()));
+        }
+        if (request.getCourierProvider() != null) {
+            shipment.setCourierProvider(trimToNull(request.getCourierProvider()));
+        }
+        if (request.getCourierService() != null) {
+            shipment.setCourierService(trimToNull(request.getCourierService()));
+        }
+        if (request.getCourierReference() != null) {
+            shipment.setCourierReference(trimToNull(request.getCourierReference()));
+        }
         if (request.getTrackingNumber() != null && !request.getTrackingNumber().isBlank()) {
             shipment.setTrackingNumber(request.getTrackingNumber().trim());
             if (request.getTrackingUrl() == null || request.getTrackingUrl().isBlank()) {
@@ -188,9 +208,35 @@ public class ShipmentServiceImpl implements ShipmentService {
         if (request.getTrackingUrl() != null && !request.getTrackingUrl().isBlank()) {
             shipment.setTrackingUrl(request.getTrackingUrl().trim());
         }
+        if (request.getCashOnDeliveryAmount() != null) {
+            shipment.setCashOnDeliveryAmount(request.getCashOnDeliveryAmount());
+        }
+        if (request.getDeliveryFee() != null) {
+            shipment.setDeliveryFee(request.getDeliveryFee());
+        }
+        if (request.getLastCourierEvent() != null) {
+            shipment.setLastCourierEvent(trimToNull(request.getLastCourierEvent()));
+        }
+        if (request.getLastCourierSyncAt() != null) {
+            shipment.setLastCourierSyncAt(request.getLastCourierSyncAt());
+        }
+        if (request.getPickupRequestedAt() != null) {
+            shipment.setPickupRequestedAt(request.getPickupRequestedAt());
+        }
+        if (request.getPickedUpAt() != null) {
+            shipment.setPickedUpAt(request.getPickedUpAt());
+        }
+        if (request.getOutForDeliveryAt() != null) {
+            shipment.setOutForDeliveryAt(request.getOutForDeliveryAt());
+        }
+        if (request.getCourierDispatchStatus() != null) {
+            shipment.setCourierDispatchStatus(request.getCourierDispatchStatus());
+        }
         if (request.getStatus() != null) {
             shipment.setStatus(request.getStatus());
         }
+
+        applyCourierState(shipment);
 
         Shipment saved = shipmentRepository.save(shipment);
         return mapShipmentToDto(saved);
@@ -229,7 +275,11 @@ public class ShipmentServiceImpl implements ShipmentService {
         }
 
         shipment.setStatus(ShipmentStatus.DELIVERED);
+        shipment.setCourierDispatchStatus(CourierDispatchStatus.DELIVERED);
         shipment.setDeliveredDate(request != null && request.getDeliveredAt() != null ? request.getDeliveredAt() : LocalDateTime.now());
+        if (shipment.getShippedDate() == null) {
+            shipment.setShippedDate(LocalDateTime.now());
+        }
 
         if (request != null && request.getNotes() != null && !request.getNotes().isBlank()) {
             shipment.setNotes(request.getNotes());
@@ -528,11 +578,22 @@ public class ShipmentServiceImpl implements ShipmentService {
         dto.setWarehouseName(entity.getWarehouse().getName());
         dto.setStatus(entity.getStatus());
         dto.setCarrier(entity.getCarrier());
+        dto.setCourierProvider(entity.getCourierProvider());
+        dto.setCourierService(entity.getCourierService());
+        dto.setCourierDispatchStatus(entity.getCourierDispatchStatus());
+        dto.setCourierReference(entity.getCourierReference());
         dto.setTrackingNumber(entity.getTrackingNumber());
         dto.setTrackingUrl(entity.getTrackingUrl());
         dto.setShippingLabelUrl(entity.getShippingLabelUrl());
+        dto.setCashOnDeliveryAmount(entity.getCashOnDeliveryAmount());
+        dto.setDeliveryFee(entity.getDeliveryFee());
         dto.setShippedDate(entity.getShippedDate());
         dto.setDeliveredDate(entity.getDeliveredDate());
+        dto.setPickupRequestedAt(entity.getPickupRequestedAt());
+        dto.setPickedUpAt(entity.getPickedUpAt());
+        dto.setOutForDeliveryAt(entity.getOutForDeliveryAt());
+        dto.setLastCourierEvent(entity.getLastCourierEvent());
+        dto.setLastCourierSyncAt(entity.getLastCourierSyncAt());
         dto.setDeliveryNote(entity.getDeliveryNote());
         dto.setNotes(entity.getNotes());
         dto.setCreatedAt(entity.getCreatedAt());
@@ -552,6 +613,72 @@ public class ShipmentServiceImpl implements ShipmentService {
         dto.setItems(itemDtos);
 
         return dto;
+    }
+
+    private void applyCourierState(Shipment shipment) {
+        CourierDispatchStatus dispatchStatus = shipment.getCourierDispatchStatus();
+        if (dispatchStatus == null) {
+            return;
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        switch (dispatchStatus) {
+            case BOOKED -> {
+                if (shipment.getPickupRequestedAt() == null) {
+                    shipment.setPickupRequestedAt(now);
+                }
+                if (shipment.getStatus() == ShipmentStatus.DRAFT) {
+                    shipment.setStatus(ShipmentStatus.READY_TO_SHIP);
+                }
+            }
+            case PICKUP_PENDING -> {
+                if (shipment.getPickupRequestedAt() == null) {
+                    shipment.setPickupRequestedAt(now);
+                }
+                shipment.setStatus(ShipmentStatus.READY_TO_SHIP);
+            }
+            case PICKED_UP, IN_TRANSIT -> {
+                if (shipment.getPickedUpAt() == null) {
+                    shipment.setPickedUpAt(now);
+                }
+                if (shipment.getShippedDate() == null) {
+                    shipment.setShippedDate(now);
+                }
+                shipment.setStatus(ShipmentStatus.IN_TRANSIT);
+            }
+            case OUT_FOR_DELIVERY -> {
+                if (shipment.getOutForDeliveryAt() == null) {
+                    shipment.setOutForDeliveryAt(now);
+                }
+                if (shipment.getShippedDate() == null) {
+                    shipment.setShippedDate(now);
+                }
+                shipment.setStatus(ShipmentStatus.IN_TRANSIT);
+            }
+            case DELIVERED -> {
+                shipment.setStatus(ShipmentStatus.DELIVERED);
+                if (shipment.getShippedDate() == null) {
+                    shipment.setShippedDate(now);
+                }
+                if (shipment.getDeliveredDate() == null) {
+                    shipment.setDeliveredDate(now);
+                }
+            }
+            case DELIVERY_FAILED -> shipment.setStatus(ShipmentStatus.IN_TRANSIT);
+            case RETURNED -> shipment.setStatus(ShipmentStatus.RETURNED);
+            case CANCELLED -> shipment.setStatus(ShipmentStatus.CANCELLED);
+            case UNASSIGNED -> shipment.setStatus(ShipmentStatus.READY_TO_SHIP);
+            default -> {
+            }
+        }
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     private RmaDto mapRmaToDto(ReturnMerchandiseAuthorization entity) {

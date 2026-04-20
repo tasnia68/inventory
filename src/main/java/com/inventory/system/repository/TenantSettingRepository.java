@@ -13,5 +13,7 @@ public interface TenantSettingRepository extends JpaRepository<TenantSetting, UU
 
     Optional<TenantSetting> findBySettingKey(String settingKey);
 
+    Optional<TenantSetting> findByTenantIdAndSettingKey(String tenantId, String settingKey);
+
     List<TenantSetting> findByCategory(String category);
 }

@@ -59,6 +59,12 @@ public class SalesOrder extends BaseEntity {
     @Column(name = "discount_amount", precision = 19, scale = 6)
     private BigDecimal discountAmount = BigDecimal.ZERO;
 
+    @Column(name = "shipping_amount", precision = 19, scale = 6)
+    private BigDecimal shippingAmount = BigDecimal.ZERO;
+
+    @Column(name = "tax_amount", precision = 19, scale = 6)
+    private BigDecimal taxAmount = BigDecimal.ZERO;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "sales_channel")
     private SalesChannel salesChannel = SalesChannel.SALES_ORDER;

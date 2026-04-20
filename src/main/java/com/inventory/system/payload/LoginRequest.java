@@ -5,6 +5,9 @@ import jakarta.validation.constraints.NotBlank;
 public class LoginRequest {
 
     @NotBlank
+    private String workspace;
+
+    @NotBlank
     private String email;
 
     @NotBlank
@@ -12,6 +15,14 @@ public class LoginRequest {
 
     public String getEmail() {
         return email;
+    }
+
+    public String getWorkspace() {
+        return workspace;
+    }
+
+    public void setWorkspace(String workspace) {
+        this.workspace = workspace;
     }
 
     public void setEmail(String email) {

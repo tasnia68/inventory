@@ -18,4 +18,5 @@ public class StorefrontConfigDto {
     private StorefrontPageDto headerPage;
     private StorefrontPageDto homePage;
     private StorefrontPageDto footerPage;
+    private StorefrontDomainContextDto domains;
 }

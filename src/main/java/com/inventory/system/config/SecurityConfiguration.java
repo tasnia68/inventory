@@ -7,6 +7,7 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -24,6 +25,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @EnableConfigurationProperties(AppCorsProperties.class)
 public class SecurityConfiguration {
 
@@ -57,9 +59,11 @@ public class SecurityConfiguration {
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/auth/**"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                                                                "/api/v1/tenants/register"),
+                                                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/storefront/public/**"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
-                                                                                "/api/v1/storefront/assets/file"),
+                                                                                "/api/v1/storefront/domains/caddy/validate"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/product-images/*/file"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
@@ -86,9 +90,9 @@ public class SecurityConfiguration {
         @Bean
         public CorsConfigurationSource corsConfigurationSource() {
                 CorsConfiguration configuration = new CorsConfiguration();
-                configuration.setAllowedOrigins(appCorsProperties.getAllowedOrigins());
-                configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-                configuration.setAllowedHeaders(List.of("Authorization", "Content-Type", "X-Tenant-ID", "X-Request-ID"));
+                configuration.setAllowedOriginPatterns(List.of("*"));
+                configuration.setAllowedMethods(List.of("*"));
+                configuration.setAllowedHeaders(List.of("*"));
                 configuration.setExposedHeaders(List.of("X-Request-ID"));
                 configuration.setAllowCredentials(true);
                 UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();

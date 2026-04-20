@@ -74,4 +74,28 @@ public class SmtpEmailService implements EmailService {
             throw new RuntimeException("Failed to send storefront login email", e);
         }
     }
+
+    @Override
+    public void sendOrderConfirmationEmail(String to, String customerName, String orderNumber, String orderTotal, String currency) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(to);
+            message.setSubject("Order Confirmation — " + orderNumber);
+            message.setText(
+                    "Hello " + (customerName != null ? customerName : "") + ",\n\n" +
+                            "Thank you for your order!\n\n" +
+                            "Order Number: " + orderNumber + "\n" +
+                            "Total: " + currency + " " + orderTotal + "\n\n" +
+                            "Your order has been received and is pending review. We will notify you once it is confirmed.\n\n" +
+                            "If you have any questions about your order, please contact our support team and reference your order number.\n\n" +
+                            "Best regards,\n" +
+                            "The Storefront Team");
+
+            mailSender.send(message);
+            logger.info("Order confirmation email sent successfully to: {}", to);
+        } catch (Exception e) {
+            logger.error("Failed to send order confirmation email to {}: {}", to, e.getMessage());
+        }
+    }
 }

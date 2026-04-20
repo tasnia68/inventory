@@ -13,6 +13,7 @@ import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -41,6 +42,19 @@ public class Shipment extends BaseEntity {
     @Column(name = "carrier")
     private String carrier;
 
+    @Column(name = "courier_provider")
+    private String courierProvider;
+
+    @Column(name = "courier_service")
+    private String courierService;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "courier_dispatch_status", nullable = false)
+    private CourierDispatchStatus courierDispatchStatus = CourierDispatchStatus.UNASSIGNED;
+
+    @Column(name = "courier_reference")
+    private String courierReference;
+
     @Column(name = "tracking_number")
     private String trackingNumber;
 
@@ -50,11 +64,32 @@ public class Shipment extends BaseEntity {
     @Column(name = "shipping_label_url", columnDefinition = "TEXT")
     private String shippingLabelUrl;
 
+    @Column(name = "cash_on_delivery_amount", precision = 19, scale = 6)
+    private BigDecimal cashOnDeliveryAmount;
+
+    @Column(name = "delivery_fee", precision = 19, scale = 6)
+    private BigDecimal deliveryFee;
+
     @Column(name = "shipped_date")
     private LocalDateTime shippedDate;
 
     @Column(name = "delivered_date")
     private LocalDateTime deliveredDate;
+
+    @Column(name = "pickup_requested_at")
+    private LocalDateTime pickupRequestedAt;
+
+    @Column(name = "picked_up_at")
+    private LocalDateTime pickedUpAt;
+
+    @Column(name = "out_for_delivery_at")
+    private LocalDateTime outForDeliveryAt;
+
+    @Column(name = "last_courier_event", columnDefinition = "TEXT")
+    private String lastCourierEvent;
+
+    @Column(name = "last_courier_sync_at")
+    private LocalDateTime lastCourierSyncAt;
 
     @Column(name = "delivery_note", columnDefinition = "TEXT")
     private String deliveryNote;

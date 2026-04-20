@@ -12,6 +12,11 @@ spring:
     show-sql: false
 
 app:
+  storefront:
+    domains:
+      platform-base-domain: ${APP_STOREFRONT_BASE_DOMAIN:localhost}
+      admin-domain: ${APP_ADMIN_DOMAIN:localhost}
+      verification-target: ${APP_STOREFRONT_VERIFICATION_TARGET:localhost}
   security:
     cors:
       allowed-origins: ${APP_SECURITY_CORS_ALLOWED_ORIGINS:http://localhost:4173}

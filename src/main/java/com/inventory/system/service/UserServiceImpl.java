@@ -5,12 +5,14 @@ import com.inventory.system.common.entity.User;
 import com.inventory.system.common.entity.UserActivityLog;
 import com.inventory.system.common.entity.UserInvitation;
 import com.inventory.system.common.exception.ResourceNotFoundException;
+import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.AcceptInvitationRequest;
 import com.inventory.system.payload.CreateUserRequest;
 import com.inventory.system.payload.UpdateUserRequest;
 import com.inventory.system.payload.UserDto;
 import com.inventory.system.payload.UserInvitationRequest;
 import com.inventory.system.payload.UserProfileResponse;
+import com.inventory.system.repository.TenantRepository;
 import com.inventory.system.repository.RoleRepository;
 import com.inventory.system.repository.UserActivityLogRepository;
 import com.inventory.system.repository.UserInvitationRepository;
@@ -37,19 +39,22 @@ public class UserServiceImpl implements UserService {
     private final UserActivityLogRepository userActivityLogRepository;
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
+    private final TenantRepository tenantRepository;
 
     public UserServiceImpl(UserRepository userRepository,
             RoleRepository roleRepository,
             UserInvitationRepository userInvitationRepository,
             UserActivityLogRepository userActivityLogRepository,
             EmailService emailService,
-            PasswordEncoder passwordEncoder) {
+            PasswordEncoder passwordEncoder,
+            TenantRepository tenantRepository) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userInvitationRepository = userInvitationRepository;
         this.userActivityLogRepository = userActivityLogRepository;
         this.emailService = emailService;
         this.passwordEncoder = passwordEncoder;
+        this.tenantRepository = tenantRepository;
     }
 
     @Override
@@ -217,6 +222,8 @@ public class UserServiceImpl implements UserService {
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
+                .tenantId(TenantContext.getTenantId())
+                .tenantSubdomain(resolveTenantSubdomain())
                 .createdAt(user.getCreatedAt())
                 .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
                 .permissions(permissions)
@@ -247,10 +254,26 @@ public class UserServiceImpl implements UserService {
                 .email(updatedUser.getEmail())
                 .firstName(updatedUser.getFirstName())
                 .lastName(updatedUser.getLastName())
+                .tenantId(TenantContext.getTenantId())
+                .tenantSubdomain(resolveTenantSubdomain())
                 .createdAt(updatedUser.getCreatedAt())
                 .roles(updatedUser.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
                 .permissions(permissions)
                 .build();
+    }
+
+    private String resolveTenantSubdomain() {
+        String tenantId = TenantContext.getTenantId();
+        if (tenantId == null || tenantId.isBlank()) {
+            return null;
+        }
+        try {
+            return tenantRepository.findById(UUID.fromString(tenantId))
+                    .map(com.inventory.system.common.entity.Tenant::getSubdomain)
+                    .orElse(null);
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     private UserDto mapToDto(User user) {

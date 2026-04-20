@@ -28,6 +28,7 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@RequestBody LoginRequest request) {
         log.info("===== LOGIN REQUEST RECEIVED =====");
+        log.info("Workspace: {}", request.getWorkspace());
         log.info("Email: {}", request.getEmail());
         log.info("Password present: {}", request.getPassword() != null);
         AuthResponse response = authService.authenticate(request);

@@ -35,6 +35,18 @@ public class GlobalExceptionHandler {
         return new ResponseEntity<>(new ApiResponse<>(false, ex.getMessage()), HttpStatus.BAD_REQUEST);
     }
 
+    @ExceptionHandler(StorefrontModuleDisabledException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStorefrontModuleDisabledException(StorefrontModuleDisabledException ex) {
+        logger.error("Storefront module disabled: {}", ex.getMessage());
+        return new ResponseEntity<>(new ApiResponse<>(false, ex.getMessage()), HttpStatus.FORBIDDEN);
+    }
+
+    @ExceptionHandler(StorefrontModuleUnavailableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleStorefrontModuleUnavailableException(StorefrontModuleUnavailableException ex) {
+        logger.error("Storefront unavailable: {}", ex.getMessage());
+        return new ResponseEntity<>(new ApiResponse<>(false, ex.getMessage()), HttpStatus.NOT_FOUND);
+    }
+
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Map<String, String>>> handleValidationExceptions(
             MethodArgumentNotValidException ex) {

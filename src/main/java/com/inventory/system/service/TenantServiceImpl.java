@@ -10,6 +10,7 @@ import com.inventory.system.payload.TenantResponse;
 import com.inventory.system.repository.RoleRepository;
 import com.inventory.system.repository.TenantRepository;
 import com.inventory.system.repository.UserRepository;
+import com.inventory.system.repository.PermissionRepository;
 import jakarta.persistence.EntityManager;
 import lombok.RequiredArgsConstructor;
 import org.hibernate.Session;
@@ -26,13 +27,14 @@ public class TenantServiceImpl implements TenantService {
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
+    private final PermissionRepository permissionRepository;
     private final PasswordEncoder passwordEncoder;
     private final EntityManager entityManager;
 
     @Override
     @Transactional
     public TenantResponse registerTenant(TenantRequest request) {
-        if (tenantRepository.existsBySubdomain(request.getSubdomain())) {
+        if (tenantRepository.existsBySubdomainIgnoreCase(request.getSubdomain())) {
             throw new BadRequestException("Subdomain already exists");
         }
 
@@ -60,8 +62,14 @@ public class TenantServiceImpl implements TenantService {
                         Role role = new Role();
                         role.setName("ROLE_ADMIN");
                         role.setDescription("Administrator role for tenant " + tenantId);
+                        role.setPermissions(new java.util.HashSet<>(permissionRepository.findAll()));
                         return roleRepository.save(role);
                     });
+
+            if (adminRole.getPermissions() == null || adminRole.getPermissions().isEmpty()) {
+                adminRole.setPermissions(new java.util.HashSet<>(permissionRepository.findAll()));
+                adminRole = roleRepository.save(adminRole);
+            }
 
             // Create Admin User
             // Note: Since this is a new tenant, existsByEmail should be false in this context.

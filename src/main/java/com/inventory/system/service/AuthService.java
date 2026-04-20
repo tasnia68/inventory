@@ -1,45 +1,78 @@
 package com.inventory.system.service;
 
+import com.inventory.system.common.entity.Tenant;
+import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.AuthResponse;
 import com.inventory.system.payload.LoginRequest;
+import com.inventory.system.repository.TenantRepository;
 import com.inventory.system.security.JwtService;
-import org.springframework.security.authentication.AuthenticationManager;
-import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+
+import java.util.UUID;
 
 @Service
 public class AuthService {
 
-    private final AuthenticationManager authenticationManager;
     private final UserDetailsService userDetailsService;
     private final JwtService jwtService;
+    private final TenantRepository tenantRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    public AuthService(AuthenticationManager authenticationManager,
-                       UserDetailsService userDetailsService,
-                       JwtService jwtService) {
-        this.authenticationManager = authenticationManager;
+    public AuthService(UserDetailsService userDetailsService,
+                       JwtService jwtService,
+                       TenantRepository tenantRepository,
+                       PasswordEncoder passwordEncoder) {
         this.userDetailsService = userDetailsService;
         this.jwtService = jwtService;
+        this.tenantRepository = tenantRepository;
+        this.passwordEncoder = passwordEncoder;
     }
 
     public AuthResponse authenticate(LoginRequest request) {
-        authenticationManager.authenticate(
-                new UsernamePasswordAuthenticationToken(
-                        request.getEmail(),
-                        request.getPassword()
-                )
-        );
+        Tenant tenant = resolveTenant(request.getWorkspace());
+        String tenantId = tenant.getId().toString();
+        String tenantSubdomain = tenant.getSubdomain();
 
-        UserDetails userDetails = userDetailsService.loadUserByUsername(request.getEmail());
-        String accessToken = jwtService.generateToken(userDetails, TenantContext.getTenantId());
-        String refreshToken = jwtService.generateRefreshToken(userDetails);
+        TenantContext.setTenantId(tenantId);
+        try {
+            UserDetails userDetails = userDetailsService.loadUserByUsername(request.getEmail());
+            if (!passwordEncoder.matches(request.getPassword(), userDetails.getPassword())) {
+                throw new BadCredentialsException("Bad credentials");
+            }
 
-        return AuthResponse.builder()
-                .accessToken(accessToken)
-                .refreshToken(refreshToken)
-                .build();
+            String accessToken = jwtService.generateToken(userDetails, TenantContext.getTenantId());
+            String refreshToken = jwtService.generateRefreshToken(userDetails);
+
+            return AuthResponse.builder()
+                    .accessToken(accessToken)
+                    .refreshToken(refreshToken)
+                    .tenantId(tenantId)
+                    .tenantSubdomain(tenantSubdomain)
+                    .build();
+        } finally {
+            TenantContext.clear();
+        }
+    }
+
+    private Tenant resolveTenant(String workspace) {
+        if (workspace == null || workspace.isBlank()) {
+            throw new BadRequestException("Workspace is required");
+        }
+
+        String normalized = workspace.trim().toLowerCase();
+        return tenantRepository.findBySubdomainIgnoreCase(normalized)
+                .or(() -> {
+                    try {
+                        return tenantRepository.findById(UUID.fromString(normalized));
+                    } catch (IllegalArgumentException exception) {
+                        return java.util.Optional.empty();
+                    }
+                })
+                .orElseThrow(() -> new BadRequestException("Unknown workspace: " + workspace.trim()));
     }
 }

@@ -25,6 +25,8 @@ public class SalesOrderDto {
     private OrderPriority priority;
     private BigDecimal subtotalAmount;
     private BigDecimal discountAmount;
+    private BigDecimal shippingAmount;
+    private BigDecimal taxAmount;
     private BigDecimal totalAmount;
     private SalesChannel salesChannel;
     private String appliedCouponCodes;

@@ -1,7 +1,11 @@
 package com.inventory.system.config;
 
 import com.inventory.system.common.entity.Role;
+import com.inventory.system.common.entity.Tenant;
+import com.inventory.system.common.entity.TenantSetting;
 import com.inventory.system.common.entity.User;
+import com.inventory.system.repository.TenantRepository;
+import com.inventory.system.repository.TenantSettingRepository;
 import com.inventory.system.repository.RoleRepository;
 import com.inventory.system.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
@@ -13,15 +17,21 @@ import org.springframework.stereotype.Component;
 
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Component
 @RequiredArgsConstructor
 @Slf4j
 public class BootstrapDataLoader implements CommandLineRunner {
 
+    private static final String STOREFRONT_MODULE_ENABLED_KEY = "tenant.modules.storefront.enabled";
+    private static final String STOREFRONT_CATEGORY = "STOREFRONT";
+
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final com.inventory.system.repository.PermissionRepository permissionRepository;
+    private final TenantRepository tenantRepository;
+    private final TenantSettingRepository tenantSettingRepository;
     private final PasswordEncoder passwordEncoder;
 
     @Value("${app.bootstrap.admin.email:admin@test.com}")
@@ -38,6 +48,21 @@ public class BootstrapDataLoader implements CommandLineRunner {
 
     @Value("${app.bootstrap.admin.tenantId:default-tenant}")
     private String tenantId;
+
+    @Value("${app.bootstrap.super-admin.email:superadmin@test.com}")
+    private String superAdminEmail;
+
+    @Value("${app.bootstrap.super-admin.password:SuperAdmin123!}")
+    private String superAdminPassword;
+
+    @Value("${app.bootstrap.super-admin.firstName:Platform}")
+    private String superAdminFirstName;
+
+    @Value("${app.bootstrap.super-admin.lastName:Admin}")
+    private String superAdminLastName;
+
+    @Value("${app.bootstrap.super-admin.tenantId:platform}")
+    private String superAdminTenantId;
 
     private static final Set<String> PERMISSIONS = Set.of(
             "MENU:DASHBOARD",
@@ -80,20 +105,18 @@ public class BootstrapDataLoader implements CommandLineRunner {
         }
         log.info("Ensured {} permissions exist", allPermissions.size());
 
-        // Check if admin user already exists
-        Optional<User> existingUser = userRepository.findByEmail(adminEmail);
-        if (existingUser.isPresent()) {
-            log.info("Bootstrap admin user already exists: {}", adminEmail);
-            return;
-        }
+        ensureSuperAdmin(allPermissions);
 
-        // Create or get ADMIN role
-        Role adminRole = roleRepository.findByName("ROLE_ADMIN")
+        Tenant bootstrapTenant = ensureBootstrapTenant();
+        String bootstrapTenantId = bootstrapTenant.getId().toString();
+        ensureBootstrapStorefrontModuleSetting(bootstrapTenantId);
+
+        Role adminRole = roleRepository.findByNameAndTenantId("ROLE_ADMIN", bootstrapTenantId)
                 .orElseGet(() -> {
                     Role role = new Role();
                     role.setName("ROLE_ADMIN");
                     role.setDescription("System Administrator");
-                    role.setTenantId(tenantId);
+                    role.setTenantId(bootstrapTenantId);
                     role.setPermissions(allPermissions);
                     return roleRepository.save(role);
                 });
@@ -105,19 +128,220 @@ public class BootstrapDataLoader implements CommandLineRunner {
             roleRepository.save(adminRole);
         }
 
-        // Create bootstrap admin user
+        Optional<User> existingUser = userRepository.findByEmail(adminEmail);
+        if (existingUser.isPresent()) {
+            User adminUser = existingUser.get();
+            boolean updated = false;
+
+            if (!bootstrapTenantId.equals(adminUser.getTenantId())) {
+                userRepository.updateTenantIdById(adminUser.getId(), bootstrapTenantId);
+                adminUser.setTenantId(bootstrapTenantId);
+                updated = true;
+            }
+            if (!adminUser.isEnabled()) {
+                adminUser.setEnabled(true);
+                updated = true;
+            }
+            if (!passwordEncoder.matches(adminPassword, adminUser.getPassword())) {
+                adminUser.setPassword(passwordEncoder.encode(adminPassword));
+                updated = true;
+            }
+            if (!adminFirstName.equals(adminUser.getFirstName())) {
+                adminUser.setFirstName(adminFirstName);
+                updated = true;
+            }
+            if (!adminLastName.equals(adminUser.getLastName())) {
+                adminUser.setLastName(adminLastName);
+                updated = true;
+            }
+            if (!adminUser.getRoles().contains(adminRole) || adminUser.getRoles().size() != 1) {
+                adminUser.setRoles(Set.of(adminRole));
+                updated = true;
+            }
+
+            if (updated) {
+                userRepository.save(adminUser);
+                log.info("Bootstrap admin user repaired for tenant {}: {}", bootstrapTenant.getSubdomain(), adminEmail);
+            } else {
+                log.info("Bootstrap admin user already exists: {}", adminEmail);
+            }
+            return;
+        }
+
         User adminUser = new User();
         adminUser.setEmail(adminEmail);
         adminUser.setPassword(passwordEncoder.encode(adminPassword));
         adminUser.setFirstName(adminFirstName);
         adminUser.setLastName(adminLastName);
         adminUser.setEnabled(true);
-        adminUser.setTenantId(tenantId);
+        adminUser.setTenantId(bootstrapTenantId);
         adminUser.setRoles(Set.of(adminRole));
 
         userRepository.save(adminUser);
-        log.info("Bootstrap admin user created successfully: {}", adminEmail);
-        log.info("You can now login with email: {} and password from configuration", adminEmail);
+        log.info("Bootstrap admin user created successfully for tenant {}: {}", bootstrapTenant.getSubdomain(), adminEmail);
+        log.info("You can now login with workspace: {}, email: {}, and password from configuration", bootstrapTenant.getSubdomain(), adminEmail);
+    }
+
+    private Tenant ensureBootstrapTenant() {
+        String identifier = tenantId == null ? "" : tenantId.trim();
+        if (identifier.isBlank()) {
+            throw new IllegalStateException("Bootstrap admin tenantId must not be blank");
+        }
+
+        Optional<Tenant> existing = resolveTenant(identifier);
+        if (existing.isPresent()) {
+            return existing.get();
+        }
+
+        try {
+            UUID.fromString(identifier);
+            throw new IllegalStateException("Configured bootstrap admin tenantId does not match an existing tenant: " + identifier);
+        } catch (IllegalArgumentException ignored) {
+            Tenant tenant = new Tenant();
+            tenant.setName(buildBootstrapTenantName(identifier));
+            tenant.setSubdomain(identifier.toLowerCase());
+            tenant.setStatus(Tenant.TenantStatus.ACTIVE);
+            tenant.setSubscriptionPlan(Tenant.SubscriptionPlan.ENTERPRISE);
+            Tenant savedTenant = tenantRepository.save(tenant);
+            log.info("Bootstrap tenant created successfully: {} ({})", savedTenant.getSubdomain(), savedTenant.getId());
+            return savedTenant;
+        }
+    }
+
+    private Optional<Tenant> resolveTenant(String identifier) {
+        Optional<Tenant> bySubdomain = tenantRepository.findBySubdomainIgnoreCase(identifier);
+        if (bySubdomain.isPresent()) {
+            return bySubdomain;
+        }
+
+        try {
+            return tenantRepository.findById(UUID.fromString(identifier));
+        } catch (IllegalArgumentException exception) {
+            return Optional.empty();
+        }
+    }
+
+    private void ensureBootstrapStorefrontModuleSetting(String bootstrapTenantId) {
+        tenantSettingRepository.findByTenantIdAndSettingKey(bootstrapTenantId, STOREFRONT_MODULE_ENABLED_KEY)
+                .orElseGet(() -> {
+                    TenantSetting setting = new TenantSetting();
+                    setting.setTenantId(bootstrapTenantId);
+                    setting.setSettingKey(STOREFRONT_MODULE_ENABLED_KEY);
+                    setting.setSettingValue("true");
+                    setting.setSettingType("BOOLEAN");
+                    setting.setCategory(STOREFRONT_CATEGORY);
+                    TenantSetting savedSetting = tenantSettingRepository.save(setting);
+                    log.info("Enabled storefront module for bootstrap tenant {}", bootstrapTenantId);
+                    return savedSetting;
+                });
+    }
+
+    private String buildBootstrapTenantName(String identifier) {
+        String normalized = identifier.replace('-', ' ').replace('_', ' ').trim();
+        if (normalized.isBlank()) {
+            return "Default Tenant";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        for (String part : normalized.split("\\s+")) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(Character.toUpperCase(part.charAt(0)));
+            if (part.length() > 1) {
+                builder.append(part.substring(1).toLowerCase());
+            }
+        }
+
+        return builder.isEmpty() ? "Default Tenant" : builder.toString();
+    }
+
+    private void ensureSuperAdmin(Set<com.inventory.system.common.entity.Permission> allPermissions) {
+        Optional<User> existingUser = userRepository.findByEmail(superAdminEmail);
+        if (existingUser.isPresent()) {
+            User superAdminUser = existingUser.get();
+            boolean updated = false;
+
+            if (!superAdminTenantId.equals(superAdminUser.getTenantId())) {
+                userRepository.updateTenantIdById(superAdminUser.getId(), superAdminTenantId);
+                superAdminUser.setTenantId(superAdminTenantId);
+                updated = true;
+            }
+            if (!superAdminUser.isEnabled()) {
+                superAdminUser.setEnabled(true);
+                updated = true;
+            }
+            if (!passwordEncoder.matches(superAdminPassword, superAdminUser.getPassword())) {
+                superAdminUser.setPassword(passwordEncoder.encode(superAdminPassword));
+                updated = true;
+            }
+            if (!superAdminFirstName.equals(superAdminUser.getFirstName())) {
+                superAdminUser.setFirstName(superAdminFirstName);
+                updated = true;
+            }
+            if (!superAdminLastName.equals(superAdminUser.getLastName())) {
+                superAdminUser.setLastName(superAdminLastName);
+                updated = true;
+            }
+
+            Role superAdminRole = roleRepository.findByName("ROLE_SUPER_ADMIN")
+                    .orElseGet(() -> {
+                        Role role = new Role();
+                        role.setName("ROLE_SUPER_ADMIN");
+                        role.setDescription("Platform super administrator");
+                        role.setTenantId(superAdminTenantId);
+                        role.setPermissions(allPermissions);
+                        return roleRepository.save(role);
+                    });
+
+            if (superAdminRole.getPermissions() == null || superAdminRole.getPermissions().size() < allPermissions.size()) {
+                superAdminRole.setPermissions(allPermissions);
+                roleRepository.save(superAdminRole);
+            }
+
+            if (!superAdminUser.getRoles().contains(superAdminRole) || superAdminUser.getRoles().size() != 1) {
+                superAdminUser.setRoles(Set.of(superAdminRole));
+                updated = true;
+            }
+
+            if (updated) {
+                userRepository.save(superAdminUser);
+                log.info("Bootstrap super admin repaired: {}", superAdminEmail);
+            } else {
+                log.info("Bootstrap super admin already exists: {}", superAdminEmail);
+            }
+            return;
+        }
+
+        Role superAdminRole = roleRepository.findByName("ROLE_SUPER_ADMIN")
+                .orElseGet(() -> {
+                    Role role = new Role();
+                    role.setName("ROLE_SUPER_ADMIN");
+                    role.setDescription("Platform super administrator");
+                    role.setTenantId(superAdminTenantId);
+                    role.setPermissions(allPermissions);
+                    return roleRepository.save(role);
+                });
+
+        if (superAdminRole.getPermissions() == null || superAdminRole.getPermissions().size() < allPermissions.size()) {
+            superAdminRole.setPermissions(allPermissions);
+            roleRepository.save(superAdminRole);
+        }
+
+        User superAdminUser = new User();
+        superAdminUser.setEmail(superAdminEmail);
+        superAdminUser.setPassword(passwordEncoder.encode(superAdminPassword));
+        superAdminUser.setFirstName(superAdminFirstName);
+        superAdminUser.setLastName(superAdminLastName);
+        superAdminUser.setEnabled(true);
+        superAdminUser.setTenantId(superAdminTenantId);
+        superAdminUser.setRoles(Set.of(superAdminRole));
+
+        userRepository.save(superAdminUser);
+        log.info("Bootstrap super admin created successfully: {}", superAdminEmail);
     }
 
     private String formatDescription(String permName) {

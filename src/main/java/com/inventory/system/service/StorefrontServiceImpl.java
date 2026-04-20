@@ -14,6 +14,7 @@ import com.inventory.system.common.entity.SalesChannel;
 import com.inventory.system.common.entity.SalesOrder;
 import com.inventory.system.common.entity.SalesOrderItem;
 import com.inventory.system.common.entity.SalesOrderStatus;
+import com.inventory.system.common.entity.StorefrontPage;
 import com.inventory.system.common.entity.StorefrontAccount;
 import com.inventory.system.common.entity.StorefrontAccountSession;
 import com.inventory.system.common.entity.StorefrontLoginChallenge;
@@ -21,6 +22,8 @@ import com.inventory.system.common.entity.StorefrontPublishVersion;
 import com.inventory.system.common.entity.Warehouse;
 import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
+import com.inventory.system.common.exception.StorefrontModuleDisabledException;
+import com.inventory.system.common.exception.StorefrontModuleUnavailableException;
 import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.StorefrontAssetUploadDto;
 import com.inventory.system.payload.StorefrontAccountAuthDto;
@@ -33,10 +36,16 @@ import com.inventory.system.payload.StorefrontCartDto;
 import com.inventory.system.payload.StorefrontCartItemRequest;
 import com.inventory.system.payload.StorefrontCartLineDto;
 import com.inventory.system.payload.StorefrontCartRequest;
+import com.inventory.system.payload.StorefrontAnalyticsDto;
 import com.inventory.system.payload.StorefrontCheckoutDto;
 import com.inventory.system.payload.StorefrontCheckoutRequest;
+import com.inventory.system.payload.StorefrontCmsPageDto;
+import com.inventory.system.payload.StorefrontCmsPageRequest;
 import com.inventory.system.payload.StorefrontConfigDto;
 import com.inventory.system.payload.StorefrontCollectionDto;
+import com.inventory.system.payload.StorefrontDomainContextDto;
+import com.inventory.system.payload.StorefrontDomainDto;
+import com.inventory.system.payload.StorefrontDomainRequest;
 import com.inventory.system.payload.StorefrontNavItemDto;
 import com.inventory.system.payload.StorefrontLoginChallengeDto;
 import com.inventory.system.payload.StorefrontLoginRequest;
@@ -62,6 +71,7 @@ import com.inventory.system.payload.SalesOrderDto;
 import com.inventory.system.payload.SalesOrderItemDto;
 import com.inventory.system.payload.SalesOrderItemRequest;
 import com.inventory.system.payload.SalesOrderRequest;
+import com.inventory.system.payload.StockReservationRequest;
 import com.inventory.system.payload.TenantSettingDto;
 import com.inventory.system.payload.UpdateStorefrontConfigRequest;
 import com.inventory.system.repository.CategoryRepository;
@@ -71,7 +81,9 @@ import com.inventory.system.repository.SalesOrderRepository;
 import com.inventory.system.repository.StorefrontAccountRepository;
 import com.inventory.system.repository.StorefrontAccountSessionRepository;
 import com.inventory.system.repository.StorefrontLoginChallengeRepository;
+import com.inventory.system.repository.StorefrontPageRepository;
 import com.inventory.system.repository.StorefrontPublishVersionRepository;
+import com.inventory.system.repository.TenantSettingRepository;
 import com.inventory.system.repository.WarehouseRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -105,6 +117,10 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class StorefrontServiceImpl implements StorefrontService {
 
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(StorefrontServiceImpl.class);
+
+    private static final String STOREFRONT_MODULE_ENABLED_KEY = "tenant.modules.storefront.enabled";
+
     private static final String SITE_KEY = "storefront.site";
     private static final String THEME_KEY = "storefront.theme";
     private static final String NAVIGATION_KEY = "storefront.navigation";
@@ -130,19 +146,24 @@ public class StorefrontServiceImpl implements StorefrontService {
     private final PricingEngineService pricingEngineService;
     private final StockReservationService stockReservationService;
     private final StorefrontPublishVersionRepository storefrontPublishVersionRepository;
+    private final TenantSettingRepository tenantSettingRepository;
     private final FileStorageService fileStorageService;
     private final EmailService emailService;
     private final ObjectMapper objectMapper;
+    private final StorefrontDomainService storefrontDomainService;
+    private final StorefrontPageRepository storefrontPageRepository;
 
     @Override
     @Transactional(readOnly = true)
     public StorefrontConfigDto getAdminConfig() {
-        return deriveLegacyConfig(loadDraftThemeDocument());
+        requireAdminStorefrontAccess();
+        return enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument()));
     }
 
     @Override
     @Transactional
     public StorefrontConfigDto updateConfig(UpdateStorefrontConfigRequest request) {
+        requireAdminStorefrontAccess();
         StorefrontConfigDto current = loadConfig();
 
         StorefrontSiteDto site = request.getSite() != null ? request.getSite() : current.getSite();
@@ -157,15 +178,16 @@ public class StorefrontServiceImpl implements StorefrontService {
         StorefrontPageDto homePage = request.getHomePage() != null ? request.getHomePage() : current.getHomePage();
         StorefrontPageDto footerPage = request.getFooterPage() != null ? request.getFooterPage() : current.getFooterPage();
 
-        StorefrontConfigDto updated = new StorefrontConfigDto(site, theme, navigationItems, banners, headerPage, homePage, footerPage);
+        StorefrontConfigDto updated = new StorefrontConfigDto(site, theme, navigationItems, banners, headerPage, homePage, footerPage, current.getDomains());
         persistConfig(updated);
         persistDraftThemeDocument(migrateLegacyConfigToThemeDocument(updated));
-        return deriveLegacyConfig(loadDraftThemeDocument());
+        return enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument()));
     }
 
     @Override
     @Transactional(readOnly = true)
     public StorefrontThemeEditorDto getAdminThemeEditor() {
+        requireAdminStorefrontAccess();
         StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
         StorefrontThemeDocumentDto published = loadPublishedThemeDocument().orElse(null);
         return new StorefrontThemeEditorDto(
@@ -174,13 +196,65 @@ public class StorefrontServiceImpl implements StorefrontService {
                 draft,
                 published,
                 buildThemeSchema(draft != null ? draft.getTemplateKey() : defaultSite().getTemplateKey()),
-                getThemeRevisions()
+                getThemeRevisions(),
+                storefrontDomainService.getDomainContextForCurrentTenant()
         );
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontDomainContextDto getDomainContext() {
+        requireAdminStorefrontAccess();
+        return storefrontDomainService.getDomainContextForCurrentTenant();
+    }
+
+    @Override
+    @Transactional
+    public StorefrontDomainDto addDomain(StorefrontDomainRequest request) {
+        requireAdminStorefrontAccess();
+        return storefrontDomainService.addDomain(request);
+    }
+
+    @Override
+    @Transactional
+    public StorefrontDomainDto verifyDomain(UUID domainId) {
+        requireAdminStorefrontAccess();
+        return storefrontDomainService.verifyDomain(domainId);
+    }
+
+    @Override
+    @Transactional
+    public StorefrontDomainDto activateDomain(UUID domainId) {
+        requireAdminStorefrontAccess();
+        return storefrontDomainService.activateDomain(domainId);
+    }
+
+    @Override
+    @Transactional
+    public void removeDomain(UUID domainId) {
+        requireAdminStorefrontAccess();
+        storefrontDomainService.removeDomain(domainId);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public boolean allowCaddyDomain(String domain) {
+        if (!storefrontDomainService.isDomainAllowedForCaddy(domain)) {
+            return false;
+        }
+
+        Optional<String> tenantId = storefrontDomainService.resolveTenantIdForHost(domain);
+        if (tenantId.isEmpty()) {
+            return true;
+        }
+
+        return isStorefrontModuleEnabledForTenant(tenantId.get());
     }
 
     @Override
     @Transactional
     public StorefrontThemeDocumentDto updateDraftTheme(StorefrontThemeDocumentDto request) {
+        requireAdminStorefrontAccess();
         StorefrontThemeDocumentDto normalized = normalizeThemeDocument(request);
         persistDraftThemeDocument(normalized);
         persistConfig(deriveLegacyConfig(normalized));
@@ -190,30 +264,172 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public List<StorefrontPublishVersionDto> getThemeRevisions() {
+        requireAdminStorefrontAccess();
         return getPublishVersions();
     }
 
     @Override
     @Transactional
     public StorefrontPublishVersionDto publishDraftTheme(StorefrontPublishRequest request) {
+        requireAdminStorefrontAccess();
         return publishCurrentConfig(request);
     }
 
     @Override
     @Transactional
     public StorefrontPublishVersionDto restoreThemeRevision(UUID versionId, StorefrontPublishRequest request) {
+        requireAdminStorefrontAccess();
         return rollbackToVersion(versionId, request);
     }
 
     @Override
     @Transactional(readOnly = true)
     public StorefrontConfigDto getAdminThemePreview() {
-        return deriveLegacyConfig(loadDraftThemeDocument());
+        requireAdminStorefrontAccess();
+        return enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StorefrontAccountProfileDto> listStorefrontAccounts() {
+        return storefrontAccountRepository.findAll().stream()
+                .map(this::mapStorefrontAccountProfile)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontAnalyticsDto getStorefrontAnalytics(LocalDate from, LocalDate to) {
+        LocalDateTime fromDt = from != null ? from.atStartOfDay() : LocalDate.now().minusDays(30).atStartOfDay();
+        LocalDateTime toDt = to != null ? to.plusDays(1).atStartOfDay() : LocalDateTime.now();
+
+        List<SalesOrder> allOrders = salesOrderRepository.findAll().stream()
+                .filter(o -> o.getSalesChannel() == SalesChannel.WEB_ORDER)
+                .filter(o -> o.getOrderDate() != null && !o.getOrderDate().isBefore(fromDt) && o.getOrderDate().isBefore(toDt))
+                .toList();
+
+        long totalOrders = allOrders.size();
+        BigDecimal totalRevenue = allOrders.stream().map(SalesOrder::getTotalAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal averageOrderValue = totalOrders > 0 ? totalRevenue.divide(BigDecimal.valueOf(totalOrders), 2, java.math.RoundingMode.HALF_UP) : BigDecimal.ZERO;
+
+        long newCustomers = storefrontAccountRepository.findAll().stream()
+                .filter(a -> a.getCreatedAt() != null && !a.getCreatedAt().isBefore(fromDt) && a.getCreatedAt().isBefore(toDt))
+                .count();
+
+        List<StorefrontAnalyticsDto.StatusBreakdown> ordersByStatus = allOrders.stream()
+                .collect(Collectors.groupingBy(o -> o.getStatus().name(), Collectors.counting()))
+                .entrySet().stream()
+                .map(e -> new StorefrontAnalyticsDto.StatusBreakdown(e.getKey(), e.getValue()))
+                .sorted((a, b) -> Long.compare(b.getCount(), a.getCount()))
+                .collect(Collectors.toList());
+
+        List<StorefrontAnalyticsDto.TopProduct> topProducts = allOrders.stream()
+                .flatMap(o -> o.getItems().stream())
+                .collect(Collectors.groupingBy(
+                        item -> item.getProductVariant().getSku(),
+                        Collectors.toList()
+                ))
+                .entrySet().stream()
+                .map(e -> {
+                    String sku = e.getKey();
+                    String productName = e.getValue().stream()
+                            .map(item -> item.getProductVariant().getTemplate() != null ? item.getProductVariant().getTemplate().getName() : sku)
+                            .findFirst().orElse(sku);
+                    BigDecimal qty = e.getValue().stream().map(SalesOrderItem::getQuantity).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    BigDecimal rev = e.getValue().stream().map(SalesOrderItem::getTotalPrice).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add);
+                    return new StorefrontAnalyticsDto.TopProduct(productName, sku, qty, rev);
+                })
+                .sorted((a, b) -> b.getTotalQuantity().compareTo(a.getTotalQuantity()))
+                .limit(5)
+                .collect(Collectors.toList());
+
+        List<StorefrontAnalyticsDto.DailyRevenue> dailyRevenue = allOrders.stream()
+                .collect(Collectors.groupingBy(o -> o.getOrderDate().toLocalDate()))
+                .entrySet().stream()
+                .map(e -> new StorefrontAnalyticsDto.DailyRevenue(
+                        e.getKey().toString(),
+                        e.getValue().stream().map(SalesOrder::getTotalAmount).filter(Objects::nonNull).reduce(BigDecimal.ZERO, BigDecimal::add),
+                        e.getValue().size()
+                ))
+                .sorted(Comparator.comparing(StorefrontAnalyticsDto.DailyRevenue::getDate))
+                .collect(Collectors.toList());
+
+        return new StorefrontAnalyticsDto(totalOrders, totalRevenue, averageOrderValue, newCustomers, ordersByStatus, topProducts, dailyRevenue);
+    }
+
+    // ── CMS Pages ────────────────────────────────────────────────
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StorefrontCmsPageDto> listCmsPages() {
+        return storefrontPageRepository.findAll().stream().map(this::mapCmsPage).collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontCmsPageDto getCmsPage(UUID id) {
+        return mapCmsPage(storefrontPageRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StorefrontPage", "id", id)));
+    }
+
+    @Override
+    @Transactional
+    public StorefrontCmsPageDto createCmsPage(StorefrontCmsPageRequest request) {
+        String slug = request.getSlug().trim().toLowerCase().replaceAll("[^a-z0-9-]", "-").replaceAll("-+", "-");
+        if (storefrontPageRepository.existsBySlug(slug)) {
+            throw new BadRequestException("A page with slug '" + slug + "' already exists");
+        }
+        StorefrontPage page = new StorefrontPage();
+        page.setTitle(request.getTitle().trim());
+        page.setSlug(slug);
+        page.setBody(request.getBody());
+        page.setPublished(request.isPublished());
+        return mapCmsPage(storefrontPageRepository.save(page));
+    }
+
+    @Override
+    @Transactional
+    public StorefrontCmsPageDto updateCmsPage(UUID id, StorefrontCmsPageRequest request) {
+        StorefrontPage page = storefrontPageRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StorefrontPage", "id", id));
+        String slug = request.getSlug().trim().toLowerCase().replaceAll("[^a-z0-9-]", "-").replaceAll("-+", "-");
+        storefrontPageRepository.findBySlug(slug).ifPresent(existing -> {
+            if (!existing.getId().equals(id)) {
+                throw new BadRequestException("A page with slug '" + slug + "' already exists");
+            }
+        });
+        page.setTitle(request.getTitle().trim());
+        page.setSlug(slug);
+        page.setBody(request.getBody());
+        page.setPublished(request.isPublished());
+        return mapCmsPage(storefrontPageRepository.save(page));
+    }
+
+    @Override
+    @Transactional
+    public void deleteCmsPage(UUID id) {
+        StorefrontPage page = storefrontPageRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("StorefrontPage", "id", id));
+        storefrontPageRepository.delete(page);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontCmsPageDto getPublicCmsPage(String slug) {
+        requirePublicStorefrontAccess();
+        StorefrontPage page = storefrontPageRepository.findBySlugAndPublishedTrue(slug)
+                .orElseThrow(() -> new ResourceNotFoundException("StorefrontPage", "slug", slug));
+        return mapCmsPage(page);
+    }
+
+    private StorefrontCmsPageDto mapCmsPage(StorefrontPage page) {
+        return new StorefrontCmsPageDto(page.getId(), page.getTitle(), page.getSlug(), page.getBody(), page.isPublished(), page.getCreatedAt(), page.getUpdatedAt());
     }
 
     @Override
     @Transactional
     public StorefrontLoginChallengeDto requestAccountLogin(StorefrontLoginRequest request) {
+        requirePublicStorefrontAccess();
         String email = request.getEmail().trim().toLowerCase();
         LocalDateTime now = LocalDateTime.now();
 
@@ -235,6 +451,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional
     public StorefrontAccountAuthDto verifyAccountLogin(StorefrontLoginVerifyRequest request) {
+        requirePublicStorefrontAccess();
         StorefrontLoginChallenge challenge = resolveLoginChallenge(request);
         if (challenge.getConsumedAt() != null || challenge.getExpiresAt().isBefore(LocalDateTime.now())) {
             throw new BadRequestException("This storefront login code has expired");
@@ -265,12 +482,14 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public StorefrontAccountProfileDto getAccountProfile(String sessionToken) {
+        requirePublicStorefrontAccess();
         return mapStorefrontAccountProfile(requireStorefrontSession(sessionToken).getStorefrontAccount());
     }
 
     @Override
     @Transactional
     public StorefrontAccountProfileDto updateAccountProfile(String sessionToken, StorefrontAccountUpdateRequest request) {
+        requirePublicStorefrontAccess();
         StorefrontAccountSession session = requireStorefrontSession(sessionToken);
         StorefrontAccount account = session.getStorefrontAccount();
         if (request.getName() != null) {
@@ -295,6 +514,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public List<StorefrontAccountOrderDto> getAccountOrders(String sessionToken) {
+        requirePublicStorefrontAccess();
         StorefrontAccount account = requireStorefrontSession(sessionToken).getStorefrontAccount();
         return salesOrderRepository.findByCustomerId(account.getCustomer().getId(), PageRequest.of(0, 50, Sort.by(Sort.Direction.DESC, "orderDate")))
                 .stream()
@@ -317,8 +537,36 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public StorefrontAccountOrderDto getAccountOrderDetail(String sessionToken, String orderNumber) {
+        requirePublicStorefrontAccess();
+        StorefrontAccount account = requireStorefrontSession(sessionToken).getStorefrontAccount();
+        SalesOrder order = salesOrderRepository.findBySoNumber(orderNumber)
+                .orElseThrow(() -> new ResourceNotFoundException("Order", "orderNumber", orderNumber));
+        if (!order.getCustomer().getId().equals(account.getCustomer().getId())) {
+            throw new BadRequestException("Order does not belong to this account");
+        }
+        return new StorefrontAccountOrderDto(
+                order.getSoNumber(),
+                order.getStatus() != null ? order.getStatus().name() : null,
+                order.getOrderDate() != null ? order.getOrderDate().toString() : null,
+                order.getTotalAmount(),
+                order.getCurrency(),
+                order.getItems().stream()
+                        .map(item -> new StorefrontAccountOrderItemDto(
+                                item.getProductVariant() != null ? item.getProductVariant().getSku() : null,
+                                item.getProductVariant() != null ? item.getProductVariant().getTemplate().getName() : null,
+                                item.getQuantity(),
+                                item.getTotalPrice()
+                        ))
+                        .toList()
+        );
+    }
+
+    @Override
     @Transactional
     public void logoutAccount(String sessionToken) {
+        requirePublicStorefrontAccess();
         if (sessionToken == null || sessionToken.isBlank()) {
             return;
         }
@@ -332,19 +580,22 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true, propagation = Propagation.NOT_SUPPORTED)
     public StorefrontConfigDto getPublicConfig() {
+        requirePublicStorefrontAccess();
         try {
             return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
                     .map(this::readThemeSnapshot)
                     .map(StorefrontThemeSnapshotDto::getConfig)
-                    .orElseGet(() -> deriveLegacyConfig(loadDraftThemeDocument()));
+                    .map(this::enrichWithDomains)
+                    .orElseGet(() -> enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument())));
         } catch (RuntimeException ignored) {
-            return deriveLegacyConfig(loadDraftThemeDocument());
+            return enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument()));
         }
     }
 
     @Override
     @Transactional(readOnly = true)
     public List<StorefrontCollectionDto> getPublicCollections() {
+        requirePublicStorefrontAccess();
         List<Category> publishedCategories = categoryRepository.findByPublishedToStorefrontTrueOrderByStorefrontSortOrderAscNameAsc();
         Map<UUID, List<Category>> childrenByParent = new LinkedHashMap<>();
         for (Category category : publishedCategories) {
@@ -362,6 +613,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public StorefrontProductPageDto getPublicProducts(String query, String collectionSlug, String sort, Integer page, Integer size) {
+        requirePublicStorefrontAccess();
         int pageNumber = page != null && page >= 0 ? page : 0;
         int pageSize = size != null && size > 0 ? Math.min(size, 48) : 24;
         List<ProductVariant> publicVariants = loadPublishedStorefrontVariants();
@@ -398,6 +650,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public StorefrontProductDto getPublicProduct(String slug) {
+        requirePublicStorefrontAccess();
         List<ProductVariant> publicVariants = loadPublishedStorefrontVariants();
         Map<UUID, List<ProductVariant>> siblingsByTemplate = buildSiblingsByTemplate(publicVariants);
         Warehouse storefrontWarehouse = resolveStorefrontWarehouse();
@@ -417,17 +670,19 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public StorefrontCartDto previewCart(StorefrontCartRequest request) {
+        requirePublicStorefrontAccess();
         Warehouse warehouse = resolveWarehouse(request.getWarehouseId());
         Customer customer = resolvePricingCustomer(request.getCustomerId(), request.getCustomerEmail(), request.getCustomerPhoneNumber());
-        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer);
+        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer, request.getExpectedDeliveryDate());
         PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, pricingRequest);
 
-        return toCartDto(warehouse, pricingEvaluation);
+        return toCartDto(warehouse, pricingEvaluation, request.getCurrency());
     }
 
     @Override
     @Transactional
     public StorefrontCheckoutDto checkout(StorefrontCheckoutRequest request) {
+        requirePublicStorefrontAccess();
         if ((request.getCustomerEmail() == null || request.getCustomerEmail().isBlank())
                 && (request.getCustomerPhoneNumber() == null || request.getCustomerPhoneNumber().isBlank())) {
             throw new BadRequestException("Customer email or phone number is required for storefront checkout");
@@ -436,26 +691,33 @@ public class StorefrontServiceImpl implements StorefrontService {
         Warehouse warehouse = resolveWarehouse(request.getWarehouseId());
         Customer customer = resolveOrCreateCheckoutCustomer(request);
         validateCustomerEligibility(customer);
+        LocalDate expectedDeliveryDate = request.getExpectedDeliveryDate() != null ? request.getExpectedDeliveryDate() : LocalDate.now().plusDays(3);
 
-        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer);
+        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer, expectedDeliveryDate);
         PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, pricingRequest);
         Map<UUID, ProductVariant> variantMap = loadVariants(request.getItems());
         Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(pricingEvaluation);
+
+        BigDecimal shippingAmount = computeShippingAmount(pricingEvaluation.getNetSubtotal());
+        BigDecimal taxAmount = computeTaxAmount(pricingEvaluation.getNetSubtotal());
+        BigDecimal grandTotal = pricingEvaluation.getNetSubtotal().add(shippingAmount).add(taxAmount);
 
         SalesOrder salesOrder = new SalesOrder();
         salesOrder.setCustomer(customer);
         salesOrder.setWarehouse(warehouse);
         salesOrder.setOrderDate(LocalDateTime.now());
-        salesOrder.setExpectedDeliveryDate(request.getExpectedDeliveryDate());
+        salesOrder.setExpectedDeliveryDate(expectedDeliveryDate);
         salesOrder.setStatus(SalesOrderStatus.PENDING_APPROVAL);
         salesOrder.setPriority(OrderPriority.HIGH);
         salesOrder.setSoNumber(generateStorefrontOrderNumber());
-        salesOrder.setSalesChannel(SalesChannel.SALES_ORDER);
+        salesOrder.setSalesChannel(SalesChannel.WEB_ORDER);
         salesOrder.setCurrency(request.getCurrency() != null && !request.getCurrency().isBlank() ? request.getCurrency() : "BDT");
         salesOrder.setNotes(buildStorefrontOrderNotes(request));
         salesOrder.setSubtotalAmount(pricingEvaluation.getBaseSubtotal());
         salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
-        salesOrder.setTotalAmount(pricingEvaluation.getNetSubtotal());
+        salesOrder.setShippingAmount(shippingAmount);
+        salesOrder.setTaxAmount(taxAmount);
+        salesOrder.setTotalAmount(grandTotal);
         salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
 
         List<SalesOrderItem> items = new ArrayList<>();
@@ -478,7 +740,25 @@ public class StorefrontServiceImpl implements StorefrontService {
         salesOrder.setItems(items);
 
         SalesOrder savedOrder = salesOrderRepository.save(salesOrder);
-        pricingEngineService.recordRedemptions(pricingEvaluation, savedOrder, null, customer, SalesChannel.SALES_ORDER, savedOrder.getSoNumber());
+        pricingEngineService.recordRedemptions(pricingEvaluation, savedOrder, null, customer, SalesChannel.WEB_ORDER, savedOrder.getSoNumber());
+
+        reserveStockForOrder(savedOrder, warehouse);
+
+        // Send order confirmation email
+        if (customer.getEmail() != null && !customer.getEmail().isBlank()) {
+            try {
+                emailService.sendOrderConfirmationEmail(
+                        customer.getEmail(),
+                        customer.getName(),
+                        savedOrder.getSoNumber(),
+                        savedOrder.getTotalAmount() != null ? savedOrder.getTotalAmount().toPlainString() : "0.00",
+                        savedOrder.getCurrency() != null ? savedOrder.getCurrency() : "BDT"
+                );
+            } catch (Exception e) {
+                // Log but don't fail the checkout
+                logger.warn("Failed to send order confirmation email for {}: {}", savedOrder.getSoNumber(), e.getMessage());
+            }
+        }
 
         return new StorefrontCheckoutDto(
                 "PENDING_APPROVAL",
@@ -490,6 +770,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public StorefrontOrderTrackingDto lookupOrder(StorefrontOrderLookupRequest request) {
+        requirePublicStorefrontAccess();
         String orderNumber = request.getOrderNumber().trim();
         if ((request.getCustomerEmail() == null || request.getCustomerEmail().isBlank())
                 && (request.getCustomerPhoneNumber() == null || request.getCustomerPhoneNumber().isBlank())) {
@@ -526,6 +807,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional(readOnly = true)
     public List<StorefrontPublishVersionDto> getPublishVersions() {
+        requireAdminStorefrontAccess();
         return storefrontPublishVersionRepository.findAllByOrderByVersionNumberDesc().stream()
                 .map(this::mapPublishVersion)
                 .toList();
@@ -534,6 +816,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional
     public StorefrontPublishVersionDto publishCurrentConfig(StorefrontPublishRequest request) {
+        requireAdminStorefrontAccess();
         StorefrontThemeDocumentDto currentTheme = loadDraftThemeDocument();
         StorefrontConfigDto current = deriveLegacyConfig(currentTheme);
         int nextVersionNumber = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
@@ -565,6 +848,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional
     public StorefrontPublishVersionDto rollbackToVersion(UUID versionId, StorefrontPublishRequest request) {
+        requireAdminStorefrontAccess();
         StorefrontPublishVersion targetVersion = storefrontPublishVersionRepository.findById(versionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Storefront publish version", "id", versionId));
 
@@ -602,6 +886,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Override
     @Transactional
     public StorefrontAssetUploadDto uploadAsset(MultipartFile file, String assetType) {
+        requireAdminStorefrontAccess();
         if (file == null || file.isEmpty()) {
             throw new BadRequestException("A storefront asset file is required");
         }
@@ -613,9 +898,7 @@ public class StorefrontServiceImpl implements StorefrontService {
         String folder = "storefront-assets/" + (tenantId != null && !tenantId.isBlank() ? tenantId : "default-tenant") + "/" + normalizedAssetType;
         String storagePath = fileStorageService.uploadFile(file, folder);
         String publicUrl = "/api/v1/storefront/assets/file?path="
-                + URLEncoder.encode(storagePath, StandardCharsets.UTF_8)
-                + "&tenantId="
-                + URLEncoder.encode(tenantId != null && !tenantId.isBlank() ? tenantId : "default-tenant", StandardCharsets.UTF_8);
+                + URLEncoder.encode(storagePath, StandardCharsets.UTF_8);
 
         return new StorefrontAssetUploadDto(
                 normalizedAssetType,
@@ -628,7 +911,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     private StorefrontConfigDto loadConfig() {
         Optional<StorefrontThemeDocumentDto> themeDocument = readThemeDocumentSetting(DRAFT_THEME_DOCUMENT_KEY);
         if (themeDocument.isPresent()) {
-            return deriveLegacyConfig(themeDocument.get());
+            return enrichWithDomains(deriveLegacyConfig(themeDocument.get()));
         }
         StorefrontConfigDto legacy = new StorefrontConfigDto(
                 readSetting(SITE_KEY, new TypeReference<>() {}, defaultSite()),
@@ -637,10 +920,40 @@ public class StorefrontServiceImpl implements StorefrontService {
                 readSetting(BANNERS_KEY, new TypeReference<>() {}, defaultBanners()),
                 defaultHeaderPage(),
                 readSetting(HOMEPAGE_KEY, new TypeReference<>() {}, defaultHomePage()),
-                defaultFooterPage()
+                defaultFooterPage(),
+                storefrontDomainService.getDomainContextForCurrentTenant()
         );
         persistDraftThemeDocument(migrateLegacyConfigToThemeDocument(legacy));
         return legacy;
+    }
+
+    private void requireAdminStorefrontAccess() {
+        if (!isStorefrontModuleEnabled()) {
+            throw new StorefrontModuleDisabledException();
+        }
+    }
+
+    private void requirePublicStorefrontAccess() {
+        if (!isStorefrontModuleEnabled()) {
+            throw new StorefrontModuleUnavailableException();
+        }
+    }
+
+    private boolean isStorefrontModuleEnabled() {
+        String tenantId = TenantContext.getTenantId();
+        if (tenantId == null || tenantId.isBlank()) {
+            return false;
+        }
+        return isStorefrontModuleEnabledForTenant(tenantId);
+    }
+
+    private boolean isStorefrontModuleEnabledForTenant(String tenantId) {
+        return tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, STOREFRONT_MODULE_ENABLED_KEY)
+            .map(setting -> setting.getSettingValue())
+                .map(String::trim)
+                .filter(value -> !value.isEmpty())
+                .map(Boolean::parseBoolean)
+                .orElse(false);
     }
 
     private void persistConfig(StorefrontConfigDto config) {
@@ -695,14 +1008,12 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private String buildStorefrontMagicLink(String magicToken) {
-        StorefrontSiteDto site = deriveLegacyConfig(loadDraftThemeDocument()).getSite();
         String configured = readStringSetting(PUBLIC_BASE_URL_KEY, null);
         String baseUrl;
         if (configured != null && !configured.isBlank()) {
             baseUrl = configured.trim().replaceAll("/+$", "");
-        } else if (site.getDomain() != null && !site.getDomain().isBlank()) {
-            String domain = site.getDomain().trim();
-            baseUrl = domain.startsWith("http://") || domain.startsWith("https://") ? domain : "https://" + domain;
+        } else if (storefrontDomainService.getPrimaryStorefrontUrlForCurrentTenant().isPresent()) {
+            baseUrl = storefrontDomainService.getPrimaryStorefrontUrlForCurrentTenant().orElseThrow();
         } else {
             baseUrl = "http://localhost:5173";
         }
@@ -807,7 +1118,8 @@ public class StorefrontServiceImpl implements StorefrontService {
                         readSetting(BANNERS_KEY, new TypeReference<>() {}, defaultBanners()),
                         defaultHeaderPage(),
                         readSetting(HOMEPAGE_KEY, new TypeReference<>() {}, defaultHomePage()),
-                        defaultFooterPage()
+                        defaultFooterPage(),
+                        storefrontDomainService.getDomainContextForCurrentTenant()
                 )));
     }
 
@@ -876,7 +1188,8 @@ public class StorefrontServiceImpl implements StorefrontService {
                 defaultBanners(),
                 defaultHeaderPage(),
                 defaultHomePage(),
-                defaultFooterPage()
+                defaultFooterPage(),
+                storefrontDomainService.getDomainContextForCurrentTenant()
         ));
         if (document == null) {
             return fallback;
@@ -1141,7 +1454,16 @@ public class StorefrontServiceImpl implements StorefrontService {
                         .toList()
         );
 
-        return new StorefrontConfigDto(site, theme, navigationItems, banners, headerPage, homePage, footerPage);
+        return enrichWithDomains(new StorefrontConfigDto(
+                site,
+                theme,
+                navigationItems,
+                banners,
+                headerPage,
+                homePage,
+                footerPage,
+                storefrontDomainService.getDomainContextForCurrentTenant()
+        ));
     }
 
     private Map<String, Object> mapSettingsGroup(Map<String, Object> settings, String key) {
@@ -1153,6 +1475,9 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private StorefrontSiteDto mergeSite(StorefrontSiteDto site) {
+        if (site == null) {
+            site = defaultSite();
+        }
         StorefrontSiteDto fallback = defaultSite();
         return new StorefrontSiteDto(
                 site.isEnabled(),
@@ -1174,6 +1499,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 site.getAllCollectionsLabel() != null ? site.getAllCollectionsLabel() : fallback.getAllCollectionsLabel(),
                 site.getSearchPlaceholder() != null ? site.getSearchPlaceholder() : fallback.getSearchPlaceholder(),
                 site.getCartLabel() != null ? site.getCartLabel() : fallback.getCartLabel(),
+                site.getWarehouseId() != null ? site.getWarehouseId() : fallback.getWarehouseId(),
                 site.getFooterCatalogLabel() != null ? site.getFooterCatalogLabel() : fallback.getFooterCatalogLabel(),
                 site.getFooterCollectionsLabel() != null ? site.getFooterCollectionsLabel() : fallback.getFooterCollectionsLabel(),
                 site.getFooterTrackingLabel() != null ? site.getFooterTrackingLabel() : fallback.getFooterTrackingLabel(),
@@ -1181,6 +1507,19 @@ public class StorefrontServiceImpl implements StorefrontService {
                 site.getPublishedVersion(),
                 site.getLastPublishedAt()
         );
+    }
+
+    private StorefrontConfigDto enrichWithDomains(StorefrontConfigDto config) {
+        if (config == null) {
+            return null;
+        }
+
+        StorefrontDomainContextDto domains = storefrontDomainService.getDomainContextForCurrentTenant();
+        config.setDomains(domains);
+        if (config.getSite() != null && domains != null) {
+            config.getSite().setDomain(domains.getPrimaryHostname() != null ? domains.getPrimaryHostname() : domains.getPlatformFallbackHost());
+        }
+        return config;
     }
 
     private StorefrontThemeDto mergeTheme(StorefrontThemeDto theme) {
@@ -1338,7 +1677,41 @@ public class StorefrontServiceImpl implements StorefrontService {
                                 field("iconUrl", "Icon URL", "text"),
                                 field("logoWidth", "Logo width", "number"),
                                 field("productCardHoverMode", "Product hover image", "select", List.of(option("NONE", "None"), option("SECOND_IMAGE", "Second image"))),
-                                field("productCardHoverZoom", "Hover zoom", "toggle")
+                                field("productCardHoverZoom", "Hover zoom", "toggle"),
+                                field("warehouseId", "Storefront warehouse", "entity_warehouse"),
+                                field("shippingFlatRate", "Shipping flat rate", "number"),
+                                field("freeShippingThreshold", "Free shipping threshold", "number"),
+                                field("taxRate", "Tax rate (%)", "number")
+                        )
+                ),
+                Map.of(
+                        "id", "seo",
+                        "label", "SEO & preferences",
+                        "fields", List.of(
+                                field("seoTitle", "Default page title", "text"),
+                                field("seoDescription", "Default meta description", "textarea"),
+                                field("faviconUrl", "Favicon URL", "text")
+                        )
+                ),
+                Map.of(
+                        "id", "social",
+                        "label", "Social media",
+                        "fields", List.of(
+                                field("socialFacebook", "Facebook URL", "text"),
+                                field("socialInstagram", "Instagram URL", "text"),
+                                field("socialTwitter", "X (Twitter) URL", "text"),
+                                field("socialTiktok", "TikTok URL", "text"),
+                                field("socialYoutube", "YouTube URL", "text")
+                        )
+                ),
+                Map.of(
+                        "id", "checkout",
+                        "label", "Checkout",
+                        "fields", List.of(
+                                field("checkoutRequirePhone", "Require phone number", "toggle"),
+                                field("checkoutAllowNotes", "Allow order notes", "toggle"),
+                                field("checkoutTermsText", "Terms & conditions text", "textarea"),
+                                field("emailOrderConfirmation", "Send order confirmation email", "toggle")
                         )
                 ),
                 Map.of(
@@ -1553,18 +1926,24 @@ public class StorefrontServiceImpl implements StorefrontService {
         };
     }
 
-    private StorefrontCartDto toCartDto(Warehouse warehouse, PricingEvaluation pricingEvaluation) {
+        private StorefrontCartDto toCartDto(Warehouse warehouse, PricingEvaluation pricingEvaluation, String currency) {
         List<StorefrontCartLineDto> lines = pricingEvaluation.getLines().stream()
                 .map(line -> mapCartLine(warehouse, line))
                 .toList();
 
+        BigDecimal shippingAmount = computeShippingAmount(pricingEvaluation.getNetSubtotal());
+        BigDecimal taxAmount = computeTaxAmount(pricingEvaluation.getNetSubtotal());
+        BigDecimal grandTotal = pricingEvaluation.getNetSubtotal().add(shippingAmount).add(taxAmount);
+
         return new StorefrontCartDto(
-                "BDT",
+            currency != null && !currency.isBlank() ? currency : "BDT",
                 warehouse.getId().toString(),
                 warehouse.getName(),
                 pricingEvaluation.getBaseSubtotal(),
                 pricingEvaluation.getTotalDiscount(),
-                pricingEvaluation.getNetSubtotal(),
+                shippingAmount,
+                taxAmount,
+                grandTotal,
                 new ArrayList<>(pricingEvaluation.getAppliedCouponCodes()),
                 lines
         );
@@ -1586,6 +1965,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 .orElse(null);
 
         return new StorefrontCartLineDto(
+            variant.getId(),
                 slug,
                 variant.getSku(),
                 name,
@@ -1603,14 +1983,15 @@ public class StorefrontServiceImpl implements StorefrontService {
                                                   UUID warehouseId,
                                                   String currency,
                                                   List<String> couponCodes,
-                                                  Customer customer) {
+                                                  Customer customer,
+                                                  LocalDate expectedDeliveryDate) {
         SalesOrderRequest request = new SalesOrderRequest();
         request.setCustomerId(customer != null ? customer.getId() : null);
         request.setWarehouseId(warehouseId);
         request.setCurrency(currency != null && !currency.isBlank() ? currency : "BDT");
         request.setCouponCodes(couponCodes != null ? couponCodes : List.of());
         request.setPriority(OrderPriority.HIGH);
-        request.setExpectedDeliveryDate(LocalDate.now().plusDays(3));
+        request.setExpectedDeliveryDate(expectedDeliveryDate != null ? expectedDeliveryDate : LocalDate.now().plusDays(3));
         request.setItems(items.stream().map(this::toSalesOrderItemRequest).toList());
         return request;
     }
@@ -1629,12 +2010,22 @@ public class StorefrontServiceImpl implements StorefrontService {
                     .orElseThrow(() -> new BadRequestException("Warehouse not found with ID: " + requestedWarehouseId));
         }
 
+        UUID configuredWarehouseId = readConfiguredStorefrontWarehouseId();
+        if (configuredWarehouseId != null) {
+            return warehouseRepository.findById(configuredWarehouseId)
+                    .orElseThrow(() -> new BadRequestException("Configured storefront warehouse not found with ID: " + configuredWarehouseId));
+        }
+
         return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
                 .findFirst()
                 .orElseThrow(() -> new BadRequestException("At least one warehouse is required before using storefront checkout"));
     }
 
     private Warehouse resolveStorefrontWarehouse() {
+        UUID configuredWarehouseId = readConfiguredStorefrontWarehouseId();
+        if (configuredWarehouseId != null) {
+            return warehouseRepository.findById(configuredWarehouseId).orElse(null);
+        }
         return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
                 .findFirst()
                 .orElse(null);
@@ -1645,17 +2036,22 @@ public class StorefrontServiceImpl implements StorefrontService {
             return customerRepository.findById(customerId)
                     .orElseThrow(() -> new BadRequestException("Customer not found with ID: " + customerId));
         }
+        Optional<Customer> emailMatch = Optional.empty();
+        Optional<Customer> phoneMatch = Optional.empty();
         if (email != null && !email.isBlank()) {
-            Optional<Customer> existing = customerRepository.findFirstByEmailIgnoreCase(email.trim());
-            if (existing.isPresent()) {
-                return existing.get();
-            }
+            emailMatch = customerRepository.findFirstByEmailIgnoreCase(email.trim());
         }
         if (phoneNumber != null && !phoneNumber.isBlank()) {
-            Optional<Customer> existing = customerRepository.findFirstByPhoneNumber(phoneNumber.trim());
-            if (existing.isPresent()) {
-                return existing.get();
-            }
+            phoneMatch = customerRepository.findFirstByPhoneNumber(phoneNumber.trim());
+        }
+        if (emailMatch.isPresent() && phoneMatch.isPresent() && !emailMatch.get().getId().equals(phoneMatch.get().getId())) {
+            throw new BadRequestException("Customer email and phone number resolve to different customer records");
+        }
+        if (emailMatch.isPresent()) {
+            return emailMatch.get();
+        }
+        if (phoneMatch.isPresent()) {
+            return phoneMatch.get();
         }
 
         Customer guest = new Customer();
@@ -1666,6 +2062,18 @@ public class StorefrontServiceImpl implements StorefrontService {
         guest.setIsActive(true);
         guest.setStatus(CustomerStatus.ACTIVE);
         return guest;
+    }
+
+    private UUID readConfiguredStorefrontWarehouseId() {
+        try {
+            StorefrontSiteDto site = readSetting(SITE_KEY, new TypeReference<>() {}, defaultSite());
+            if (site == null || site.getWarehouseId() == null || site.getWarehouseId().isBlank()) {
+                return null;
+            }
+            return UUID.fromString(site.getWarehouseId().trim());
+        } catch (IllegalArgumentException exception) {
+            throw new BadRequestException("Configured storefront warehouse is not a valid UUID");
+        }
     }
 
     private List<ProductVariant> loadPublishedStorefrontVariants() {
@@ -1766,28 +2174,19 @@ public class StorefrontServiceImpl implements StorefrontService {
     private Customer resolveOrCreateCheckoutCustomer(StorefrontCheckoutRequest request) {
         Customer customer = resolvePricingCustomer(request.getCustomerId(), request.getCustomerEmail(), request.getCustomerPhoneNumber());
         if (customer.getId() == null) {
-            customer.setName(request.getCustomerName().trim());
-            customer.setContactName(request.getContactName());
-            customer.setAddress(request.getShippingAddress());
+            if (request.getCustomerName() != null && !request.getCustomerName().isBlank()) {
+                customer.setName(request.getCustomerName().trim());
+            }
+            if (request.getContactName() != null && !request.getContactName().isBlank()) {
+                customer.setContactName(request.getContactName().trim());
+            }
+            if (request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
+                customer.setAddress(request.getShippingAddress().trim());
+            }
             return customerRepository.save(customer);
         }
 
-        if ((customer.getContactName() == null || customer.getContactName().isBlank()) && request.getContactName() != null && !request.getContactName().isBlank()) {
-            customer.setContactName(request.getContactName().trim());
-        }
-        if ((customer.getAddress() == null || customer.getAddress().isBlank()) && request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
-            customer.setAddress(request.getShippingAddress().trim());
-        }
-        if ((customer.getName() == null || customer.getName().isBlank()) && request.getCustomerName() != null && !request.getCustomerName().isBlank()) {
-            customer.setName(request.getCustomerName().trim());
-        }
-        if ((customer.getEmail() == null || customer.getEmail().isBlank()) && request.getCustomerEmail() != null && !request.getCustomerEmail().isBlank()) {
-            customer.setEmail(request.getCustomerEmail().trim());
-        }
-        if ((customer.getPhoneNumber() == null || customer.getPhoneNumber().isBlank()) && request.getCustomerPhoneNumber() != null && !request.getCustomerPhoneNumber().isBlank()) {
-            customer.setPhoneNumber(request.getCustomerPhoneNumber().trim());
-        }
-        return customerRepository.save(customer);
+        return customer;
     }
 
     private void validateCustomerEligibility(Customer customer) {
@@ -1830,6 +2229,24 @@ public class StorefrontServiceImpl implements StorefrontService {
     private String buildStorefrontOrderNotes(StorefrontCheckoutRequest request) {
         List<String> parts = new ArrayList<>();
         parts.add("Storefront checkout");
+        if (request.getCustomerName() != null && !request.getCustomerName().isBlank()) {
+            parts.add("Customer name: " + request.getCustomerName().trim());
+        }
+        if (request.getContactName() != null && !request.getContactName().isBlank()) {
+            parts.add("Contact name: " + request.getContactName().trim());
+        }
+        if (request.getCustomerEmail() != null && !request.getCustomerEmail().isBlank()) {
+            parts.add("Email: " + request.getCustomerEmail().trim());
+        }
+        if (request.getCustomerPhoneNumber() != null && !request.getCustomerPhoneNumber().isBlank()) {
+            parts.add("Phone: " + request.getCustomerPhoneNumber().trim());
+        }
+        if (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank()) {
+            parts.add("Payment intent: " + request.getPaymentMethod().trim());
+        }
+        if (request.getPaymentReference() != null && !request.getPaymentReference().isBlank()) {
+            parts.add("Payment reference: " + request.getPaymentReference().trim());
+        }
         if (request.getShippingAddress() != null && !request.getShippingAddress().isBlank()) {
             parts.add("Shipping address: " + request.getShippingAddress().trim());
         }
@@ -1837,6 +2254,70 @@ public class StorefrontServiceImpl implements StorefrontService {
             parts.add("Customer notes: " + request.getNotes().trim());
         }
         return String.join("\n", parts);
+    }
+
+    private BigDecimal computeShippingAmount(BigDecimal netSubtotal) {
+        Map<String, Object> siteConfig = readSiteConfig();
+        Object rawShipping = siteConfig.get("shippingFlatRate");
+        if (rawShipping != null) {
+            BigDecimal flatRate = new BigDecimal(rawShipping.toString());
+            if (flatRate.compareTo(BigDecimal.ZERO) > 0) {
+                Object rawThreshold = siteConfig.get("freeShippingThreshold");
+                if (rawThreshold != null) {
+                    BigDecimal threshold = new BigDecimal(rawThreshold.toString());
+                    if (netSubtotal.compareTo(threshold) >= 0) {
+                        return BigDecimal.ZERO;
+                    }
+                }
+                return flatRate;
+            }
+        }
+        return BigDecimal.ZERO;
+    }
+
+    private BigDecimal computeTaxAmount(BigDecimal netSubtotal) {
+        Map<String, Object> siteConfig = readSiteConfig();
+        Object rawTaxRate = siteConfig.get("taxRate");
+        if (rawTaxRate != null) {
+            BigDecimal taxRate = new BigDecimal(rawTaxRate.toString());
+            if (taxRate.compareTo(BigDecimal.ZERO) > 0) {
+                return netSubtotal.multiply(taxRate).divide(new BigDecimal("100"), 2, java.math.RoundingMode.HALF_UP);
+            }
+        }
+        return BigDecimal.ZERO;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> readSiteConfig() {
+        try {
+            Map<String, Object> doc = readSetting(DRAFT_THEME_DOCUMENT_KEY, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {}, null);
+            if (doc != null && doc.get("settings") instanceof Map) {
+                Map<String, Object> settings = (Map<String, Object>) doc.get("settings");
+                if (settings.get("site") instanceof Map) {
+                    return (Map<String, Object>) settings.get("site");
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through
+        }
+        return Map.of();
+    }
+
+    private void reserveStockForOrder(SalesOrder order, Warehouse warehouse) {
+        for (SalesOrderItem item : order.getItems()) {
+            try {
+                StockReservationRequest reservationRequest = new StockReservationRequest();
+                reservationRequest.setProductVariantId(item.getProductVariant().getId());
+                reservationRequest.setWarehouseId(warehouse.getId());
+                reservationRequest.setQuantity(item.getQuantity());
+                reservationRequest.setReferenceId(order.getSoNumber());
+                reservationRequest.setPriority(com.inventory.system.common.entity.ReservationPriority.HIGH);
+                reservationRequest.setExpiresAt(LocalDateTime.now().plusHours(48));
+                stockReservationService.reserveStock(reservationRequest);
+            } catch (Exception e) {
+                // Log but do not block checkout — stock may be insufficient but order still created
+            }
+        }
     }
 
     private String generateStorefrontOrderNumber() {
@@ -1862,6 +2343,8 @@ public class StorefrontServiceImpl implements StorefrontService {
         dto.setPriority(order.getPriority());
         dto.setSubtotalAmount(order.getSubtotalAmount());
         dto.setDiscountAmount(order.getDiscountAmount());
+        dto.setShippingAmount(order.getShippingAmount());
+        dto.setTaxAmount(order.getTaxAmount());
         dto.setTotalAmount(order.getTotalAmount());
         dto.setSalesChannel(order.getSalesChannel());
         dto.setAppliedCouponCodes(order.getAppliedCouponCodes());
@@ -1918,6 +2401,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 "All collections",
                 "Search the catalog",
                 "Cart",
+                null,
                 "Catalog",
                 "Collections",
                 "Track order",
