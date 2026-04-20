@@ -20,8 +20,12 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class SuperAdminTenantServiceImpl implements SuperAdminTenantService {
 
+    private static final String STOREFRONT_MODULE_ENABLED_KEY = "tenant.modules.storefront.enabled";
+    private static final String STOREFRONT_CATEGORY = "STOREFRONT";
+
     private final TenantRepository tenantRepository;
     private final TenantService tenantService;
+    private final TenantSettingService tenantSettingService;
 
     @Override
     @Transactional(readOnly = true)
@@ -37,6 +41,7 @@ public class SuperAdminTenantServiceImpl implements SuperAdminTenantService {
         TenantRequest tenantRequest = new TenantRequest();
         tenantRequest.setName(request.getName());
         tenantRequest.setSubdomain(request.getSubdomain());
+        tenantRequest.setStorefrontEnabled(request.getStorefrontEnabled());
         tenantRequest.setPlan(request.getPlan());
         tenantRequest.setAdminEmail(request.getAdminEmail());
         tenantRequest.setAdminPassword(request.getAdminPassword());
@@ -58,6 +63,12 @@ public class SuperAdminTenantServiceImpl implements SuperAdminTenantService {
         tenant.setSubdomain(request.getSubdomain().trim().toLowerCase());
         tenant.setSubscriptionPlan(request.getPlan());
         tenant.setStatus(request.getStatus());
+        tenantSettingService.updateSettingForTenant(
+            tenant.getId().toString(),
+            STOREFRONT_MODULE_ENABLED_KEY,
+            Boolean.toString(Boolean.TRUE.equals(request.getStorefrontEnabled())),
+            "BOOLEAN",
+            STOREFRONT_CATEGORY);
 
         return mapToResponse(tenantRepository.save(tenant));
     }
@@ -95,9 +106,16 @@ public class SuperAdminTenantServiceImpl implements SuperAdminTenantService {
         response.setId(tenant.getId());
         response.setName(tenant.getName());
         response.setSubdomain(tenant.getSubdomain());
+        response.setStorefrontEnabled(isStorefrontEnabled(tenant.getId().toString()));
         response.setStatus(tenant.getStatus());
         response.setSubscriptionPlan(tenant.getSubscriptionPlan());
         response.setCreatedAt(tenant.getCreatedAt());
         return response;
+    }
+
+    private boolean isStorefrontEnabled(String tenantId) {
+        return tenantSettingService.findSettingForTenant(tenantId, STOREFRONT_MODULE_ENABLED_KEY)
+                .map(setting -> Boolean.parseBoolean(setting.getValue()))
+                .orElse(false);
     }
 }

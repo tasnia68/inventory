@@ -9,6 +9,8 @@ import lombok.Data;
 @Data
 public class TenantRequest {
 
+    private Boolean storefrontEnabled;
+
     @NotBlank
     private String name;
 

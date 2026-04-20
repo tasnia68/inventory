@@ -1,9 +1,16 @@
 package com.inventory.system.service;
 
+import com.inventory.system.common.entity.StorefrontPublishVersion;
 import com.inventory.system.common.exception.StorefrontModuleDisabledException;
 import com.inventory.system.common.exception.StorefrontModuleUnavailableException;
 import com.inventory.system.common.entity.TenantSetting;
 import com.inventory.system.config.tenant.TenantContext;
+import com.inventory.system.payload.StorefrontConfigDto;
+import com.inventory.system.payload.StorefrontDomainContextDto;
+import com.inventory.system.payload.StorefrontThemeDocumentDto;
+import com.inventory.system.payload.StorefrontThemeDto;
+import com.inventory.system.payload.StorefrontSiteDto;
+import com.inventory.system.payload.StorefrontThemeSnapshotDto;
 import com.inventory.system.repository.CategoryRepository;
 import com.inventory.system.repository.CustomerRepository;
 import com.inventory.system.repository.ProductVariantRepository;
@@ -23,11 +30,18 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.Optional;
+import java.util.UUID;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
@@ -115,6 +129,41 @@ class StorefrontServiceImplFeatureGateTest {
         assertThrows(StorefrontModuleUnavailableException.class, storefrontService::getPublicConfig);
         verifyNoInteractions(storefrontPublishVersionRepository, storefrontDomainService);
     }
+
+        @Test
+        void getPublicConfig_usesTenantScopedPublishedSnapshot() throws Exception {
+        TenantContext.setTenantId(TENANT_ID);
+        when(tenantSettingRepository.findByTenantIdAndSettingKey(TENANT_ID, STOREFRONT_MODULE_KEY))
+            .thenReturn(Optional.of(settingWithValue("true")));
+
+        StorefrontPublishVersion version = new StorefrontPublishVersion();
+        version.setId(UUID.randomUUID());
+        version.setSnapshotJson("{}");
+        when(storefrontPublishVersionRepository.findTopByTenantIdOrderByVersionNumberDesc(TENANT_ID))
+            .thenReturn(Optional.of(version));
+
+        StorefrontThemeDocumentDto document = new StorefrontThemeDocumentDto();
+        document.setSettings(new java.util.LinkedHashMap<>());
+        document.setTemplates(new java.util.LinkedHashMap<>());
+
+        when(objectMapper.readValue(eq("{}"), eq(StorefrontThemeSnapshotDto.class)))
+            .thenReturn(new StorefrontThemeSnapshotDto("v1", null, document, null));
+        when(objectMapper.convertValue(any(), eq(StorefrontSiteDto.class)))
+            .thenReturn(new StorefrontSiteDto(false, null, "Tenant A", null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null, null));
+        when(objectMapper.convertValue(any(), eq(StorefrontThemeDto.class)))
+            .thenReturn(new StorefrontThemeDto());
+        when(objectMapper.convertValue(any(), org.mockito.ArgumentMatchers.<com.fasterxml.jackson.core.type.TypeReference<List<com.inventory.system.payload.StorefrontBannerDto>>>any()))
+            .thenReturn(List.of());
+        when(storefrontDomainService.getDomainContextForCurrentTenant())
+            .thenReturn(new StorefrontDomainContextDto("tenant-a.localhost", "https://tenant-a.localhost", "shop.localdemo.test", "https://shop.localdemo.test", "localhost", java.util.List.of()));
+
+        StorefrontConfigDto config = storefrontService.getPublicConfig();
+
+        assertEquals("Tenant A", config.getSite().getName());
+        assertEquals("shop.localdemo.test", config.getDomains().getPrimaryHostname());
+        verify(storefrontPublishVersionRepository).findTopByTenantIdOrderByVersionNumberDesc(TENANT_ID);
+        verify(storefrontPublishVersionRepository, never()).findTopByOrderByVersionNumberDesc();
+        }
 
     @Test
     void allowCaddyDomain_returnsTrueWhenResolvedTenantStorefrontIsEnabled() {

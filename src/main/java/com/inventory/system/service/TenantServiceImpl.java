@@ -24,11 +24,15 @@ import java.util.Collections;
 @RequiredArgsConstructor
 public class TenantServiceImpl implements TenantService {
 
+    private static final String STOREFRONT_MODULE_ENABLED_KEY = "tenant.modules.storefront.enabled";
+    private static final String STOREFRONT_CATEGORY = "STOREFRONT";
+
     private final TenantRepository tenantRepository;
     private final UserRepository userRepository;
     private final RoleRepository roleRepository;
     private final PermissionRepository permissionRepository;
     private final PasswordEncoder passwordEncoder;
+    private final TenantSettingService tenantSettingService;
     private final EntityManager entityManager;
 
     @Override
@@ -37,6 +41,8 @@ public class TenantServiceImpl implements TenantService {
         if (tenantRepository.existsBySubdomainIgnoreCase(request.getSubdomain())) {
             throw new BadRequestException("Subdomain already exists");
         }
+
+        boolean storefrontEnabled = Boolean.TRUE.equals(request.getStorefrontEnabled());
 
         // Create Tenant
         Tenant tenant = new Tenant();
@@ -89,19 +95,26 @@ public class TenantServiceImpl implements TenantService {
             adminUser.setRoles(Collections.singleton(adminRole));
 
             userRepository.save(adminUser);
+            tenantSettingService.updateSettingForTenant(
+                    tenantId,
+                    STOREFRONT_MODULE_ENABLED_KEY,
+                    Boolean.toString(storefrontEnabled),
+                    "BOOLEAN",
+                    STOREFRONT_CATEGORY);
 
         } finally {
             TenantContext.clear();
         }
 
-        return mapToResponse(tenant);
+        return mapToResponse(tenant, storefrontEnabled);
     }
 
-    private TenantResponse mapToResponse(Tenant tenant) {
+    private TenantResponse mapToResponse(Tenant tenant, boolean storefrontEnabled) {
         TenantResponse response = new TenantResponse();
         response.setId(tenant.getId());
         response.setName(tenant.getName());
         response.setSubdomain(tenant.getSubdomain());
+        response.setStorefrontEnabled(storefrontEnabled);
         response.setStatus(tenant.getStatus());
         response.setSubscriptionPlan(tenant.getSubscriptionPlan());
         response.setCreatedAt(tenant.getCreatedAt());

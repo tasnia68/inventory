@@ -7,6 +7,8 @@ import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.TenantRequest;
 import com.inventory.system.payload.TenantResponse;
+import com.inventory.system.payload.TenantSettingDto;
+import com.inventory.system.repository.PermissionRepository;
 import com.inventory.system.repository.RoleRepository;
 import com.inventory.system.repository.TenantRepository;
 import com.inventory.system.repository.UserRepository;
@@ -29,6 +31,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -45,6 +48,10 @@ class TenantServiceImplTest {
     private UserRepository userRepository;
     @Mock
     private RoleRepository roleRepository;
+    @Mock
+    private PermissionRepository permissionRepository;
+    @Mock
+    private TenantSettingService tenantSettingService;
     @Mock
     private PasswordEncoder passwordEncoder;
     @Mock
@@ -73,6 +80,7 @@ class TenantServiceImplTest {
         request.setAdminEmail("admin@test.com");
         request.setAdminPassword("password");
         request.setPlan(Tenant.SubscriptionPlan.FREE);
+        request.setStorefrontEnabled(true);
 
         Tenant tenant = new Tenant();
         tenant.setId(UUID.randomUUID());
@@ -84,7 +92,7 @@ class TenantServiceImplTest {
         Session session = mock(Session.class);
         Filter filter = mock(Filter.class);
 
-        when(tenantRepository.existsBySubdomain(request.getSubdomain())).thenReturn(false);
+        when(tenantRepository.existsBySubdomainIgnoreCase(request.getSubdomain())).thenReturn(false);
         when(tenantRepository.save(any(Tenant.class))).thenReturn(tenant);
         when(entityManager.unwrap(Session.class)).thenReturn(session);
         when(session.enableFilter("tenantFilter")).thenReturn(filter);
@@ -92,17 +100,22 @@ class TenantServiceImplTest {
 
         when(roleRepository.findByName("ROLE_ADMIN")).thenReturn(Optional.empty());
         when(roleRepository.save(any(Role.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(permissionRepository.findAll()).thenReturn(java.util.List.of());
         when(passwordEncoder.encode(request.getAdminPassword())).thenReturn("encodedPassword");
+        when(tenantSettingService.updateSettingForTenant(anyString(), anyString(), anyString(), anyString(), anyString()))
+            .thenReturn(TenantSettingDto.builder().key("tenant.modules.storefront.enabled").value("true").type("BOOLEAN").category("STOREFRONT").build());
 
         TenantResponse response = tenantService.registerTenant(request);
 
         assertNotNull(response);
         assertEquals(tenant.getId(), response.getId());
         assertEquals("Test Tenant", response.getName());
+        assertTrue(Boolean.TRUE.equals(response.getStorefrontEnabled()));
 
         tenantContextMock.verify(() -> TenantContext.setTenantId(tenant.getId().toString()));
         verify(userRepository).save(any(User.class));
         verify(session).enableFilter("tenantFilter");
+        verify(tenantSettingService).updateSettingForTenant(tenant.getId().toString(), "tenant.modules.storefront.enabled", "true", "BOOLEAN", "STOREFRONT");
     }
 
     @Test
@@ -110,7 +123,7 @@ class TenantServiceImplTest {
         TenantRequest request = new TenantRequest();
         request.setSubdomain("existing");
 
-        when(tenantRepository.existsBySubdomain("existing")).thenReturn(true);
+        when(tenantRepository.existsBySubdomainIgnoreCase("existing")).thenReturn(true);
 
         assertThrows(BadRequestException.class, () -> tenantService.registerTenant(request));
     }

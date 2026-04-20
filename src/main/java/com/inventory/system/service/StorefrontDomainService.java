@@ -13,6 +13,7 @@ public interface StorefrontDomainService {
     StorefrontDomainDto verifyDomain(UUID domainId);
     StorefrontDomainDto activateDomain(UUID domainId);
     void removeDomain(UUID domainId);
+    Optional<String> resolveTenantIdForOrigin(String origin);
     Optional<String> resolveTenantIdForHost(String host);
     boolean isDomainAllowedForCaddy(String host);
     boolean isLocalDevelopmentHost(String host);

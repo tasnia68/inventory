@@ -12,6 +12,7 @@ public class TenantResponse {
     private UUID id;
     private String name;
     private String subdomain;
+    private Boolean storefrontEnabled;
     private TenantStatus status;
     private SubscriptionPlan subscriptionPlan;
     private LocalDateTime createdAt;

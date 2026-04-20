@@ -64,7 +64,13 @@ class BootstrapDataLoaderTest {
         ReflectionTestUtils.setField(bootstrapDataLoader, "superAdminLastName", "Admin");
         ReflectionTestUtils.setField(bootstrapDataLoader, "superAdminTenantId", "platform");
 
+        UUID platformTenantUuid = UUID.randomUUID();
         UUID tenantUuid = UUID.randomUUID();
+        Tenant platformTenant = new Tenant();
+        platformTenant.setId(platformTenantUuid);
+        platformTenant.setName("Platform");
+        platformTenant.setSubdomain("platform");
+
         Tenant savedTenant = new Tenant();
         savedTenant.setId(tenantUuid);
         savedTenant.setName("Default Tenant");
@@ -99,14 +105,22 @@ class BootstrapDataLoaderTest {
         });
         when(userRepository.findByEmail("superadmin@test.com")).thenReturn(Optional.of(superAdmin));
         when(userRepository.findByEmail("admin@test.com")).thenReturn(Optional.of(existingAdmin));
+        when(tenantRepository.findBySubdomainIgnoreCase("platform")).thenReturn(Optional.empty());
         when(tenantRepository.findBySubdomainIgnoreCase("default-tenant")).thenReturn(Optional.empty());
-        when(tenantRepository.save(any(Tenant.class))).thenReturn(savedTenant);
+        when(tenantRepository.save(any(Tenant.class))).thenAnswer(invocation -> {
+            Tenant tenant = invocation.getArgument(0);
+            if ("platform".equals(tenant.getSubdomain())) {
+                return platformTenant;
+            }
+            return savedTenant;
+        });
         when(roleRepository.findByNameAndTenantId("ROLE_ADMIN", tenantUuid.toString())).thenReturn(Optional.empty());
-        when(roleRepository.findByName("ROLE_SUPER_ADMIN")).thenReturn(Optional.of(superAdminRole));
+        when(roleRepository.findByNameAndTenantId("ROLE_SUPER_ADMIN", platformTenantUuid.toString())).thenReturn(Optional.empty());
         when(roleRepository.save(any(Role.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(tenantSettingRepository.findByTenantIdAndSettingKey(tenantUuid.toString(), "tenant.modules.storefront.enabled"))
                 .thenReturn(Optional.empty());
         when(tenantSettingRepository.save(any(TenantSetting.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(userRepository.updateTenantIdById(eq(superAdmin.getId()), eq(platformTenantUuid.toString()))).thenReturn(1);
         when(userRepository.updateTenantIdById(existingAdmin.getId(), tenantUuid.toString())).thenReturn(1);
         when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0));
         when(passwordEncoder.matches("SuperAdmin123!", "encoded-super-admin")).thenReturn(true);
@@ -120,10 +134,18 @@ class BootstrapDataLoaderTest {
             .filter(user -> "admin@test.com".equals(user.getEmail()))
             .findFirst()
             .orElseThrow();
+        User repairedSuperAdmin = userCaptor.getAllValues().stream()
+            .filter(user -> "superadmin@test.com".equals(user.getEmail()))
+            .findFirst()
+            .orElseThrow();
         assertEquals(tenantUuid.toString(), repairedAdmin.getTenantId());
         assertTrue(repairedAdmin.isEnabled());
         assertEquals(1, repairedAdmin.getRoles().size());
         assertEquals(tenantUuid.toString(), repairedAdmin.getRoles().iterator().next().getTenantId());
+        assertEquals(platformTenantUuid.toString(), repairedSuperAdmin.getTenantId());
+        assertTrue(repairedSuperAdmin.isEnabled());
+        assertEquals(1, repairedSuperAdmin.getRoles().size());
+        assertEquals(platformTenantUuid.toString(), repairedSuperAdmin.getRoles().iterator().next().getTenantId());
 
         ArgumentCaptor<TenantSetting> settingCaptor = ArgumentCaptor.forClass(TenantSetting.class);
         verify(tenantSettingRepository).save(settingCaptor.capture());
@@ -134,6 +156,8 @@ class BootstrapDataLoaderTest {
         assertEquals("BOOLEAN", setting.getSettingType());
 
         verify(roleRepository).findByNameAndTenantId(eq("ROLE_ADMIN"), eq(tenantUuid.toString()));
+        verify(roleRepository).findByNameAndTenantId(eq("ROLE_SUPER_ADMIN"), eq(platformTenantUuid.toString()));
+        verify(userRepository).updateTenantIdById(eq(superAdmin.getId()), eq(platformTenantUuid.toString()));
         verify(userRepository).updateTenantIdById(eq(existingAdmin.getId()), eq(tenantUuid.toString()));
     }
 }

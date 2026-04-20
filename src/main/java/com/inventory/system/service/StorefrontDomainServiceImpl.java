@@ -172,6 +172,16 @@ public class StorefrontDomainServiceImpl implements StorefrontDomainService {
 
     @Override
     @Transactional(readOnly = true)
+    public Optional<String> resolveTenantIdForOrigin(String origin) {
+        String hostname = normalizeOriginHost(origin);
+        if (hostname == null) {
+            return Optional.empty();
+        }
+        return resolveTenantIdForHost(hostname);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
     public Optional<String> resolveTenantIdForHost(String host) {
         String hostname = normalizeHostOnly(host);
         if (hostname == null) {
@@ -276,6 +286,18 @@ public class StorefrontDomainServiceImpl implements StorefrontDomainService {
             normalized = normalized.substring(0, portSeparator);
         }
         return normalized;
+    }
+
+    private String normalizeOriginHost(String origin) {
+        if (origin == null || origin.isBlank()) {
+            return null;
+        }
+        try {
+            URI uri = URI.create(origin.trim());
+            return normalizeHostOnly(uri.getHost());
+        } catch (RuntimeException exception) {
+            return null;
+        }
     }
 
     private String normalizedPlatformBaseDomain() {

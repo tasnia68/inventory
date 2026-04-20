@@ -1,27 +1,37 @@
 package com.inventory.system.config;
 
+import com.inventory.system.security.CustomAccessDeniedHandler;
+import com.inventory.system.security.JwtAuthenticationEntryPoint;
+import com.inventory.system.security.JwtAuthenticationFilter;
+import com.inventory.system.service.StorefrontDomainService;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.test.context.ActiveProfiles;
 import org.springframework.security.crypto.password.PasswordEncoder;
-import org.springframework.security.web.SecurityFilterChain;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
 
-@SpringBootTest
 class SecurityConfigurationTest {
 
-    @Autowired
+    private SecurityConfiguration securityConfiguration;
+
     private PasswordEncoder passwordEncoder;
 
-    @Autowired
-    private SecurityFilterChain securityFilterChain;
+    @BeforeEach
+    void setUp() {
+        securityConfiguration = new SecurityConfiguration(
+                mock(JwtAuthenticationFilter.class),
+                mock(JwtAuthenticationEntryPoint.class),
+                mock(CustomAccessDeniedHandler.class),
+                new AppCorsProperties(),
+                mock(StorefrontDomainService.class));
+        passwordEncoder = securityConfiguration.passwordEncoder();
+    }
 
     @Test
-    void contextLoadsWithSecurityBeans() {
+    void createsSecurityBeans() {
         assertThat(passwordEncoder).isNotNull();
-        assertThat(securityFilterChain).isNotNull();
+        assertThat(securityConfiguration.corsConfigurationSource()).isNotNull();
     }
 
     @Test

@@ -582,9 +582,8 @@ public class StorefrontServiceImpl implements StorefrontService {
     public StorefrontConfigDto getPublicConfig() {
         requirePublicStorefrontAccess();
         try {
-            return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
-                    .map(this::readThemeSnapshot)
-                    .map(StorefrontThemeSnapshotDto::getConfig)
+            return loadPublishedThemeDocument()
+                    .map(this::deriveLegacyConfig)
                     .map(this::enrichWithDomains)
                     .orElseGet(() -> enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument())));
         } catch (RuntimeException ignored) {
@@ -808,7 +807,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional(readOnly = true)
     public List<StorefrontPublishVersionDto> getPublishVersions() {
         requireAdminStorefrontAccess();
-        return storefrontPublishVersionRepository.findAllByOrderByVersionNumberDesc().stream()
+        return storefrontPublishVersionRepository.findAllByTenantIdOrderByVersionNumberDesc(currentTenantId()).stream()
                 .map(this::mapPublishVersion)
                 .toList();
     }
@@ -819,7 +818,8 @@ public class StorefrontServiceImpl implements StorefrontService {
         requireAdminStorefrontAccess();
         StorefrontThemeDocumentDto currentTheme = loadDraftThemeDocument();
         StorefrontConfigDto current = deriveLegacyConfig(currentTheme);
-        int nextVersionNumber = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+        String tenantId = currentTenantId();
+        int nextVersionNumber = storefrontPublishVersionRepository.findTopByTenantIdOrderByVersionNumberDesc(tenantId)
                 .map(version -> version.getVersionNumber() + 1)
                 .orElse(1);
         LocalDateTime publishedAt = LocalDateTime.now();
@@ -849,11 +849,12 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional
     public StorefrontPublishVersionDto rollbackToVersion(UUID versionId, StorefrontPublishRequest request) {
         requireAdminStorefrontAccess();
-        StorefrontPublishVersion targetVersion = storefrontPublishVersionRepository.findById(versionId)
+        String tenantId = currentTenantId();
+        StorefrontPublishVersion targetVersion = storefrontPublishVersionRepository.findByIdAndTenantId(versionId, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Storefront publish version", "id", versionId));
 
         StorefrontThemeSnapshotDto snapshot = readThemeSnapshot(targetVersion);
-        int nextVersionNumber = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+        int nextVersionNumber = storefrontPublishVersionRepository.findTopByTenantIdOrderByVersionNumberDesc(tenantId)
                 .map(version -> version.getVersionNumber() + 1)
                 .orElse(1);
         LocalDateTime publishedAt = LocalDateTime.now();
@@ -1124,9 +1125,17 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private Optional<StorefrontThemeDocumentDto> loadPublishedThemeDocument() {
-        return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+        return storefrontPublishVersionRepository.findTopByTenantIdOrderByVersionNumberDesc(currentTenantId())
                 .map(this::readThemeSnapshot)
                 .map(StorefrontThemeSnapshotDto::getThemeDocument);
+    }
+
+    private String currentTenantId() {
+        String tenantId = TenantContext.getTenantId();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new IllegalStateException("Missing tenant context for storefront operation");
+        }
+        return tenantId;
     }
 
     private void persistDraftThemeDocument(StorefrontThemeDocumentDto document) {

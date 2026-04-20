@@ -2,6 +2,7 @@ package com.inventory.system.service;
 
 import com.inventory.system.common.entity.TenantSetting;
 import com.inventory.system.common.exception.ResourceNotFoundException;
+import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.TenantSettingDto;
 import com.inventory.system.repository.TenantSettingRepository;
 import lombok.RequiredArgsConstructor;
@@ -20,11 +21,12 @@ public class TenantSettingServiceImpl implements TenantSettingService {
     @Override
     @Transactional(readOnly = true)
     public List<TenantSettingDto> getSettings(String category) {
+        String tenantId = TenantContext.getTenantId();
         List<TenantSetting> settings;
         if (category != null && !category.isBlank()) {
-            settings = tenantSettingRepository.findByCategory(category);
+            settings = tenantSettingRepository.findByTenantIdAndCategoryOrderBySettingKeyAsc(tenantId, category);
         } else {
-            settings = tenantSettingRepository.findAll();
+            settings = tenantSettingRepository.findByTenantIdOrderBySettingKeyAsc(tenantId);
         }
         return settings.stream()
                 .map(this::mapToDto)
@@ -34,7 +36,8 @@ public class TenantSettingServiceImpl implements TenantSettingService {
     @Override
     @Transactional(readOnly = true)
     public TenantSettingDto getSetting(String key) {
-        TenantSetting setting = tenantSettingRepository.findBySettingKey(key)
+        String tenantId = TenantContext.getTenantId();
+        TenantSetting setting = tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, key)
                 .orElseThrow(() -> new ResourceNotFoundException("Setting", "key", key));
         return mapToDto(setting);
     }
@@ -42,17 +45,32 @@ public class TenantSettingServiceImpl implements TenantSettingService {
     @Override
     @Transactional(readOnly = true)
     public java.util.Optional<TenantSettingDto> findSetting(String key) {
-        return tenantSettingRepository.findBySettingKey(key)
+        String tenantId = TenantContext.getTenantId();
+        return tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, key)
+                .map(this::mapToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public java.util.Optional<TenantSettingDto> findSettingForTenant(String tenantId, String key) {
+        return tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, key)
                 .map(this::mapToDto);
     }
 
     @Override
     @Transactional
     public TenantSettingDto updateSetting(String key, String value, String type, String category) {
-        TenantSetting setting = tenantSettingRepository.findBySettingKey(key)
+        return updateSettingForTenant(TenantContext.getTenantId(), key, value, type, category);
+    }
+
+    @Override
+    @Transactional
+    public TenantSettingDto updateSettingForTenant(String tenantId, String key, String value, String type, String category) {
+        TenantSetting setting = tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, key)
                 .orElse(new TenantSetting());
 
         if (setting.getId() == null) {
+            setting.setTenantId(tenantId);
             setting.setSettingKey(key);
         }
 

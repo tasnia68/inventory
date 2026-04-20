@@ -105,7 +105,8 @@ public class BootstrapDataLoader implements CommandLineRunner {
         }
         log.info("Ensured {} permissions exist", allPermissions.size());
 
-        ensureSuperAdmin(allPermissions);
+        Tenant superAdminTenant = ensureTenant(superAdminTenantId, "Platform");
+        ensureSuperAdmin(superAdminTenant, allPermissions);
 
         Tenant bootstrapTenant = ensureBootstrapTenant();
         String bootstrapTenantId = bootstrapTenant.getId().toString();
@@ -183,9 +184,13 @@ public class BootstrapDataLoader implements CommandLineRunner {
     }
 
     private Tenant ensureBootstrapTenant() {
-        String identifier = tenantId == null ? "" : tenantId.trim();
+        return ensureTenant(tenantId, null);
+    }
+
+    private Tenant ensureTenant(String configuredIdentifier, String fallbackName) {
+        String identifier = configuredIdentifier == null ? "" : configuredIdentifier.trim();
         if (identifier.isBlank()) {
-            throw new IllegalStateException("Bootstrap admin tenantId must not be blank");
+            throw new IllegalStateException("Bootstrap tenantId must not be blank");
         }
 
         Optional<Tenant> existing = resolveTenant(identifier);
@@ -195,10 +200,10 @@ public class BootstrapDataLoader implements CommandLineRunner {
 
         try {
             UUID.fromString(identifier);
-            throw new IllegalStateException("Configured bootstrap admin tenantId does not match an existing tenant: " + identifier);
+            throw new IllegalStateException("Configured bootstrap tenantId does not match an existing tenant: " + identifier);
         } catch (IllegalArgumentException ignored) {
             Tenant tenant = new Tenant();
-            tenant.setName(buildBootstrapTenantName(identifier));
+            tenant.setName(fallbackName != null && !fallbackName.isBlank() ? fallbackName : buildBootstrapTenantName(identifier));
             tenant.setSubdomain(identifier.toLowerCase());
             tenant.setStatus(Tenant.TenantStatus.ACTIVE);
             tenant.setSubscriptionPlan(Tenant.SubscriptionPlan.ENTERPRISE);
@@ -259,15 +264,16 @@ public class BootstrapDataLoader implements CommandLineRunner {
         return builder.isEmpty() ? "Default Tenant" : builder.toString();
     }
 
-    private void ensureSuperAdmin(Set<com.inventory.system.common.entity.Permission> allPermissions) {
+    private void ensureSuperAdmin(Tenant superAdminTenant, Set<com.inventory.system.common.entity.Permission> allPermissions) {
+        String superAdminTenantIdValue = superAdminTenant.getId().toString();
         Optional<User> existingUser = userRepository.findByEmail(superAdminEmail);
         if (existingUser.isPresent()) {
             User superAdminUser = existingUser.get();
             boolean updated = false;
 
-            if (!superAdminTenantId.equals(superAdminUser.getTenantId())) {
-                userRepository.updateTenantIdById(superAdminUser.getId(), superAdminTenantId);
-                superAdminUser.setTenantId(superAdminTenantId);
+            if (!superAdminTenantIdValue.equals(superAdminUser.getTenantId())) {
+                userRepository.updateTenantIdById(superAdminUser.getId(), superAdminTenantIdValue);
+                superAdminUser.setTenantId(superAdminTenantIdValue);
                 updated = true;
             }
             if (!superAdminUser.isEnabled()) {
@@ -287,12 +293,12 @@ public class BootstrapDataLoader implements CommandLineRunner {
                 updated = true;
             }
 
-            Role superAdminRole = roleRepository.findByName("ROLE_SUPER_ADMIN")
+            Role superAdminRole = roleRepository.findByNameAndTenantId("ROLE_SUPER_ADMIN", superAdminTenantIdValue)
                     .orElseGet(() -> {
                         Role role = new Role();
                         role.setName("ROLE_SUPER_ADMIN");
                         role.setDescription("Platform super administrator");
-                        role.setTenantId(superAdminTenantId);
+                        role.setTenantId(superAdminTenantIdValue);
                         role.setPermissions(allPermissions);
                         return roleRepository.save(role);
                     });
@@ -316,12 +322,12 @@ public class BootstrapDataLoader implements CommandLineRunner {
             return;
         }
 
-        Role superAdminRole = roleRepository.findByName("ROLE_SUPER_ADMIN")
+        Role superAdminRole = roleRepository.findByNameAndTenantId("ROLE_SUPER_ADMIN", superAdminTenantIdValue)
                 .orElseGet(() -> {
                     Role role = new Role();
                     role.setName("ROLE_SUPER_ADMIN");
                     role.setDescription("Platform super administrator");
-                    role.setTenantId(superAdminTenantId);
+                    role.setTenantId(superAdminTenantIdValue);
                     role.setPermissions(allPermissions);
                     return roleRepository.save(role);
                 });
@@ -337,7 +343,7 @@ public class BootstrapDataLoader implements CommandLineRunner {
         superAdminUser.setFirstName(superAdminFirstName);
         superAdminUser.setLastName(superAdminLastName);
         superAdminUser.setEnabled(true);
-        superAdminUser.setTenantId(superAdminTenantId);
+        superAdminUser.setTenantId(superAdminTenantIdValue);
         superAdminUser.setRoles(Set.of(superAdminRole));
 
         userRepository.save(superAdminUser);
