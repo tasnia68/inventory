@@ -4,13 +4,17 @@ import com.inventory.system.common.entity.ReturnMerchandiseAuthorization;
 import com.inventory.system.common.entity.ReturnMerchandiseItem;
 import com.inventory.system.common.entity.ReturnMerchandiseStatus;
 import com.inventory.system.common.entity.CourierDispatchStatus;
+import com.inventory.system.common.entity.DeliveryReviewStatus;
 import com.inventory.system.common.entity.PickingStatus;
 import com.inventory.system.common.entity.SalesOrder;
 import com.inventory.system.common.entity.SalesOrderItem;
 import com.inventory.system.common.entity.SalesOrderStatus;
 import com.inventory.system.common.entity.Shipment;
 import com.inventory.system.common.entity.ShipmentItem;
+import com.inventory.system.common.entity.ShipmentQueueType;
 import com.inventory.system.common.entity.ShipmentStatus;
+import com.inventory.system.common.entity.ShipmentTimelineEvent;
+import com.inventory.system.common.entity.ShipmentTimelineEventType;
 import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.payload.CreateRmaItemRequest;
@@ -22,9 +26,12 @@ import com.inventory.system.payload.DeliveryNoteDto;
 import com.inventory.system.payload.GenerateShippingLabelRequest;
 import com.inventory.system.payload.RmaDto;
 import com.inventory.system.payload.RmaItemDto;
+import com.inventory.system.payload.ShipmentDeliveryReviewActionRequest;
 import com.inventory.system.payload.ShipmentDto;
+import com.inventory.system.payload.ShipmentQueueSummaryDto;
 import com.inventory.system.payload.ShipmentItemDto;
 import com.inventory.system.payload.ShipmentSearchRequest;
+import com.inventory.system.payload.ShipmentTimelineEventDto;
 import com.inventory.system.payload.UpdateRmaStatusRequest;
 import com.inventory.system.payload.UpdateShipmentTrackingRequest;
 import com.inventory.system.repository.ReturnMerchandiseAuthorizationRepository;
@@ -34,6 +41,7 @@ import com.inventory.system.repository.SalesOrderRepository;
 import com.inventory.system.repository.ShipmentRepository;
 import com.inventory.system.repository.ShipmentItemRepository;
 import com.inventory.system.service.ShipmentService;
+import com.inventory.system.service.TenantSettingService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -42,6 +50,11 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -60,6 +73,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final PickingTaskRepository pickingTaskRepository;
     private final ShipmentItemRepository shipmentItemRepository;
     private final ReturnMerchandiseItemRepository returnMerchandiseItemRepository;
+    private final TenantSettingService tenantSettingService;
 
     @Override
     public ShipmentDto createShipment(CreateShipmentRequest request) {
@@ -78,11 +92,18 @@ public class ShipmentServiceImpl implements ShipmentService {
         }
 
         Shipment shipment = new Shipment();
+        String courierProvider = trimToNull(request.getCourierProvider());
+        if (courierProvider == null) {
+            courierProvider = tenantSettingService.findSetting("sales.fulfillment.defaultCourierProvider")
+                .map(setting -> trimToNull(setting.getValue()))
+                .orElse(null);
+        }
+
         shipment.setShipmentNumber(generateShipmentNumber());
         shipment.setSalesOrder(salesOrder);
         shipment.setWarehouse(salesOrder.getWarehouse());
         shipment.setCarrier(request.getCarrier());
-        shipment.setCourierProvider(trimToNull(request.getCourierProvider()));
+        shipment.setCourierProvider(courierProvider);
         shipment.setCourierService(trimToNull(request.getCourierService()));
         shipment.setCourierReference(trimToNull(request.getCourierReference()));
         shipment.setCashOnDeliveryAmount(request.getCashOnDeliveryAmount());
@@ -91,6 +112,15 @@ public class ShipmentServiceImpl implements ShipmentService {
         shipment.setStatus(ShipmentStatus.READY_TO_SHIP);
         shipment.setCourierDispatchStatus(
                 shipment.getCourierProvider() != null ? CourierDispatchStatus.BOOKED : CourierDispatchStatus.UNASSIGNED
+        );
+        appendTimelineEvent(
+            shipment,
+            ShipmentTimelineEventType.SHIPMENT_CREATED,
+            "system",
+            "Shipment created",
+            "Shipment entered the fulfillment flow and is ready for courier handling.",
+            LocalDateTime.now(),
+            true
         );
 
         List<ShipmentItem> shipmentItems = new ArrayList<>();
@@ -179,6 +209,26 @@ public class ShipmentServiceImpl implements ShipmentService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public Page<ShipmentDto> getShipmentsByQueue(ShipmentQueueType queue, int page, int size, String sortBy, String sortDirection) {
+        Sort sort = Sort.by(Sort.Direction.fromString(sortDirection), sortBy);
+        Pageable pageable = PageRequest.of(page, size, sort);
+        return shipmentRepository.findAll(buildShipmentQueueSpecification(queue), pageable).map(this::mapShipmentToDto);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public ShipmentQueueSummaryDto getShipmentQueueSummary() {
+        ShipmentQueueSummaryDto summary = new ShipmentQueueSummaryDto();
+        summary.setReadyToHandoffCount(shipmentRepository.count(buildShipmentQueueSpecification(ShipmentQueueType.READY_TO_HANDOFF)));
+        summary.setInTransitCount(shipmentRepository.count(buildShipmentQueueSpecification(ShipmentQueueType.IN_TRANSIT)));
+        summary.setNeedsActionCount(shipmentRepository.count(buildShipmentQueueSpecification(ShipmentQueueType.NEEDS_ACTION)));
+        summary.setDeliveryReviewPendingCount(shipmentRepository.count((root, query, cb) -> cb.equal(root.get("deliveryReviewStatus"), DeliveryReviewStatus.PENDING)));
+        summary.setDeliveryReviewDisputedCount(shipmentRepository.count((root, query, cb) -> cb.equal(root.get("deliveryReviewStatus"), DeliveryReviewStatus.DISPUTED)));
+        return summary;
+    }
+
+    @Override
     public ShipmentDto updateTracking(UUID shipmentId, UpdateShipmentTrackingRequest request) {
         Shipment shipment = shipmentRepository.findById(shipmentId)
                 .orElseThrow(() -> new ResourceNotFoundException("Shipment", "id", shipmentId));
@@ -186,6 +236,12 @@ public class ShipmentServiceImpl implements ShipmentService {
         if (shipment.getStatus() == ShipmentStatus.CANCELLED || shipment.getStatus() == ShipmentStatus.RETURNED) {
             throw new BadRequestException("Tracking cannot be updated for closed shipments");
         }
+
+        ShipmentStatus previousStatus = shipment.getStatus();
+        CourierDispatchStatus previousDispatchStatus = shipment.getCourierDispatchStatus();
+        DeliveryReviewStatus previousReviewStatus = shipment.getDeliveryReviewStatus();
+        String previousTrackingNumber = shipment.getTrackingNumber();
+        String previousCourierReference = shipment.getCourierReference();
 
         if (request.getCarrier() != null) {
             shipment.setCarrier(trimToNull(request.getCarrier()));
@@ -220,6 +276,11 @@ public class ShipmentServiceImpl implements ShipmentService {
         if (request.getLastCourierSyncAt() != null) {
             shipment.setLastCourierSyncAt(request.getLastCourierSyncAt());
         }
+        applyDeliveryReviewUpdate(
+                shipment,
+                request.getDeliveryReviewStatus(),
+                request.getDeliveryReviewReason()
+        );
         if (request.getPickupRequestedAt() != null) {
             shipment.setPickupRequestedAt(request.getPickupRequestedAt());
         }
@@ -237,8 +298,18 @@ public class ShipmentServiceImpl implements ShipmentService {
         }
 
         applyCourierState(shipment);
+    appendTimelineEventsForTrackingUpdate(
+        shipment,
+        previousStatus,
+        previousDispatchStatus,
+        previousReviewStatus,
+        previousTrackingNumber,
+        previousCourierReference,
+        request
+    );
 
         Shipment saved = shipmentRepository.save(shipment);
+        synchronizeSalesOrderDeliveryStatus(saved.getSalesOrder());
         return mapShipmentToDto(saved);
     }
 
@@ -274,28 +345,77 @@ public class ShipmentServiceImpl implements ShipmentService {
             throw new BadRequestException("Shipment has already been delivered");
         }
 
+        DeliveryReviewStatus previousReviewStatus = shipment.getDeliveryReviewStatus();
+
         shipment.setStatus(ShipmentStatus.DELIVERED);
         shipment.setCourierDispatchStatus(CourierDispatchStatus.DELIVERED);
         shipment.setDeliveredDate(request != null && request.getDeliveredAt() != null ? request.getDeliveredAt() : LocalDateTime.now());
         if (shipment.getShippedDate() == null) {
             shipment.setShippedDate(LocalDateTime.now());
         }
+        shipment.setDeliveryReviewStatus(DeliveryReviewStatus.APPROVED);
+        if (shipment.getDeliveryReviewRequestedAt() == null) {
+            shipment.setDeliveryReviewRequestedAt(shipment.getDeliveredDate());
+        }
+        shipment.setDeliveryReviewResolvedAt(shipment.getDeliveredDate());
 
         if (request != null && request.getNotes() != null && !request.getNotes().isBlank()) {
             shipment.setNotes(request.getNotes());
         }
+        if (request != null && request.getProofOfDeliveryUrl() != null && !request.getProofOfDeliveryUrl().isBlank()) {
+            shipment.setProofOfDeliveryUrl(request.getProofOfDeliveryUrl().trim());
+        }
+        if (request != null && request.getRecipientName() != null && !request.getRecipientName().isBlank()) {
+            shipment.setProofOfDeliveryRecipientName(request.getRecipientName().trim());
+        }
+        if (shipment.getProofOfDeliveryUrl() != null || shipment.getProofOfDeliveryRecipientName() != null) {
+            shipment.setProofOfDeliveryCapturedAt(shipment.getDeliveredDate());
+            appendTimelineEvent(
+                    shipment,
+                    ShipmentTimelineEventType.PROOF_OF_DELIVERY_CAPTURED,
+                    "manual",
+                    "Proof of delivery recorded",
+                    buildProofOfDeliveryDetails(shipment),
+                    shipment.getProofOfDeliveryCapturedAt(),
+                    false
+            );
+        }
+                if (previousReviewStatus != DeliveryReviewStatus.APPROVED) {
+                    appendTimelineEvent(
+                        shipment,
+                        ShipmentTimelineEventType.DELIVERY_REVIEW_RESOLVED,
+                        "manual",
+                        "Delivery review approved",
+                        trimToNull(shipment.getDeliveryReviewReason()),
+                        shipment.getDeliveredDate(),
+                        false
+                    );
+                }
+        appendTimelineEvent(
+                shipment,
+                ShipmentTimelineEventType.DELIVERY_CONFIRMED,
+                "manual",
+                "Delivery confirmed",
+                request != null ? trimToNull(request.getNotes()) : null,
+                shipment.getDeliveredDate(),
+                true
+        );
 
         Shipment savedShipment = shipmentRepository.save(shipment);
 
-        SalesOrder salesOrder = savedShipment.getSalesOrder();
-        List<Shipment> orderShipments = shipmentRepository.findBySalesOrderId(salesOrder.getId());
-        boolean allDelivered = !orderShipments.isEmpty() && orderShipments.stream().allMatch(s -> s.getStatus() == ShipmentStatus.DELIVERED);
-        if (allDelivered) {
-            salesOrder.setStatus(SalesOrderStatus.DELIVERED);
-            salesOrderRepository.save(salesOrder);
-        }
+        synchronizeSalesOrderDeliveryStatus(savedShipment.getSalesOrder());
 
         return mapShipmentToDto(savedShipment);
+    }
+
+    @Override
+    public ShipmentDto approveDelivery(UUID shipmentId, ShipmentDeliveryReviewActionRequest request) {
+        return updateDeliveryReviewStatus(shipmentId, DeliveryReviewStatus.APPROVED, request);
+    }
+
+    @Override
+    public ShipmentDto disputeDelivery(UUID shipmentId, ShipmentDeliveryReviewActionRequest request) {
+        return updateDeliveryReviewStatus(shipmentId, DeliveryReviewStatus.DISPUTED, request);
     }
 
     @Override
@@ -484,6 +604,64 @@ public class ShipmentServiceImpl implements ShipmentService {
         }
     }
 
+    private ShipmentDto updateDeliveryReviewStatus(UUID shipmentId, DeliveryReviewStatus targetStatus, ShipmentDeliveryReviewActionRequest request) {
+        Shipment shipment = shipmentRepository.findById(shipmentId)
+                .orElseThrow(() -> new ResourceNotFoundException("Shipment", "id", shipmentId));
+
+        validateDeliveryReviewAction(shipment, targetStatus, request);
+
+        if (shipment.getDeliveryReviewStatus() == targetStatus) {
+            return mapShipmentToDto(shipment);
+        }
+
+        String reason = request != null ? trimToNull(request.getReason()) : null;
+        applyDeliveryReviewUpdate(shipment, targetStatus, reason);
+
+        if (targetStatus == DeliveryReviewStatus.APPROVED
+                && shipment.getCourierDispatchStatus() == CourierDispatchStatus.DELIVERED
+                && shipment.getDeliveredDate() == null) {
+            shipment.setDeliveredDate(LocalDateTime.now());
+        }
+
+        appendTimelineEvent(
+                shipment,
+                isOpenDeliveryReview(targetStatus)
+                        ? ShipmentTimelineEventType.DELIVERY_REVIEW_REQUESTED
+                        : ShipmentTimelineEventType.DELIVERY_REVIEW_RESOLVED,
+                "manual",
+                buildDeliveryReviewSummary(targetStatus),
+                reason,
+                LocalDateTime.now(),
+                false
+        );
+
+        Shipment saved = shipmentRepository.save(shipment);
+        synchronizeSalesOrderDeliveryStatus(saved.getSalesOrder());
+        return mapShipmentToDto(saved);
+    }
+
+    private void validateDeliveryReviewAction(Shipment shipment, DeliveryReviewStatus targetStatus, ShipmentDeliveryReviewActionRequest request) {
+        if (shipment.getStatus() == ShipmentStatus.CANCELLED || shipment.getStatus() == ShipmentStatus.RETURNED) {
+            throw new BadRequestException("Delivery review cannot be updated for closed shipments");
+        }
+
+        boolean hasDeliverySignal = shipment.getStatus() == ShipmentStatus.DELIVERED
+                || shipment.getCourierDispatchStatus() == CourierDispatchStatus.DELIVERED
+                || shipment.getDeliveredDate() != null
+                || shipment.getProofOfDeliveryCapturedAt() != null;
+
+        if (!hasDeliverySignal) {
+            throw new BadRequestException("Delivery review can only be updated after a delivery signal is recorded");
+        }
+
+        if (targetStatus == DeliveryReviewStatus.DISPUTED) {
+            String reason = request != null ? trimToNull(request.getReason()) : null;
+            if (reason == null) {
+                throw new BadRequestException("A dispute reason is required when marking a delivery as disputed");
+            }
+        }
+    }
+
     private void validateRmaStatusTransition(ReturnMerchandiseStatus currentStatus, ReturnMerchandiseStatus targetStatus) {
         if (currentStatus == targetStatus) {
             return;
@@ -589,6 +767,13 @@ public class ShipmentServiceImpl implements ShipmentService {
         dto.setDeliveryFee(entity.getDeliveryFee());
         dto.setShippedDate(entity.getShippedDate());
         dto.setDeliveredDate(entity.getDeliveredDate());
+        dto.setDeliveryReviewStatus(entity.getDeliveryReviewStatus());
+        dto.setDeliveryReviewReason(entity.getDeliveryReviewReason());
+        dto.setDeliveryReviewRequestedAt(entity.getDeliveryReviewRequestedAt());
+        dto.setDeliveryReviewResolvedAt(entity.getDeliveryReviewResolvedAt());
+        dto.setProofOfDeliveryUrl(entity.getProofOfDeliveryUrl());
+        dto.setProofOfDeliveryRecipientName(entity.getProofOfDeliveryRecipientName());
+        dto.setProofOfDeliveryCapturedAt(entity.getProofOfDeliveryCapturedAt());
         dto.setPickupRequestedAt(entity.getPickupRequestedAt());
         dto.setPickedUpAt(entity.getPickedUpAt());
         dto.setOutForDeliveryAt(entity.getOutForDeliveryAt());
@@ -612,7 +797,191 @@ public class ShipmentServiceImpl implements ShipmentService {
         }).collect(Collectors.toList());
         dto.setItems(itemDtos);
 
+        List<ShipmentTimelineEventDto> timelineDtos = entity.getTimelineEvents().stream().map(event -> {
+            ShipmentTimelineEventDto eventDto = new ShipmentTimelineEventDto();
+            eventDto.setId(event.getId());
+            eventDto.setEventType(event.getEventType());
+            eventDto.setEventSource(event.getEventSource());
+            eventDto.setSummary(event.getSummary());
+            eventDto.setDetails(event.getDetails());
+            eventDto.setEventAt(event.getEventAt());
+            eventDto.setShipmentStatus(event.getShipmentStatus());
+            eventDto.setCourierDispatchStatus(event.getCourierDispatchStatus());
+            eventDto.setDeliveryReviewStatus(event.getDeliveryReviewStatus());
+            eventDto.setCustomerVisible(event.isCustomerVisible());
+            return eventDto;
+        }).collect(Collectors.toList());
+        dto.setTimeline(timelineDtos);
+
         return dto;
+    }
+
+    private void appendTimelineEventsForTrackingUpdate(
+            Shipment shipment,
+            ShipmentStatus previousStatus,
+            CourierDispatchStatus previousDispatchStatus,
+            DeliveryReviewStatus previousReviewStatus,
+            String previousTrackingNumber,
+            String previousCourierReference,
+            UpdateShipmentTrackingRequest request
+    ) {
+        LocalDateTime eventAt = request.getLastCourierSyncAt() != null ? request.getLastCourierSyncAt() : LocalDateTime.now();
+        String source = trimToNull(request.getTimelineSource());
+        if (source == null) {
+            source = request.getLastCourierSyncAt() != null ? "courier-sync" : "manual";
+        }
+
+        if (!Objects.equals(previousTrackingNumber, shipment.getTrackingNumber())
+                || !Objects.equals(previousCourierReference, shipment.getCourierReference())) {
+            appendTimelineEvent(
+                    shipment,
+                    ShipmentTimelineEventType.TRACKING_UPDATED,
+                    source,
+                    "Tracking details updated",
+                    trimToNull(shipment.getLastCourierEvent()),
+                    eventAt,
+                    true
+            );
+        }
+
+        if (previousDispatchStatus != shipment.getCourierDispatchStatus()) {
+            appendTimelineEvent(
+                    shipment,
+                    ShipmentTimelineEventType.COURIER_STATUS_UPDATED,
+                    source,
+                    buildCourierStatusSummary(shipment.getCourierDispatchStatus()),
+                    trimToNull(shipment.getLastCourierEvent()),
+                    eventAt,
+                    true
+            );
+        } else if (previousStatus != shipment.getStatus()) {
+            appendTimelineEvent(
+                    shipment,
+                    ShipmentTimelineEventType.COURIER_STATUS_UPDATED,
+                    source,
+                    "Shipment status updated",
+                    "Shipment status changed to " + shipment.getStatus(),
+                    eventAt,
+                    true
+            );
+        }
+
+        if (previousReviewStatus != shipment.getDeliveryReviewStatus()) {
+        ShipmentTimelineEventType eventType = isOpenDeliveryReview(shipment.getDeliveryReviewStatus())
+                    ? ShipmentTimelineEventType.DELIVERY_REVIEW_REQUESTED
+                    : ShipmentTimelineEventType.DELIVERY_REVIEW_RESOLVED;
+            appendTimelineEvent(
+                    shipment,
+                    eventType,
+                    source,
+                    buildDeliveryReviewSummary(shipment.getDeliveryReviewStatus()),
+                    trimToNull(shipment.getDeliveryReviewReason()),
+                    eventAt,
+                    false
+            );
+        }
+    }
+
+    private void applyDeliveryReviewUpdate(Shipment shipment, DeliveryReviewStatus requestedStatus, String requestedReason) {
+        String normalizedReason = trimToNull(requestedReason);
+        if (requestedStatus == null) {
+            if (normalizedReason != null) {
+                shipment.setDeliveryReviewReason(normalizedReason);
+            }
+            return;
+        }
+
+        DeliveryReviewStatus previousStatus = shipment.getDeliveryReviewStatus();
+        shipment.setDeliveryReviewStatus(requestedStatus);
+        if (normalizedReason != null || requestedStatus == DeliveryReviewStatus.NOT_REQUIRED) {
+            shipment.setDeliveryReviewReason(normalizedReason);
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        boolean previousOpenReview = isOpenDeliveryReview(previousStatus);
+        boolean requestedOpenReview = isOpenDeliveryReview(requestedStatus);
+
+        if (requestedOpenReview && !previousOpenReview) {
+            shipment.setDeliveryReviewRequestedAt(shipment.getDeliveryReviewRequestedAt() != null ? shipment.getDeliveryReviewRequestedAt() : now);
+            shipment.setDeliveryReviewResolvedAt(null);
+        }
+        if (requestedOpenReview && previousOpenReview) {
+            shipment.setDeliveryReviewResolvedAt(null);
+        }
+        if (!requestedOpenReview && previousOpenReview) {
+            shipment.setDeliveryReviewResolvedAt(now);
+        }
+        if (requestedStatus == DeliveryReviewStatus.NOT_REQUIRED && !previousOpenReview) {
+            shipment.setDeliveryReviewResolvedAt(null);
+        }
+    }
+
+    private boolean isOpenDeliveryReview(DeliveryReviewStatus status) {
+        return status == DeliveryReviewStatus.PENDING || status == DeliveryReviewStatus.DISPUTED;
+    }
+
+    private void appendTimelineEvent(
+            Shipment shipment,
+            ShipmentTimelineEventType eventType,
+            String source,
+            String summary,
+            String details,
+            LocalDateTime eventAt,
+            boolean customerVisible
+    ) {
+        ShipmentTimelineEvent event = new ShipmentTimelineEvent();
+        event.setShipment(shipment);
+        event.setEventType(eventType);
+        event.setEventSource(trimToNull(source));
+        event.setSummary(summary);
+        event.setDetails(trimToNull(details));
+        event.setEventAt(eventAt != null ? eventAt : LocalDateTime.now());
+        event.setShipmentStatus(shipment.getStatus());
+        event.setCourierDispatchStatus(shipment.getCourierDispatchStatus());
+        event.setDeliveryReviewStatus(shipment.getDeliveryReviewStatus());
+        event.setCustomerVisible(customerVisible);
+        shipment.getTimelineEvents().add(event);
+    }
+
+    private String buildCourierStatusSummary(CourierDispatchStatus status) {
+        if (status == null) {
+            return "Courier status updated";
+        }
+        return switch (status) {
+            case UNASSIGNED -> "Shipment waiting for courier assignment";
+            case BOOKED -> "Courier booking confirmed";
+            case PICKUP_PENDING -> "Awaiting courier pickup";
+            case PICKED_UP -> "Shipment picked up by courier";
+            case IN_TRANSIT -> "Shipment is in transit";
+            case OUT_FOR_DELIVERY -> "Shipment is out for delivery";
+            case DELIVERED -> "Courier marked shipment delivered";
+            case DELIVERY_FAILED -> "Courier reported a failed delivery attempt";
+            case RETURNED -> "Shipment returned by courier";
+            case CANCELLED -> "Shipment cancelled by courier";
+        };
+    }
+
+    private String buildDeliveryReviewSummary(DeliveryReviewStatus status) {
+        if (status == null) {
+            return "Delivery review updated";
+        }
+        return switch (status) {
+            case NOT_REQUIRED -> "Delivery review cleared";
+            case PENDING -> "Delivery requires internal review";
+            case APPROVED -> "Delivery review approved";
+            case DISPUTED -> "Delivery marked as disputed";
+        };
+    }
+
+    private String buildProofOfDeliveryDetails(Shipment shipment) {
+        List<String> parts = new ArrayList<>();
+        if (shipment.getProofOfDeliveryRecipientName() != null) {
+            parts.add("Recipient: " + shipment.getProofOfDeliveryRecipientName());
+        }
+        if (shipment.getProofOfDeliveryUrl() != null) {
+            parts.add("Proof URL: " + shipment.getProofOfDeliveryUrl());
+        }
+        return parts.isEmpty() ? null : String.join(" | ", parts);
     }
 
     private void applyCourierState(Shipment shipment) {
@@ -671,6 +1040,61 @@ public class ShipmentServiceImpl implements ShipmentService {
             default -> {
             }
         }
+    }
+
+    private void synchronizeSalesOrderDeliveryStatus(SalesOrder salesOrder) {
+        List<Shipment> orderShipments = shipmentRepository.findBySalesOrderId(salesOrder.getId());
+        boolean allDelivered = !orderShipments.isEmpty() && orderShipments.stream().allMatch(shipment -> shipment.getStatus() == ShipmentStatus.DELIVERED);
+        if (allDelivered) {
+            salesOrder.setStatus(SalesOrderStatus.DELIVERED);
+        } else {
+            updateSalesOrderShipmentStatus(salesOrder);
+        }
+        salesOrderRepository.save(salesOrder);
+    }
+
+    private Specification<Shipment> buildShipmentQueueSpecification(ShipmentQueueType queue) {
+        return (root, query, cb) -> buildShipmentQueuePredicate(root, cb, queue);
+    }
+
+    private Predicate buildShipmentQueuePredicate(Root<Shipment> root, CriteriaBuilder cb, ShipmentQueueType queue) {
+        Path<ShipmentStatus> shipmentStatus = root.get("status");
+        Path<CourierDispatchStatus> dispatchStatus = root.get("courierDispatchStatus");
+        Path<DeliveryReviewStatus> reviewStatus = root.get("deliveryReviewStatus");
+
+        jakarta.persistence.criteria.Expression<String> courierProvider = cb.trim(cb.coalesce(root.get("courierProvider"), ""));
+        jakarta.persistence.criteria.Expression<String> courierReference = cb.trim(cb.coalesce(root.get("courierReference"), ""));
+
+        Predicate providerMissing = cb.equal(courierProvider, "");
+        Predicate referenceMissing = cb.equal(courierReference, "");
+        Predicate openReview = reviewStatus.in(DeliveryReviewStatus.PENDING, DeliveryReviewStatus.DISPUTED);
+        Predicate hardCourierException = dispatchStatus.in(
+                CourierDispatchStatus.DELIVERY_FAILED,
+                CourierDispatchStatus.RETURNED,
+                CourierDispatchStatus.CANCELLED
+        );
+        Predicate missingHandoffData = cb.and(cb.equal(shipmentStatus, ShipmentStatus.READY_TO_SHIP), providerMissing);
+        Predicate bookedWithoutReference = cb.and(
+                dispatchStatus.in(CourierDispatchStatus.BOOKED, CourierDispatchStatus.PICKUP_PENDING),
+                cb.not(providerMissing),
+                referenceMissing
+        );
+        Predicate needsAction = cb.or(openReview, hardCourierException, missingHandoffData, bookedWithoutReference);
+
+        return switch (queue) {
+            case READY_TO_HANDOFF -> cb.and(
+                    cb.equal(shipmentStatus, ShipmentStatus.READY_TO_SHIP),
+                    dispatchStatus.in(CourierDispatchStatus.UNASSIGNED, CourierDispatchStatus.BOOKED, CourierDispatchStatus.PICKUP_PENDING),
+                    cb.not(providerMissing),
+                    cb.not(bookedWithoutReference)
+            );
+            case IN_TRANSIT -> dispatchStatus.in(
+                    CourierDispatchStatus.PICKED_UP,
+                    CourierDispatchStatus.IN_TRANSIT,
+                    CourierDispatchStatus.OUT_FOR_DELIVERY
+            );
+            case NEEDS_ACTION -> needsAction;
+        };
     }
 
     private String trimToNull(String value) {

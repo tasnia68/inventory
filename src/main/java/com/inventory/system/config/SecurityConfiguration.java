@@ -77,6 +77,8 @@ public class SecurityConfiguration {
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/users/invite/accept"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                                                                "/api/webhooks/**"),
+                                                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/error"))
                                                 .permitAll()
                                                 .anyRequest().authenticated())

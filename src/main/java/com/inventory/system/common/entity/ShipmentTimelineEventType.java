@@ -1,0 +1,11 @@
+package com.inventory.system.common.entity;
+
+public enum ShipmentTimelineEventType {
+    SHIPMENT_CREATED,
+    TRACKING_UPDATED,
+    COURIER_STATUS_UPDATED,
+    DELIVERY_CONFIRMED,
+    DELIVERY_REVIEW_REQUESTED,
+    DELIVERY_REVIEW_RESOLVED,
+    PROOF_OF_DELIVERY_CAPTURED
+}

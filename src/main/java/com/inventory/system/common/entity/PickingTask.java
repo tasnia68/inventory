@@ -32,7 +32,7 @@ public class PickingTask extends BaseEntity {
     private ProductVariant productVariant;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "storage_location_id", nullable = false)
+    @JoinColumn(name = "storage_location_id")
     private StorageLocation storageLocation;
 
     @ManyToOne(fetch = FetchType.LAZY)

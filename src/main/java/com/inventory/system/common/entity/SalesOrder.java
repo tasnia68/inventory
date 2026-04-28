@@ -18,6 +18,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "sales_orders")
@@ -80,4 +81,30 @@ public class SalesOrder extends BaseEntity {
 
     @OneToMany(mappedBy = "salesOrder", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<SalesOrderItem> items = new ArrayList<>();
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "external_source", length = 32)
+    private ExternalOrderSource externalSource;
+
+    @Column(name = "external_order_id", length = 128)
+    private String externalOrderId;
+
+    @Column(name = "external_order_ref", length = 256)
+    private String externalOrderRef;
+
+    @Column(name = "cod_amount", precision = 19, scale = 6)
+    private BigDecimal codAmount;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivery_zone", length = 32)
+    private DeliveryZone deliveryZone;
+
+    @Column(name = "courier_profile_id")
+    private UUID courierProfileId;
+
+    @Column(name = "packaging_completed_at")
+    private LocalDateTime packagingCompletedAt;
+
+    @Column(name = "hold_reason", columnDefinition = "TEXT")
+    private String holdReason;
 }

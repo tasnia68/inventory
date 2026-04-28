@@ -9,6 +9,7 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.OneToMany;
+import jakarta.persistence.OrderBy;
 import jakarta.persistence.Table;
 import lombok.Getter;
 import lombok.Setter;
@@ -76,6 +77,28 @@ public class Shipment extends BaseEntity {
     @Column(name = "delivered_date")
     private LocalDateTime deliveredDate;
 
+    @Enumerated(EnumType.STRING)
+    @Column(name = "delivery_review_status", nullable = false)
+    private DeliveryReviewStatus deliveryReviewStatus = DeliveryReviewStatus.NOT_REQUIRED;
+
+    @Column(name = "delivery_review_reason", columnDefinition = "TEXT")
+    private String deliveryReviewReason;
+
+    @Column(name = "delivery_review_requested_at")
+    private LocalDateTime deliveryReviewRequestedAt;
+
+    @Column(name = "delivery_review_resolved_at")
+    private LocalDateTime deliveryReviewResolvedAt;
+
+    @Column(name = "proof_of_delivery_url", columnDefinition = "TEXT")
+    private String proofOfDeliveryUrl;
+
+    @Column(name = "proof_of_delivery_recipient_name")
+    private String proofOfDeliveryRecipientName;
+
+    @Column(name = "proof_of_delivery_captured_at")
+    private LocalDateTime proofOfDeliveryCapturedAt;
+
     @Column(name = "pickup_requested_at")
     private LocalDateTime pickupRequestedAt;
 
@@ -99,4 +122,8 @@ public class Shipment extends BaseEntity {
 
     @OneToMany(mappedBy = "shipment", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<ShipmentItem> items = new ArrayList<>();
+
+    @OneToMany(mappedBy = "shipment", cascade = CascadeType.ALL, orphanRemoval = true)
+    @OrderBy("eventAt ASC, createdAt ASC")
+    private List<ShipmentTimelineEvent> timelineEvents = new ArrayList<>();
 }

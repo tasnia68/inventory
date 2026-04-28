@@ -10,7 +10,9 @@ import com.inventory.system.service.PricingEvaluation;
 import com.inventory.system.service.PricingEvaluationLine;
 import com.inventory.system.service.SalesOrderService;
 import com.inventory.system.service.StockReservationService;
+import com.inventory.system.service.StockService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -37,6 +39,9 @@ public class SalesOrderServiceImpl implements SalesOrderService {
     private final WarehouseRepository warehouseRepository;
     private final PricingEngineService pricingEngineService;
     private final PromotionRedemptionRepository promotionRedemptionRepository;
+    private final ApplicationEventPublisher eventPublisher;
+    private final ShipmentRepository shipmentRepository;
+    private final StockService stockService;
 
     @Override
     @Transactional
@@ -158,7 +163,7 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         SalesOrder salesOrder = salesOrderRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
 
-        if (salesOrder.getStatus() != SalesOrderStatus.DRAFT && salesOrder.getStatus() != SalesOrderStatus.PENDING_APPROVAL) {
+        if (salesOrder.getStatus() != SalesOrderStatus.DRAFT && salesOrder.getStatus() != SalesOrderStatus.PENDING) {
             throw new BadRequestException("Cannot update Sales Order that is already confirmed or processed");
         }
 
@@ -232,54 +237,313 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         SalesOrderStatus previousStatus = salesOrder.getStatus();
         validateStatusTransition(previousStatus, status);
 
+        SalesOrderStatus effectiveTarget = status;
+
+        if (needsReservation(previousStatus, status) && !hasActiveReservation(previousStatus)) {
+            boolean hasBackorder = reserveForOrder(salesOrder);
+            if (status == SalesOrderStatus.CONFIRMED && hasBackorder) {
+                effectiveTarget = SalesOrderStatus.BACKORDERED;
+            }
+        }
+
         if (status == SalesOrderStatus.CONFIRMED && previousStatus != SalesOrderStatus.CONFIRMED) {
             validateCustomerEligibility(salesOrder.getCustomer());
             validateCustomerCredit(salesOrder);
-
-            if (previousStatus == SalesOrderStatus.BACKORDERED) {
-                stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
-            }
-
-            boolean hasBackorder = false;
-
-            for (SalesOrderItem item : salesOrder.getItems()) {
-                BigDecimal available = stockReservationService.getAvailableToPromise(item.getProductVariant().getId(), salesOrder.getWarehouse().getId());
-                BigDecimal reservableQuantity = available.min(item.getQuantity());
-                if (reservableQuantity.compareTo(BigDecimal.ZERO) > 0) {
-                    StockReservationRequest reservationRequest = new StockReservationRequest();
-                    reservationRequest.setProductVariantId(item.getProductVariant().getId());
-                    reservationRequest.setWarehouseId(salesOrder.getWarehouse().getId());
-                    reservationRequest.setQuantity(reservableQuantity);
-                    reservationRequest.setReferenceId(salesOrder.getSoNumber());
-                    reservationRequest.setNotes("Reservation for Sales Order " + salesOrder.getSoNumber());
-                    reservationRequest.setPriority(mapToReservationPriority(salesOrder.getPriority()));
-
-                    stockReservationService.reserveStock(reservationRequest);
-                }
-
-                if (available.compareTo(item.getQuantity()) < 0) {
-                    hasBackorder = true;
-                }
-            }
-
-            salesOrder.setStatus(hasBackorder ? SalesOrderStatus.BACKORDERED : SalesOrderStatus.CONFIRMED);
-            SalesOrder savedSo = salesOrderRepository.save(salesOrder);
-            return mapToDto(savedSo);
         }
 
-        if ((status == SalesOrderStatus.SHIPPED || status == SalesOrderStatus.DELIVERED)
-                && previousStatus != SalesOrderStatus.SHIPPED
-                && previousStatus != SalesOrderStatus.DELIVERED) {
+        if (status == SalesOrderStatus.SHIPPED && previousStatus != SalesOrderStatus.SHIPPED) {
             stockReservationService.fulfillReservationsByReference(salesOrder.getSoNumber());
+            relieveInventoryOnShip(salesOrder);
+        }
+
+        if (previousStatus == SalesOrderStatus.PACKAGING && status == SalesOrderStatus.SHIPPED) {
+            salesOrder.setPackagingCompletedAt(LocalDateTime.now());
         }
 
         if (status == SalesOrderStatus.CANCELLED && previousStatus != SalesOrderStatus.CANCELLED) {
             stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
         }
 
-        salesOrder.setStatus(status);
+        salesOrder.setStatus(effectiveTarget);
+
+        if (effectiveTarget == SalesOrderStatus.RETURNED) {
+            restockFullReturn(salesOrder);
+        }
+
         SalesOrder savedSo = salesOrderRepository.save(salesOrder);
+        eventPublisher.publishEvent(new com.inventory.system.service.order.events.OrderStatusChangedEvent(
+                savedSo.getId(), previousStatus, effectiveTarget, LocalDateTime.now()));
         return mapToDto(savedSo);
+    }
+
+    private void restockFullReturn(SalesOrder salesOrder) {
+        if (salesOrder.getWarehouse() == null) return;
+        for (SalesOrderItem item : salesOrder.getItems()) {
+            BigDecimal ordered = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
+            BigDecimal alreadyReturned = item.getReturnedQuantity() != null ? item.getReturnedQuantity() : BigDecimal.ZERO;
+            BigDecimal delta = ordered.subtract(alreadyReturned);
+            if (delta.compareTo(BigDecimal.ZERO) > 0) {
+                restockItem(salesOrder, item, delta);
+                item.setReturnedQuantity(ordered);
+            }
+        }
+    }
+
+    private void relieveInventoryOnShip(SalesOrder salesOrder) {
+        if (salesOrder.getWarehouse() == null) return;
+        for (SalesOrderItem item : salesOrder.getItems()) {
+            BigDecimal qty = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
+            BigDecimal alreadyShipped = item.getShippedQuantity() != null ? item.getShippedQuantity() : BigDecimal.ZERO;
+            BigDecimal delta = qty.subtract(alreadyShipped);
+            if (delta.compareTo(BigDecimal.ZERO) <= 0) continue;
+            StockAdjustmentDto adjustment = new StockAdjustmentDto();
+            adjustment.setProductVariantId(item.getProductVariant().getId());
+            adjustment.setWarehouseId(salesOrder.getWarehouse().getId());
+            adjustment.setQuantity(delta);
+            adjustment.setType(com.inventory.system.common.entity.StockMovement.StockMovementType.OUT);
+            adjustment.setReason("Inventory relief for SO " + salesOrder.getSoNumber());
+            adjustment.setReferenceId(salesOrder.getId().toString() + ":ship:" + item.getId());
+            stockService.adjustStock(adjustment);
+            item.setShippedQuantity(qty);
+        }
+    }
+
+    private void restockItem(SalesOrder salesOrder, SalesOrderItem item, BigDecimal quantity) {
+        if (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0) return;
+        StockAdjustmentDto adjustment = new StockAdjustmentDto();
+        adjustment.setProductVariantId(item.getProductVariant().getId());
+        adjustment.setWarehouseId(salesOrder.getWarehouse().getId());
+        adjustment.setQuantity(quantity);
+        adjustment.setType(com.inventory.system.common.entity.StockMovement.StockMovementType.IN);
+        adjustment.setReason("Restock on return for SO " + salesOrder.getSoNumber());
+        adjustment.setReferenceId(salesOrder.getId().toString() + ":return:" + item.getId());
+        stockService.adjustStock(adjustment);
+    }
+
+    private boolean needsReservation(SalesOrderStatus previousStatus, SalesOrderStatus targetStatus) {
+        return targetStatus == SalesOrderStatus.HOLD
+                || (targetStatus == SalesOrderStatus.APPROVED && previousStatus != SalesOrderStatus.HOLD)
+                || (targetStatus == SalesOrderStatus.CONFIRMED
+                    && previousStatus != SalesOrderStatus.HOLD
+                    && previousStatus != SalesOrderStatus.APPROVED
+                    && previousStatus != SalesOrderStatus.BACKORDERED);
+    }
+
+    private boolean hasActiveReservation(SalesOrderStatus previousStatus) {
+        return previousStatus == SalesOrderStatus.HOLD
+                || previousStatus == SalesOrderStatus.APPROVED
+                || previousStatus == SalesOrderStatus.CONFIRMED
+                || previousStatus == SalesOrderStatus.PACKAGING
+                || previousStatus == SalesOrderStatus.BACKORDERED;
+    }
+
+    private boolean reserveForOrder(SalesOrder salesOrder) {
+        if (salesOrder.getWarehouse() == null) {
+            return false;
+        }
+        boolean hasBackorder = false;
+        for (SalesOrderItem item : salesOrder.getItems()) {
+            BigDecimal available = stockReservationService.getAvailableToPromise(
+                    item.getProductVariant().getId(), salesOrder.getWarehouse().getId());
+            BigDecimal reservableQuantity = available.min(item.getQuantity());
+            if (reservableQuantity.compareTo(BigDecimal.ZERO) > 0) {
+                StockReservationRequest reservationRequest = new StockReservationRequest();
+                reservationRequest.setProductVariantId(item.getProductVariant().getId());
+                reservationRequest.setWarehouseId(salesOrder.getWarehouse().getId());
+                reservationRequest.setQuantity(reservableQuantity);
+                reservationRequest.setReferenceId(salesOrder.getSoNumber());
+                reservationRequest.setNotes("Reservation for Sales Order " + salesOrder.getSoNumber());
+                reservationRequest.setPriority(mapToReservationPriority(salesOrder.getPriority()));
+                stockReservationService.reserveStock(reservationRequest);
+            }
+            if (available.compareTo(item.getQuantity()) < 0) {
+                hasBackorder = true;
+            }
+        }
+        return hasBackorder;
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public Set<SalesOrderStatus> getAllowedTransitions(UUID id) {
+        SalesOrder salesOrder = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
+        return allowedTransitionsFrom(salesOrder.getStatus());
+    }
+
+    @Override
+    @Transactional
+    public SalesOrderDto holdOrder(UUID id, String reason) {
+        SalesOrder salesOrder = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
+        salesOrder.setHoldReason(reason);
+        salesOrderRepository.save(salesOrder);
+        return updateSalesOrderStatus(id, SalesOrderStatus.HOLD);
+    }
+
+    @Override
+    @Transactional
+    public SalesOrderDto confirmOrder(UUID id, com.inventory.system.payload.ConfirmOrderRequest request) {
+        SalesOrder salesOrder = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
+        if (request != null) {
+            if (request.getCourierProfileId() != null) {
+                salesOrder.setCourierProfileId(request.getCourierProfileId());
+            }
+            if (request.getDeliveryZone() != null) {
+                salesOrder.setDeliveryZone(request.getDeliveryZone());
+            }
+        }
+        salesOrderRepository.save(salesOrder);
+        return updateSalesOrderStatus(id, SalesOrderStatus.CONFIRMED);
+    }
+
+    @Override
+    @Transactional
+    public SalesOrderDto partialDeliver(UUID id, java.util.List<com.inventory.system.payload.PartialDeliveryLineRequest> lines) {
+        SalesOrder salesOrder = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
+
+        Map<UUID, SalesOrderItem> itemsById = salesOrder.getItems().stream()
+                .collect(Collectors.toMap(SalesOrderItem::getId, Function.identity()));
+
+        boolean anyReturned = false;
+        boolean anyCancelled = false;
+        BigDecimal totalFulfilled = BigDecimal.ZERO;
+        BigDecimal totalOrdered = BigDecimal.ZERO;
+
+        for (com.inventory.system.payload.PartialDeliveryLineRequest line : lines) {
+            SalesOrderItem item = itemsById.get(line.getItemId());
+            if (item == null) {
+                throw new BadRequestException("Unknown order item: " + line.getItemId());
+            }
+            BigDecimal ordered = item.getQuantity() != null ? item.getQuantity() : BigDecimal.ZERO;
+            BigDecimal fulfilled = line.getFulfilledQuantity() != null ? line.getFulfilledQuantity() : BigDecimal.ZERO;
+            BigDecimal returned = line.getReturnedQuantity() != null ? line.getReturnedQuantity() : BigDecimal.ZERO;
+            BigDecimal cancelled = line.getCancelledQuantity() != null ? line.getCancelledQuantity() : BigDecimal.ZERO;
+            BigDecimal sum = fulfilled.add(returned).add(cancelled);
+            if (sum.compareTo(ordered) > 0) {
+                throw new BadRequestException("Line " + item.getId() + ": fulfilled+returned+cancelled exceeds ordered quantity");
+            }
+            BigDecimal priorReturned = item.getReturnedQuantity() != null ? item.getReturnedQuantity() : BigDecimal.ZERO;
+            BigDecimal priorCancelled = item.getCancelledQuantity() != null ? item.getCancelledQuantity() : BigDecimal.ZERO;
+            BigDecimal returnDelta = returned.subtract(priorReturned);
+            BigDecimal cancelDelta = cancelled.subtract(priorCancelled);
+            item.setFulfilledQuantity(fulfilled);
+            item.setReturnedQuantity(returned);
+            item.setCancelledQuantity(cancelled);
+            BigDecimal restockDelta = returnDelta.max(BigDecimal.ZERO).add(cancelDelta.max(BigDecimal.ZERO));
+            if (restockDelta.compareTo(BigDecimal.ZERO) > 0) {
+                restockItem(salesOrder, item, restockDelta);
+            }
+            totalOrdered = totalOrdered.add(ordered);
+            totalFulfilled = totalFulfilled.add(fulfilled);
+            if (returned.compareTo(BigDecimal.ZERO) > 0) anyReturned = true;
+            if (cancelled.compareTo(BigDecimal.ZERO) > 0) anyCancelled = true;
+        }
+
+        SalesOrderStatus target;
+        if (totalFulfilled.compareTo(BigDecimal.ZERO) == 0 && anyCancelled) {
+            target = SalesOrderStatus.PARTIALLY_CANCELLED;
+        } else if (totalFulfilled.compareTo(totalOrdered) == 0 && !anyReturned && !anyCancelled) {
+            target = SalesOrderStatus.DELIVERED;
+        } else {
+            target = SalesOrderStatus.PARTIALLY_DELIVERED;
+        }
+
+        salesOrderRepository.save(salesOrder);
+        return updateSalesOrderStatus(id, target);
+    }
+
+    @Override
+    @Transactional
+    public SalesOrderDto updateItems(UUID id, List<SalesOrderItemRequest> itemRequests) {
+        if (itemRequests == null || itemRequests.isEmpty()) {
+            throw new BadRequestException("At least one item is required");
+        }
+
+        SalesOrder salesOrder = salesOrderRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Sales Order not found with ID: " + id));
+
+        SalesOrderStatus status = salesOrder.getStatus();
+        Set<SalesOrderStatus> blocked = EnumSet.of(
+                SalesOrderStatus.SHIPPED, SalesOrderStatus.DELIVERED,
+                SalesOrderStatus.PARTIALLY_DELIVERED, SalesOrderStatus.PARTIALLY_CANCELLED,
+                SalesOrderStatus.RETURNED, SalesOrderStatus.CANCELLED,
+                SalesOrderStatus.DELIVERY_FAILED);
+        if (blocked.contains(status)) {
+            throw new BadRequestException("Cannot edit items when order is in " + status);
+        }
+
+        List<com.inventory.system.common.entity.Shipment> bookedShipments = shipmentRepository
+                .findBySalesOrderId(salesOrder.getId()).stream()
+                .filter(s -> s.getCourierReference() != null && !s.getCourierReference().isBlank())
+                .toList();
+        if (!bookedShipments.isEmpty()) {
+            throw new BadRequestException(
+                    "Cancel the courier booking before editing items; current provider (" +
+                            bookedShipments.get(0).getCourierProvider() + ") does not support updates after booking.");
+        }
+
+        boolean hadReservation = hasActiveReservation(status);
+        if (hadReservation) {
+            stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
+        }
+
+        Set<UUID> variantIds = itemRequests.stream()
+                .map(SalesOrderItemRequest::getProductVariantId)
+                .collect(Collectors.toSet());
+        Map<UUID, ProductVariant> variantMap = productVariantRepository.findAllById(variantIds).stream()
+                .collect(Collectors.toMap(ProductVariant::getId, Function.identity()));
+        if (variantMap.size() != variantIds.size()) {
+            throw new BadRequestException("Some product variants not found");
+        }
+
+        SalesOrderRequest syntheticRequest = new SalesOrderRequest();
+        syntheticRequest.setCustomerId(salesOrder.getCustomer().getId());
+        syntheticRequest.setWarehouseId(salesOrder.getWarehouse() != null ? salesOrder.getWarehouse().getId() : null);
+        syntheticRequest.setItems(itemRequests);
+        syntheticRequest.setCurrency(salesOrder.getCurrency());
+
+        PricingEvaluation eval = pricingEngineService.evaluateSalesOrder(
+                salesOrder.getCustomer(), salesOrder.getWarehouse(), syntheticRequest);
+        Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(eval);
+
+        promotionRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+        salesOrder.getItems().clear();
+
+        for (SalesOrderItemRequest itemReq : itemRequests) {
+            ProductVariant variant = variantMap.get(itemReq.getProductVariantId());
+            PricingEvaluationLine pricedLine = popPricedLine(pricedLines, variant.getId());
+            SalesOrderItem item = new SalesOrderItem();
+            item.setSalesOrder(salesOrder);
+            item.setProductVariant(variant);
+            item.setQuantity(itemReq.getQuantity());
+            item.setBaseUnitPrice(pricedLine.getBaseUnitPrice());
+            item.setUnitPrice(pricedLine.getFinalUnitPrice());
+            item.setLineDiscount(pricedLine.getLineDiscountAmount());
+            item.setAppliedPromotionCodes(String.join(", ", pricedLine.getAppliedPromotionCodes()));
+            item.setTotalPrice(pricedLine.getLineTotalAmount());
+            item.setShippedQuantity(BigDecimal.ZERO);
+            item.setFulfilledQuantity(BigDecimal.ZERO);
+            item.setReturnedQuantity(BigDecimal.ZERO);
+            item.setCancelledQuantity(BigDecimal.ZERO);
+            salesOrder.getItems().add(item);
+        }
+
+        salesOrder.setSubtotalAmount(eval.getBaseSubtotal());
+        salesOrder.setDiscountAmount(eval.getTotalDiscount());
+        salesOrder.setTotalAmount(eval.getNetSubtotal());
+        salesOrder.setAppliedCouponCodes(String.join(", ", eval.getAppliedCouponCodes()));
+
+        SalesOrder saved = salesOrderRepository.save(salesOrder);
+        pricingEngineService.recordRedemptions(eval, saved, null, saved.getCustomer(),
+                saved.getSalesChannel(), saved.getSoNumber());
+
+        if (hadReservation) {
+            reserveForOrder(saved);
+        }
+        return mapToDto(saved);
     }
 
     @Override
@@ -336,63 +600,53 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         }
     }
 
+    private static final Map<SalesOrderStatus, Set<SalesOrderStatus>> ALLOWED_TRANSITIONS = Map.ofEntries(
+            Map.entry(SalesOrderStatus.DRAFT, EnumSet.of(
+                    SalesOrderStatus.PENDING, SalesOrderStatus.APPROVED,
+                    SalesOrderStatus.CONFIRMED, SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.PENDING, EnumSet.of(
+                    SalesOrderStatus.DRAFT, SalesOrderStatus.HOLD,
+                    SalesOrderStatus.APPROVED, SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.HOLD, EnumSet.of(
+                    SalesOrderStatus.PENDING, SalesOrderStatus.APPROVED, SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.APPROVED, EnumSet.of(
+                    SalesOrderStatus.CONFIRMED, SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.CONFIRMED, EnumSet.of(
+                    SalesOrderStatus.PACKAGING, SalesOrderStatus.BACKORDERED,
+                    SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.PACKAGING, EnumSet.of(
+                    SalesOrderStatus.CONFIRMED, SalesOrderStatus.SHIPPED, SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.BACKORDERED, EnumSet.of(
+                    SalesOrderStatus.CONFIRMED, SalesOrderStatus.PACKAGING, SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.PARTIALLY_SHIPPED, EnumSet.of(
+                    SalesOrderStatus.SHIPPED, SalesOrderStatus.DELIVERED,
+                    SalesOrderStatus.PARTIALLY_DELIVERED, SalesOrderStatus.CANCELLED)),
+            Map.entry(SalesOrderStatus.SHIPPED, EnumSet.of(
+                    SalesOrderStatus.DELIVERED, SalesOrderStatus.PARTIALLY_DELIVERED,
+                    SalesOrderStatus.PARTIALLY_CANCELLED, SalesOrderStatus.CANCELLED,
+                    SalesOrderStatus.DELIVERY_FAILED, SalesOrderStatus.RETURNED)),
+            Map.entry(SalesOrderStatus.DELIVERED, EnumSet.of(
+                    SalesOrderStatus.RETURNED, SalesOrderStatus.PARTIALLY_DELIVERED)),
+            Map.entry(SalesOrderStatus.PARTIALLY_DELIVERED, EnumSet.of(
+                    SalesOrderStatus.RETURNED, SalesOrderStatus.DELIVERED)),
+            Map.entry(SalesOrderStatus.PARTIALLY_CANCELLED, EnumSet.of(
+                    SalesOrderStatus.RETURNED, SalesOrderStatus.DELIVERED)),
+            Map.entry(SalesOrderStatus.DELIVERY_FAILED, EnumSet.of(
+                    SalesOrderStatus.SHIPPED, SalesOrderStatus.CANCELLED, SalesOrderStatus.RETURNED))
+    );
+
     private void validateStatusTransition(SalesOrderStatus currentStatus, SalesOrderStatus targetStatus) {
         if (currentStatus == targetStatus) {
             return;
         }
-
-        switch (currentStatus) {
-            case DRAFT:
-                if (targetStatus == SalesOrderStatus.PENDING_APPROVAL
-                        || targetStatus == SalesOrderStatus.APPROVED
-                        || targetStatus == SalesOrderStatus.CONFIRMED
-                        || targetStatus == SalesOrderStatus.CANCELLED) {
-                    return;
-                }
-                break;
-            case PENDING_APPROVAL:
-                if (targetStatus == SalesOrderStatus.DRAFT
-                        || targetStatus == SalesOrderStatus.APPROVED
-                        || targetStatus == SalesOrderStatus.CANCELLED) {
-                    return;
-                }
-                break;
-            case APPROVED:
-                if (targetStatus == SalesOrderStatus.CONFIRMED || targetStatus == SalesOrderStatus.CANCELLED) {
-                    return;
-                }
-                break;
-            case CONFIRMED:
-            case BACKORDERED:
-                if (targetStatus == SalesOrderStatus.CONFIRMED
-                        || targetStatus == SalesOrderStatus.BACKORDERED
-                        || targetStatus == SalesOrderStatus.PARTIALLY_SHIPPED
-                        || targetStatus == SalesOrderStatus.SHIPPED
-                        || targetStatus == SalesOrderStatus.DELIVERED
-                        || targetStatus == SalesOrderStatus.CANCELLED) {
-                    return;
-                }
-                break;
-            case PARTIALLY_SHIPPED:
-                if (targetStatus == SalesOrderStatus.SHIPPED || targetStatus == SalesOrderStatus.DELIVERED) {
-                    return;
-                }
-                break;
-            case SHIPPED:
-                if (targetStatus == SalesOrderStatus.DELIVERED || targetStatus == SalesOrderStatus.RETURNED) {
-                    return;
-                }
-                break;
-            case DELIVERED:
-                if (targetStatus == SalesOrderStatus.RETURNED) {
-                    return;
-                }
-                break;
-            default:
-                break;
+        Set<SalesOrderStatus> allowed = ALLOWED_TRANSITIONS.getOrDefault(currentStatus, EnumSet.noneOf(SalesOrderStatus.class));
+        if (!allowed.contains(targetStatus)) {
+            throw new BadRequestException("Invalid sales order status transition from " + currentStatus + " to " + targetStatus);
         }
+    }
 
-        throw new BadRequestException("Invalid sales order status transition from " + currentStatus + " to " + targetStatus);
+    public static Set<SalesOrderStatus> allowedTransitionsFrom(SalesOrderStatus currentStatus) {
+        return ALLOWED_TRANSITIONS.getOrDefault(currentStatus, EnumSet.noneOf(SalesOrderStatus.class));
     }
 
     private String generateSoNumber() {

@@ -152,6 +152,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     private final ObjectMapper objectMapper;
     private final StorefrontDomainService storefrontDomainService;
     private final StorefrontPageRepository storefrontPageRepository;
+    private final org.springframework.transaction.PlatformTransactionManager platformTransactionManager;
 
     @Override
     @Transactional(readOnly = true)
@@ -417,8 +418,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional(readOnly = true)
     public StorefrontCmsPageDto getPublicCmsPage(String slug) {
         requirePublicStorefrontAccess();
-        String tenantId = TenantContext.getTenantId();
-        StorefrontPage page = storefrontPageRepository.findByTenantIdAndSlugAndPublishedTrue(tenantId, slug)
+        StorefrontPage page = storefrontPageRepository.findBySlugAndPublishedTrue(slug)
                 .orElseThrow(() -> new ResourceNotFoundException("StorefrontPage", "slug", slug));
         return mapCmsPage(page);
     }
@@ -523,6 +523,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                         order.getSoNumber(),
                         order.getStatus() != null ? order.getStatus().name() : null,
                         order.getOrderDate() != null ? order.getOrderDate().toString() : null,
+                        order.getExpectedDeliveryDate() != null ? order.getExpectedDeliveryDate().toString() : null,
                         order.getTotalAmount(),
                         order.getCurrency(),
                         order.getItems().stream()
@@ -532,7 +533,8 @@ public class StorefrontServiceImpl implements StorefrontService {
                                         item.getQuantity(),
                                         item.getTotalPrice()
                                 ))
-                                .toList()
+                                .toList(),
+                        java.util.List.of()
                 ))
                 .toList();
     }
@@ -551,6 +553,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 order.getSoNumber(),
                 order.getStatus() != null ? order.getStatus().name() : null,
                 order.getOrderDate() != null ? order.getOrderDate().toString() : null,
+                order.getExpectedDeliveryDate() != null ? order.getExpectedDeliveryDate().toString() : null,
                 order.getTotalAmount(),
                 order.getCurrency(),
                 order.getItems().stream()
@@ -560,7 +563,8 @@ public class StorefrontServiceImpl implements StorefrontService {
                                 item.getQuantity(),
                                 item.getTotalPrice()
                         ))
-                        .toList()
+                        .toList(),
+                java.util.List.of()
         );
     }
 
@@ -583,8 +587,9 @@ public class StorefrontServiceImpl implements StorefrontService {
     public StorefrontConfigDto getPublicConfig() {
         requirePublicStorefrontAccess();
         try {
-            return loadPublishedThemeDocument()
-                    .map(this::deriveLegacyConfig)
+            return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+                    .map(this::readThemeSnapshot)
+                    .map(StorefrontThemeSnapshotDto::getConfig)
                     .map(this::enrichWithDomains)
                     .orElseGet(() -> enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument())));
         } catch (RuntimeException ignored) {
@@ -596,8 +601,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional(readOnly = true)
     public List<StorefrontCollectionDto> getPublicCollections() {
         requirePublicStorefrontAccess();
-        String tenantId = TenantContext.getTenantId();
-        List<Category> publishedCategories = categoryRepository.findByTenantIdAndPublishedToStorefrontTrueOrderByStorefrontSortOrderAscNameAsc(tenantId);
+        List<Category> publishedCategories = categoryRepository.findByPublishedToStorefrontTrueOrderByStorefrontSortOrderAscNameAsc();
         Map<UUID, List<Category>> childrenByParent = new LinkedHashMap<>();
         for (Category category : publishedCategories) {
             UUID parentId = category.getParent() != null && Boolean.TRUE.equals(category.getParent().getPublishedToStorefront())
@@ -708,7 +712,7 @@ public class StorefrontServiceImpl implements StorefrontService {
         salesOrder.setWarehouse(warehouse);
         salesOrder.setOrderDate(LocalDateTime.now());
         salesOrder.setExpectedDeliveryDate(expectedDeliveryDate);
-        salesOrder.setStatus(SalesOrderStatus.PENDING_APPROVAL);
+        salesOrder.setStatus(SalesOrderStatus.PENDING);
         salesOrder.setPriority(OrderPriority.HIGH);
         salesOrder.setSoNumber(generateStorefrontOrderNumber());
         salesOrder.setSalesChannel(SalesChannel.WEB_ORDER);
@@ -801,7 +805,8 @@ public class StorefrontServiceImpl implements StorefrontService {
                 salesOrder.getExpectedDeliveryDate(),
                 salesOrder.getTotalAmount(),
                 salesOrder.getCurrency(),
-                salesOrder.getItems().stream().map(this::mapSalesOrderItem).toList()
+                salesOrder.getItems().stream().map(this::mapSalesOrderItem).toList(),
+                java.util.List.of()
         );
     }
 
@@ -809,7 +814,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional(readOnly = true)
     public List<StorefrontPublishVersionDto> getPublishVersions() {
         requireAdminStorefrontAccess();
-        return storefrontPublishVersionRepository.findAllByTenantIdOrderByVersionNumberDesc(currentTenantId()).stream()
+        return storefrontPublishVersionRepository.findAllByOrderByVersionNumberDesc().stream()
                 .map(this::mapPublishVersion)
                 .toList();
     }
@@ -820,8 +825,7 @@ public class StorefrontServiceImpl implements StorefrontService {
         requireAdminStorefrontAccess();
         StorefrontThemeDocumentDto currentTheme = loadDraftThemeDocument();
         StorefrontConfigDto current = deriveLegacyConfig(currentTheme);
-        String tenantId = currentTenantId();
-        int nextVersionNumber = storefrontPublishVersionRepository.findTopByTenantIdOrderByVersionNumberDesc(tenantId)
+        int nextVersionNumber = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
                 .map(version -> version.getVersionNumber() + 1)
                 .orElse(1);
         LocalDateTime publishedAt = LocalDateTime.now();
@@ -851,12 +855,11 @@ public class StorefrontServiceImpl implements StorefrontService {
     @Transactional
     public StorefrontPublishVersionDto rollbackToVersion(UUID versionId, StorefrontPublishRequest request) {
         requireAdminStorefrontAccess();
-        String tenantId = currentTenantId();
-        StorefrontPublishVersion targetVersion = storefrontPublishVersionRepository.findByIdAndTenantId(versionId, tenantId)
+        StorefrontPublishVersion targetVersion = storefrontPublishVersionRepository.findById(versionId)
                 .orElseThrow(() -> new ResourceNotFoundException("Storefront publish version", "id", versionId));
 
         StorefrontThemeSnapshotDto snapshot = readThemeSnapshot(targetVersion);
-        int nextVersionNumber = storefrontPublishVersionRepository.findTopByTenantIdOrderByVersionNumberDesc(tenantId)
+        int nextVersionNumber = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
                 .map(version -> version.getVersionNumber() + 1)
                 .orElse(1);
         LocalDateTime publishedAt = LocalDateTime.now();
@@ -1127,17 +1130,9 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private Optional<StorefrontThemeDocumentDto> loadPublishedThemeDocument() {
-        return storefrontPublishVersionRepository.findTopByTenantIdOrderByVersionNumberDesc(currentTenantId())
+        return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
                 .map(this::readThemeSnapshot)
                 .map(StorefrontThemeSnapshotDto::getThemeDocument);
-    }
-
-    private String currentTenantId() {
-        String tenantId = TenantContext.getTenantId();
-        if (tenantId == null || tenantId.isBlank()) {
-            throw new IllegalStateException("Missing tenant context for storefront operation");
-        }
-        return tenantId;
     }
 
     private void persistDraftThemeDocument(StorefrontThemeDocumentDto document) {
@@ -2027,7 +2022,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                     .orElseThrow(() -> new BadRequestException("Configured storefront warehouse not found with ID: " + configuredWarehouseId));
         }
 
-        return warehouseRepository.findByTenantIdOrderByCreatedAtAsc(TenantContext.getTenantId()).stream()
+        return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
                 .findFirst()
                 .orElseThrow(() -> new BadRequestException("At least one warehouse is required before using storefront checkout"));
     }
@@ -2037,8 +2032,7 @@ public class StorefrontServiceImpl implements StorefrontService {
         if (configuredWarehouseId != null) {
             return warehouseRepository.findById(configuredWarehouseId).orElse(null);
         }
-        String tenantId = TenantContext.getTenantId();
-        return warehouseRepository.findByTenantIdOrderByCreatedAtAsc(tenantId).stream()
+        return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
                 .findFirst()
                 .orElse(null);
     }
@@ -2089,8 +2083,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private List<ProductVariant> loadPublishedStorefrontVariants() {
-        String tenantId = TenantContext.getTenantId();
-        return productVariantRepository.findByTenantIdAndTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue(tenantId).stream()
+        return productVariantRepository.findByTemplatePublishedToStorefrontTrueAndTemplateIsActiveTrue().stream()
                 .sorted((left, right) -> {
                     Integer leftSort = left.getTemplate().getStorefrontSortOrder() != null ? left.getTemplate().getStorefrontSortOrder() : Integer.MAX_VALUE;
                     Integer rightSort = right.getTemplate().getStorefrontSortOrder() != null ? right.getTemplate().getStorefrontSortOrder() : Integer.MAX_VALUE;
@@ -2317,18 +2310,25 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private void reserveStockForOrder(SalesOrder order, Warehouse warehouse) {
+        org.springframework.transaction.support.TransactionTemplate isolated =
+                new org.springframework.transaction.support.TransactionTemplate(platformTransactionManager);
+        isolated.setPropagationBehavior(
+                org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW);
         for (SalesOrderItem item : order.getItems()) {
             try {
-                StockReservationRequest reservationRequest = new StockReservationRequest();
-                reservationRequest.setProductVariantId(item.getProductVariant().getId());
-                reservationRequest.setWarehouseId(warehouse.getId());
-                reservationRequest.setQuantity(item.getQuantity());
-                reservationRequest.setReferenceId(order.getSoNumber());
-                reservationRequest.setPriority(com.inventory.system.common.entity.ReservationPriority.HIGH);
-                reservationRequest.setExpiresAt(LocalDateTime.now().plusHours(48));
-                stockReservationService.reserveStock(reservationRequest);
+                isolated.executeWithoutResult(status -> {
+                    StockReservationRequest reservationRequest = new StockReservationRequest();
+                    reservationRequest.setProductVariantId(item.getProductVariant().getId());
+                    reservationRequest.setWarehouseId(warehouse.getId());
+                    reservationRequest.setQuantity(item.getQuantity());
+                    reservationRequest.setReferenceId(order.getSoNumber());
+                    reservationRequest.setPriority(com.inventory.system.common.entity.ReservationPriority.HIGH);
+                    reservationRequest.setExpiresAt(LocalDateTime.now().plusHours(48));
+                    stockReservationService.reserveStock(reservationRequest);
+                });
             } catch (Exception e) {
-                // Log but do not block checkout — stock may be insufficient but order still created
+                logger.warn("Stock reservation skipped for order {} variant {}: {}",
+                        order.getSoNumber(), item.getProductVariant().getId(), e.getMessage());
             }
         }
     }

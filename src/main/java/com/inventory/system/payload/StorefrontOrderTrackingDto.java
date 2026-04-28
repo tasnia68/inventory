@@ -26,4 +26,5 @@ public class StorefrontOrderTrackingDto {
     private BigDecimal totalAmount;
     private String currency;
     private List<SalesOrderItemDto> items = new ArrayList<>();
+    private List<StorefrontShipmentDto> shipments = new ArrayList<>();
 }

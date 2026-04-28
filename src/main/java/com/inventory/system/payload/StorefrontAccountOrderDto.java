@@ -15,7 +15,9 @@ public class StorefrontAccountOrderDto {
     private String orderNumber;
     private String status;
     private String orderDate;
+    private String expectedDeliveryDate;
     private BigDecimal totalAmount;
     private String currency;
     private List<StorefrontAccountOrderItemDto> items = new ArrayList<>();
+    private List<StorefrontShipmentDto> shipments = new ArrayList<>();
 }

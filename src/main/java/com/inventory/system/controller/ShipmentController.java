@@ -5,10 +5,13 @@ import com.inventory.system.payload.CreateShipmentRequest;
 import com.inventory.system.payload.DeliveryConfirmationRequest;
 import com.inventory.system.payload.DeliveryNoteDto;
 import com.inventory.system.payload.GenerateShippingLabelRequest;
+import com.inventory.system.payload.ShipmentDeliveryReviewActionRequest;
 import com.inventory.system.payload.ShipmentDto;
+import com.inventory.system.payload.ShipmentQueueSummaryDto;
 import com.inventory.system.payload.ShipmentSearchRequest;
 import com.inventory.system.payload.UpdateShipmentTrackingRequest;
 import com.inventory.system.service.ShipmentService;
+import com.inventory.system.common.entity.ShipmentQueueType;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -69,6 +72,24 @@ public class ShipmentController {
         return ResponseEntity.ok(ApiResponse.success(shipments, "Shipments retrieved successfully"));
     }
 
+    @GetMapping("/queue-summary")
+    public ResponseEntity<ApiResponse<ShipmentQueueSummaryDto>> getShipmentQueueSummary() {
+        ShipmentQueueSummaryDto summary = shipmentService.getShipmentQueueSummary();
+        return ResponseEntity.ok(ApiResponse.success(summary, "Shipment queue summary retrieved successfully"));
+    }
+
+    @GetMapping("/queue/{queue}")
+    public ResponseEntity<ApiResponse<Page<ShipmentDto>>> getShipmentsByQueue(
+            @PathVariable ShipmentQueueType queue,
+            @RequestParam(defaultValue = "0") int page,
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(defaultValue = "updatedAt") String sortBy,
+            @RequestParam(defaultValue = "desc") String sortDirection) {
+
+        Page<ShipmentDto> shipments = shipmentService.getShipmentsByQueue(queue, page, size, sortBy, sortDirection);
+        return ResponseEntity.ok(ApiResponse.success(shipments, "Shipment queue retrieved successfully"));
+    }
+
     @PatchMapping("/{id}/tracking")
     public ResponseEntity<ApiResponse<ShipmentDto>> updateTracking(@PathVariable UUID id,
                                                                     @RequestBody UpdateShipmentTrackingRequest request) {
@@ -88,6 +109,20 @@ public class ShipmentController {
                                                                      @RequestBody(required = false) DeliveryConfirmationRequest request) {
         ShipmentDto shipment = shipmentService.confirmDelivery(id, request);
         return ResponseEntity.ok(ApiResponse.success(shipment, "Delivery confirmed successfully"));
+    }
+
+    @PostMapping("/{id}/approve-delivery")
+    public ResponseEntity<ApiResponse<ShipmentDto>> approveDelivery(@PathVariable UUID id,
+                                                                    @RequestBody(required = false) ShipmentDeliveryReviewActionRequest request) {
+        ShipmentDto shipment = shipmentService.approveDelivery(id, request);
+        return ResponseEntity.ok(ApiResponse.success(shipment, "Delivery review approved successfully"));
+    }
+
+    @PostMapping("/{id}/dispute-delivery")
+    public ResponseEntity<ApiResponse<ShipmentDto>> disputeDelivery(@PathVariable UUID id,
+                                                                    @RequestBody(required = false) ShipmentDeliveryReviewActionRequest request) {
+        ShipmentDto shipment = shipmentService.disputeDelivery(id, request);
+        return ResponseEntity.ok(ApiResponse.success(shipment, "Delivery disputed successfully"));
     }
 
     @GetMapping("/{id}/delivery-note")

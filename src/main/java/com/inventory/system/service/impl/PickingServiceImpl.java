@@ -107,8 +107,6 @@ public class PickingServiceImpl implements PickingService {
                 for (Stock stock : stocks) {
                     if (remainingQuantity.compareTo(BigDecimal.ZERO) <= 0) break;
 
-                    if (stock.getStorageLocation() == null) continue;
-
                     BigDecimal pickQuantity = stock.getQuantity().min(remainingQuantity);
 
                     PickingTask task = new PickingTask();
@@ -271,8 +269,10 @@ public class PickingServiceImpl implements PickingService {
         dto.setProductVariantId(task.getProductVariant().getId());
         dto.setProductVariantName(task.getProductVariant().getSku());
         dto.setSku(task.getProductVariant().getSku());
-        dto.setStorageLocationId(task.getStorageLocation().getId());
-        dto.setStorageLocationName(task.getStorageLocation().getName());
+        if (task.getStorageLocation() != null) {
+            dto.setStorageLocationId(task.getStorageLocation().getId());
+            dto.setStorageLocationName(task.getStorageLocation().getName());
+        }
         if (task.getBatch() != null) {
             dto.setBatchId(task.getBatch().getId());
             dto.setBatchNumber(task.getBatch().getBatchNumber());

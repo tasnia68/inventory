@@ -3,6 +3,9 @@ package com.inventory.system.controller;
 import com.inventory.system.common.entity.OrderPriority;
 import com.inventory.system.common.entity.SalesOrderStatus;
 import com.inventory.system.payload.ApiResponse;
+import com.inventory.system.payload.ConfirmOrderRequest;
+import com.inventory.system.payload.HoldOrderRequest;
+import com.inventory.system.payload.PartialDeliveryLineRequest;
 import com.inventory.system.payload.SalesOrderDto;
 import com.inventory.system.payload.SalesOrderRequest;
 import com.inventory.system.payload.SalesOrderSearchRequest;
@@ -86,5 +89,61 @@ public class SalesOrderController {
     public ResponseEntity<ApiResponse<SalesOrderDto>> updateSalesOrderStatus(@PathVariable UUID id, @RequestParam SalesOrderStatus status) {
         SalesOrderDto salesOrder = salesOrderService.updateSalesOrderStatus(id, status);
         return ResponseEntity.ok(ApiResponse.success(salesOrder, "Sales Order status updated successfully"));
+    }
+
+    @GetMapping("/{id}/allowed-transitions")
+    public ResponseEntity<ApiResponse<java.util.Set<SalesOrderStatus>>> allowedTransitions(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.getAllowedTransitions(id), "OK"));
+    }
+
+    @PostMapping("/{id}/hold")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> hold(@PathVariable UUID id, @RequestBody(required = false) HoldOrderRequest request) {
+        String reason = request != null ? request.getReason() : null;
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.holdOrder(id, reason), "Order placed on hold"));
+    }
+
+    @PostMapping("/{id}/approve")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> approve(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.updateSalesOrderStatus(id, SalesOrderStatus.APPROVED), "Order approved"));
+    }
+
+    @PostMapping("/{id}/confirm")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> confirm(@PathVariable UUID id, @RequestBody(required = false) ConfirmOrderRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.confirmOrder(id, request), "Order confirmed"));
+    }
+
+    @PostMapping("/{id}/pack-complete")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> packComplete(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.updateSalesOrderStatus(id, SalesOrderStatus.PACKAGING), "Order packaged"));
+    }
+
+    @PostMapping("/{id}/ship")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> ship(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.updateSalesOrderStatus(id, SalesOrderStatus.SHIPPED), "Order shipped"));
+    }
+
+    @PostMapping("/{id}/deliver")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> deliver(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.updateSalesOrderStatus(id, SalesOrderStatus.DELIVERED), "Order delivered"));
+    }
+
+    @PostMapping("/{id}/partial-deliver")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> partialDeliver(@PathVariable UUID id, @Valid @RequestBody java.util.List<PartialDeliveryLineRequest> lines) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.partialDeliver(id, lines), "Partial delivery recorded"));
+    }
+
+    @PatchMapping("/{id}/items")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> updateItems(@PathVariable UUID id, @Valid @RequestBody java.util.List<com.inventory.system.payload.SalesOrderItemRequest> items) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.updateItems(id, items), "Items updated"));
+    }
+
+    @PostMapping("/{id}/return")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> markReturned(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.updateSalesOrderStatus(id, SalesOrderStatus.RETURNED), "Order returned"));
+    }
+
+    @PostMapping("/{id}/cancel")
+    public ResponseEntity<ApiResponse<SalesOrderDto>> cancel(@PathVariable UUID id) {
+        return ResponseEntity.ok(ApiResponse.success(salesOrderService.updateSalesOrderStatus(id, SalesOrderStatus.CANCELLED), "Order cancelled"));
     }
 }

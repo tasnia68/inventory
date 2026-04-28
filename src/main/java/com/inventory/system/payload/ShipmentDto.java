@@ -1,6 +1,7 @@
 package com.inventory.system.payload;
 
 import com.inventory.system.common.entity.CourierDispatchStatus;
+import com.inventory.system.common.entity.DeliveryReviewStatus;
 import com.inventory.system.common.entity.ShipmentStatus;
 import lombok.Data;
 
@@ -30,6 +31,13 @@ public class ShipmentDto {
     private BigDecimal deliveryFee;
     private LocalDateTime shippedDate;
     private LocalDateTime deliveredDate;
+    private DeliveryReviewStatus deliveryReviewStatus;
+    private String deliveryReviewReason;
+    private LocalDateTime deliveryReviewRequestedAt;
+    private LocalDateTime deliveryReviewResolvedAt;
+    private String proofOfDeliveryUrl;
+    private String proofOfDeliveryRecipientName;
+    private LocalDateTime proofOfDeliveryCapturedAt;
     private LocalDateTime pickupRequestedAt;
     private LocalDateTime pickedUpAt;
     private LocalDateTime outForDeliveryAt;
@@ -38,6 +46,7 @@ public class ShipmentDto {
     private String deliveryNote;
     private String notes;
     private List<ShipmentItemDto> items;
+    private List<ShipmentTimelineEventDto> timeline;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private String createdBy;

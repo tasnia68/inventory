@@ -31,7 +31,7 @@ public class Category extends BaseEntity {
     private String description;
 
     @Column(name = "published_to_storefront", nullable = false)
-    private Boolean publishedToStorefront = false;
+    private Boolean publishedToStorefront = true;
 
     @Column(name = "storefront_slug")
     private String storefrontSlug;

@@ -1311,7 +1311,7 @@ public class ReportingServiceImpl implements ReportingService {
 
     private boolean isOpenSalesOrder(SalesOrderStatus status) {
         return status == SalesOrderStatus.DRAFT
-                || status == SalesOrderStatus.PENDING_APPROVAL
+                || status == SalesOrderStatus.PENDING
                 || status == SalesOrderStatus.APPROVED
                 || status == SalesOrderStatus.CONFIRMED
                 || status == SalesOrderStatus.BACKORDERED

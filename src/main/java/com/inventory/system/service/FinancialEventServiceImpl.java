@@ -9,7 +9,10 @@ import com.inventory.system.common.entity.GoodsReceiptNoteItem;
 import com.inventory.system.common.entity.PosSale;
 import com.inventory.system.common.entity.PosSalePayment;
 import com.inventory.system.common.entity.PostingStatus;
+import com.inventory.system.common.entity.SalesOrder;
+import com.inventory.system.common.entity.SalesOrderItem;
 import com.inventory.system.common.entity.SalesRefund;
+import com.inventory.system.common.entity.ShippingRateCard;
 import com.inventory.system.common.entity.StockMovement;
 import com.inventory.system.common.entity.StockTransaction;
 import com.inventory.system.common.entity.StockTransactionItem;
@@ -62,10 +65,15 @@ public class FinancialEventServiceImpl implements FinancialEventService {
     private static final String ACCOUNT_INVENTORY_ADJUSTMENT_GAIN = "INVENTORY_ADJUSTMENT_GAIN";
     private static final String ACCOUNT_INVENTORY_ADJUSTMENT_LOSS = "INVENTORY_ADJUSTMENT_LOSS";
     private static final String ACCOUNT_INVENTORY_WRITE_OFF = "INVENTORY_WRITE_OFF";
+    private static final String ACCOUNT_COURIER_FEE_EXPENSE = "COURIER_FEE_EXPENSE";
+    private static final String ACCOUNT_COD_FEE_EXPENSE = "COD_FEE_EXPENSE";
+    private static final String ACCOUNT_ACCRUED_COURIER_PAYABLE = "ACCRUED_COURIER_PAYABLE";
+    private static final String ACCOUNT_BANK_DEPOSIT = "BANK_DEPOSIT";
 
     private final FinancialEventRepository financialEventRepository;
     private final StockMovementRepository stockMovementRepository;
     private final TenantSettingService tenantSettingService;
+    private final com.inventory.system.repository.ShippingRateCardRepository shippingRateCardRepository;
 
     @Override
     @Transactional
@@ -207,6 +215,273 @@ public class FinancialEventServiceImpl implements FinancialEventService {
                         {"refundMethod":"%s","refundType":"%s","warehouseId":"%s"}
                         """.formatted(salesRefund.getRefundMethod(), salesRefund.getRefundType(), salesRefund.getWarehouse().getId()).trim(),
                 lines);
+    }
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordSalesOrderDelivery(SalesOrder salesOrder, boolean partialDelivery) {
+        BigDecimal revenueAmount = partialDelivery
+                ? sumPartialLineRevenue(salesOrder)
+                : scale(salesOrder.getTotalAmount());
+        if (revenueAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+
+        BigDecimal cogsAmount = computeCogsForDelivery(salesOrder, partialDelivery);
+        String currency = salesOrder.getCurrency() != null ? salesOrder.getCurrency() : defaultCurrency();
+        List<LineDefinition> lines = new ArrayList<>();
+        lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing",
+                revenueAmount, currency,
+                partialDelivery ? "COD collected for partial delivery" : "COD collected on delivery"));
+        lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_SALES_REVENUE, "Sales Revenue",
+                revenueAmount, currency,
+                partialDelivery ? "Sales revenue recognised for delivered portion" : "Sales revenue recognised on delivery"));
+        if (cogsAmount.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_COGS, "Cost of Goods Sold",
+                    cogsAmount, currency,
+                    partialDelivery ? "COGS for delivered portion" : "COGS for delivered order"));
+            lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_INVENTORY_ASSET, "Inventory Asset",
+                    cogsAmount, currency,
+                    "Inventory relieved for delivered SO " + salesOrder.getSoNumber()));
+        }
+
+        FinancialEventType type = partialDelivery
+                ? FinancialEventType.SALES_ORDER_PARTIAL_DELIVERY
+                : FinancialEventType.SALES_ORDER_DELIVERY;
+        return upsertEvent(type, "SALES_ORDER", salesOrder.getId().toString(), salesOrder.getSoNumber(),
+                salesOrder.getSoNumber(),
+                (partialDelivery ? "Partial delivery recognised for " : "Delivery recognised for ") + salesOrder.getSoNumber(),
+                revenueAmount, currency,
+                """
+                        {"salesOrderId":"%s","courierProfileId":"%s","deliveryZone":"%s","partial":%s,"cogs":"%s"}
+                        """.formatted(
+                                salesOrder.getId(),
+                                salesOrder.getCourierProfileId(),
+                                salesOrder.getDeliveryZone(),
+                                partialDelivery,
+                                cogsAmount).trim(),
+                lines);
+    }
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordCourierFee(SalesOrder salesOrder, boolean partialDelivery) {
+        ShippingRateCard card = lookupRateCard(salesOrder);
+        if (card == null) return null;
+        BigDecimal courierCost = card.getCourierCost() != null ? scale(card.getCourierCost()) : BigDecimal.ZERO;
+        if (courierCost.compareTo(BigDecimal.ZERO) <= 0) return null;
+        String currency = salesOrder.getCurrency() != null ? salesOrder.getCurrency() : defaultCurrency();
+        List<LineDefinition> lines = List.of(
+                line(SubledgerEntryType.DEBIT, ACCOUNT_COURIER_FEE_EXPENSE, "Courier Fee Expense",
+                        courierCost, currency, "Courier fee for SO " + salesOrder.getSoNumber()),
+                line(SubledgerEntryType.CREDIT, ACCOUNT_ACCRUED_COURIER_PAYABLE, "Accrued Courier Payable",
+                        courierCost, currency, "Amount owed to courier for SO " + salesOrder.getSoNumber())
+        );
+        return upsertEvent(FinancialEventType.COURIER_FEE, "SALES_ORDER",
+                salesOrder.getId().toString() + ":courier-fee", salesOrder.getSoNumber(),
+                salesOrder.getSoNumber(), "Courier fee accrual for " + salesOrder.getSoNumber(),
+                courierCost, currency,
+                """
+                        {"salesOrderId":"%s","courierProfileId":"%s","deliveryZone":"%s","partial":%s}
+                        """.formatted(salesOrder.getId(), salesOrder.getCourierProfileId(),
+                                salesOrder.getDeliveryZone(), partialDelivery).trim(),
+                lines);
+    }
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordCodCollectionFee(SalesOrder salesOrder, boolean partialDelivery) {
+        ShippingRateCard card = lookupRateCard(salesOrder);
+        if (card == null) return null;
+        BigDecimal feePercent = card.getCodFeePercent() != null ? card.getCodFeePercent() : BigDecimal.ZERO;
+        if (feePercent.compareTo(BigDecimal.ZERO) <= 0) return null;
+
+        BigDecimal codBase;
+        if (partialDelivery) {
+            codBase = sumPartialLineRevenue(salesOrder);
+        } else {
+            codBase = salesOrder.getCodAmount() != null ? salesOrder.getCodAmount()
+                    : (salesOrder.getTotalAmount() != null ? salesOrder.getTotalAmount() : BigDecimal.ZERO);
+        }
+        if (codBase.compareTo(BigDecimal.ZERO) <= 0) return null;
+
+        BigDecimal codFee = scale(codBase.multiply(feePercent).divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP));
+        if (codFee.compareTo(BigDecimal.ZERO) <= 0) return null;
+
+        String currency = salesOrder.getCurrency() != null ? salesOrder.getCurrency() : defaultCurrency();
+        List<LineDefinition> lines = List.of(
+                line(SubledgerEntryType.DEBIT, ACCOUNT_COD_FEE_EXPENSE, "COD Collection Fee Expense",
+                        codFee, currency, "COD collection fee for SO " + salesOrder.getSoNumber()),
+                line(SubledgerEntryType.CREDIT, ACCOUNT_ACCRUED_COURIER_PAYABLE, "Accrued Courier Payable",
+                        codFee, currency, "COD fee owed to courier for SO " + salesOrder.getSoNumber())
+        );
+        return upsertEvent(FinancialEventType.COD_COLLECTION_FEE, "SALES_ORDER",
+                salesOrder.getId().toString() + ":cod-fee", salesOrder.getSoNumber(),
+                salesOrder.getSoNumber(), "COD collection fee for " + salesOrder.getSoNumber(),
+                codFee, currency,
+                """
+                        {"salesOrderId":"%s","feePercent":"%s","codBase":"%s"}
+                        """.formatted(salesOrder.getId(), feePercent, codBase).trim(),
+                lines);
+    }
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordSalesOrderReturn(SalesOrder salesOrder) {
+        BigDecimal recognizedRevenue = sumPriorRecognizedRevenue(salesOrder);
+        BigDecimal recognizedCogs = sumPriorRecognizedCogs(salesOrder);
+        if (recognizedRevenue.compareTo(BigDecimal.ZERO) <= 0 && recognizedCogs.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        String currency = salesOrder.getCurrency() != null ? salesOrder.getCurrency() : defaultCurrency();
+        List<LineDefinition> lines = new ArrayList<>();
+        if (recognizedRevenue.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_SALES_RETURNS, "Sales Returns and Allowances",
+                    recognizedRevenue, currency, "Reversal of revenue on return for " + salesOrder.getSoNumber()));
+            lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing",
+                    recognizedRevenue, currency, "Cash refund obligation for returned SO " + salesOrder.getSoNumber()));
+        }
+        if (recognizedCogs.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_INVENTORY_ASSET, "Inventory Asset",
+                    recognizedCogs, currency, "Restocked inventory on return"));
+            lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_COGS, "Cost of Goods Sold",
+                    recognizedCogs, currency, "COGS reversal on return"));
+        }
+        BigDecimal totalAmount = recognizedRevenue.add(recognizedCogs);
+        return upsertEvent(FinancialEventType.SALES_ORDER_RETURN, "SALES_ORDER",
+                salesOrder.getId().toString() + ":return", salesOrder.getSoNumber(),
+                salesOrder.getSoNumber(), "Return reversal for " + salesOrder.getSoNumber(),
+                totalAmount, currency,
+                """
+                        {"salesOrderId":"%s","reversedRevenue":"%s","reversedCogs":"%s"}
+                        """.formatted(salesOrder.getId(), recognizedRevenue, recognizedCogs).trim(),
+                lines);
+    }
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordSalesOrderPartialCancel(SalesOrder salesOrder) {
+        BigDecimal shippingAmount = salesOrder.getShippingAmount() != null
+                ? scale(salesOrder.getShippingAmount()) : BigDecimal.ZERO;
+        if (shippingAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        String currency = salesOrder.getCurrency() != null ? salesOrder.getCurrency() : defaultCurrency();
+        List<LineDefinition> lines = List.of(
+                line(SubledgerEntryType.DEBIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing",
+                        shippingAmount, currency, "Delivery fee collected (goods refused)"),
+                line(SubledgerEntryType.CREDIT, ACCOUNT_SALES_REVENUE, "Sales Revenue",
+                        shippingAmount, currency, "Shipping revenue recognised on partial cancel")
+        );
+        return upsertEvent(FinancialEventType.SALES_ORDER_DELIVERY, "SALES_ORDER",
+                salesOrder.getId().toString() + ":partial-cancel", salesOrder.getSoNumber(),
+                salesOrder.getSoNumber(),
+                "Partial cancel — delivery fee retained for " + salesOrder.getSoNumber(),
+                shippingAmount, currency,
+                """
+                        {"salesOrderId":"%s","scenario":"partial_cancel","shippingAmount":"%s"}
+                        """.formatted(salesOrder.getId(), shippingAmount).trim(),
+                lines);
+    }
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordCourierSettlement(String settlementReference, java.util.UUID courierProfileId,
+                                                     BigDecimal grossAmount, BigDecimal feeAmount, BigDecimal netAmount,
+                                                     String currency, String notes) {
+        BigDecimal gross = scale(grossAmount != null ? grossAmount : BigDecimal.ZERO);
+        BigDecimal fee = scale(feeAmount != null ? feeAmount : BigDecimal.ZERO);
+        BigDecimal net = scale(netAmount != null ? netAmount : gross.subtract(fee));
+        if (gross.compareTo(BigDecimal.ZERO) <= 0 && net.compareTo(BigDecimal.ZERO) <= 0) {
+            return null;
+        }
+        String resolvedCurrency = defaultCurrency(currency);
+        List<LineDefinition> lines = new ArrayList<>();
+        if (net.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_BANK_DEPOSIT, "Bank Deposit",
+                    net, resolvedCurrency, "Cash received from courier remittance"));
+        }
+        if (fee.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_ACCRUED_COURIER_PAYABLE, "Accrued Courier Payable",
+                    fee, resolvedCurrency, "Settling accrued courier fees"));
+        }
+        BigDecimal credit = net.add(fee);
+        if (credit.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing",
+                    credit, resolvedCurrency, "Clearing courier-held COD on settlement"));
+        }
+        return upsertEvent(FinancialEventType.COURIER_FEE,
+                "COURIER_SETTLEMENT", settlementReference, settlementReference, settlementReference,
+                notes != null ? notes : "Courier settlement " + settlementReference,
+                net, resolvedCurrency,
+                """
+                        {"courierProfileId":"%s","gross":"%s","fee":"%s","net":"%s"}
+                        """.formatted(courierProfileId, gross, fee, net).trim(),
+                lines);
+    }
+
+    private ShippingRateCard lookupRateCard(SalesOrder salesOrder) {
+        if (salesOrder.getCourierProfileId() == null || salesOrder.getDeliveryZone() == null) return null;
+        return shippingRateCardRepository
+                .findFirstByCourierProfileIdAndZone(salesOrder.getCourierProfileId(), salesOrder.getDeliveryZone())
+                .orElse(null);
+    }
+
+    private BigDecimal computeCogsForDelivery(SalesOrder salesOrder, boolean partialDelivery) {
+        BigDecimal totalCogs = BigDecimal.ZERO;
+        for (SalesOrderItem item : salesOrder.getItems()) {
+            String ref = salesOrder.getId().toString() + ":ship:" + item.getId();
+            List<StockMovement> movements = stockMovementRepository.findByReferenceIdOrderByCreatedAtAsc(ref);
+            BigDecimal itemCogs = sumMovementCost(movements);
+            if (partialDelivery) {
+                BigDecimal shipped = item.getShippedQuantity() != null ? item.getShippedQuantity() : BigDecimal.ZERO;
+                BigDecimal fulfilled = item.getFulfilledQuantity() != null ? item.getFulfilledQuantity() : BigDecimal.ZERO;
+                if (shipped.compareTo(BigDecimal.ZERO) > 0 && itemCogs.compareTo(BigDecimal.ZERO) > 0) {
+                    itemCogs = itemCogs.multiply(fulfilled).divide(shipped, 6, RoundingMode.HALF_UP);
+                } else {
+                    itemCogs = BigDecimal.ZERO;
+                }
+            }
+            totalCogs = totalCogs.add(itemCogs);
+        }
+        return scale(totalCogs);
+    }
+
+    private BigDecimal sumPriorRecognizedRevenue(SalesOrder salesOrder) {
+        java.util.Set<FinancialEventType> revenueTypes = java.util.EnumSet.of(
+                FinancialEventType.SALES_ORDER_DELIVERY, FinancialEventType.SALES_ORDER_PARTIAL_DELIVERY);
+        return financialEventRepository.findAll().stream()
+                .filter(e -> "SALES_ORDER".equals(e.getSourceDocumentType()))
+                .filter(e -> salesOrder.getId().toString().equals(e.getSourceDocumentId()))
+                .filter(e -> revenueTypes.contains(e.getEventType()))
+                .map(FinancialEvent::getTotalAmount)
+                .filter(java.util.Objects::nonNull)
+                .map(this::scale)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+    }
+
+    private BigDecimal sumPriorRecognizedCogs(SalesOrder salesOrder) {
+        BigDecimal totalCogs = BigDecimal.ZERO;
+        for (SalesOrderItem item : salesOrder.getItems()) {
+            String ref = salesOrder.getId().toString() + ":ship:" + item.getId();
+            List<StockMovement> movements = stockMovementRepository.findByReferenceIdOrderByCreatedAtAsc(ref);
+            totalCogs = totalCogs.add(sumMovementCost(movements));
+        }
+        return scale(totalCogs);
+    }
+
+    private BigDecimal sumPartialLineRevenue(SalesOrder salesOrder) {
+        BigDecimal linesTotal = salesOrder.getItems().stream()
+                .map(this::fulfilledLineTotal)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal shipping = salesOrder.getShippingAmount() != null ? salesOrder.getShippingAmount() : BigDecimal.ZERO;
+        return scale(linesTotal.add(shipping));
+    }
+
+    private BigDecimal fulfilledLineTotal(SalesOrderItem item) {
+        BigDecimal fulfilled = item.getFulfilledQuantity() != null ? item.getFulfilledQuantity() : BigDecimal.ZERO;
+        BigDecimal unit = item.getUnitPrice() != null ? item.getUnitPrice() : BigDecimal.ZERO;
+        return fulfilled.multiply(unit);
     }
 
     @Override

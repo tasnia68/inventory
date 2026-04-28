@@ -52,6 +52,11 @@ public class TenantContextFilter implements Filter {
             return;
         }
 
+        if (requestPath.startsWith("/api/webhooks/")) {
+            // Webhook auth is HMAC-based; JWT bypass is already handled in JwtAuthenticationFilter.
+            // Tenant context still needs to be established from the path below.
+        }
+
         boolean isPublicImageRequest = requestPath.startsWith("/api/v1/product-images/") && requestPath.endsWith("/file");
 
         String tenantId;
@@ -59,6 +64,12 @@ public class TenantContextFilter implements Filter {
             tenantId = resolveStorefrontTenant(req);
             if (!StringUtils.hasText(tenantId)) {
                 res.sendError(HttpServletResponse.SC_NOT_FOUND, "Unknown storefront domain");
+                return;
+            }
+        } else if (requestPath.startsWith("/api/webhooks/")) {
+            tenantId = resolveWebhookTenant(requestPath);
+            if (!StringUtils.hasText(tenantId)) {
+                res.sendError(HttpServletResponse.SC_BAD_REQUEST, "Webhook URL must include tenant segment");
                 return;
             }
         } else {
@@ -85,6 +96,13 @@ public class TenantContextFilter implements Filter {
         } finally {
             TenantContext.clear();
         }
+    }
+
+    private String resolveWebhookTenant(String requestPath) {
+        // Expected shape: /api/webhooks/{provider}/{tenantId}/{resource}
+        String[] parts = requestPath.split("/");
+        // parts[0]="" parts[1]="api" parts[2]="webhooks" parts[3]=provider parts[4]=tenantId
+        return parts.length > 4 ? parts[4] : null;
     }
 
     private String resolveStorefrontTenant(HttpServletRequest request) {

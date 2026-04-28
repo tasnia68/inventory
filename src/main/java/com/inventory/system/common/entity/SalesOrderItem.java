@@ -45,4 +45,13 @@ public class SalesOrderItem extends BaseEntity {
 
     @Column(name = "shipped_quantity", nullable = false, precision = 19, scale = 6)
     private BigDecimal shippedQuantity = BigDecimal.ZERO;
+
+    @Column(name = "fulfilled_quantity", nullable = false, precision = 19, scale = 6)
+    private BigDecimal fulfilledQuantity = BigDecimal.ZERO;
+
+    @Column(name = "returned_quantity", nullable = false, precision = 19, scale = 6)
+    private BigDecimal returnedQuantity = BigDecimal.ZERO;
+
+    @Column(name = "cancelled_quantity", nullable = false, precision = 19, scale = 6)
+    private BigDecimal cancelledQuantity = BigDecimal.ZERO;
 }
