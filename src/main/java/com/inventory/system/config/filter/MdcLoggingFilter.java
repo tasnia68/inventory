@@ -23,7 +23,7 @@ public class MdcLoggingFilter implements Filter {
             throws IOException, ServletException {
         try {
             // Assuming TenantContext has already been populated by TenantContextFilter
-            String tenantId = TenantContext.getTenantId();
+            String tenantId = TenantContext.getCurrentTenantId();
             if (tenantId != null) {
                 MDC.put(TENANT_ID_MDC_KEY, tenantId);
             } else {

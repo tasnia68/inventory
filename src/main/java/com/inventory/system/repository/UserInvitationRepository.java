@@ -11,4 +11,5 @@ import java.util.UUID;
 public interface UserInvitationRepository extends JpaRepository<UserInvitation, UUID> {
     Optional<UserInvitation> findByToken(String token);
     Optional<UserInvitation> findByEmail(String email);
+    Optional<UserInvitation> findByEmailAndTenantId(String email, String tenantId);
 }

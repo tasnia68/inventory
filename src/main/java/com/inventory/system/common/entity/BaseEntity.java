@@ -8,19 +8,13 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.MappedSuperclass;
 import jakarta.persistence.PrePersist;
-import jakarta.persistence.PreUpdate;
 import lombok.Getter;
 import lombok.Setter;
 import org.hibernate.annotations.Filter;
 import org.hibernate.annotations.FilterDef;
 import org.hibernate.annotations.ParamDef;
-import org.springframework.data.annotation.CreatedBy;
-import org.springframework.data.annotation.CreatedDate;
-import org.springframework.data.annotation.LastModifiedBy;
-import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
-import java.time.LocalDateTime;
 import java.util.UUID;
 
 @Getter
@@ -42,7 +36,7 @@ public abstract class BaseEntity extends AuditableEntity {
     @PrePersist
     public void prePersist() {
         if (this.tenantId == null || this.tenantId.isBlank()) {
-            this.tenantId = TenantContext.getTenantId();
+            this.tenantId = TenantContext.requireTenantId();
         }
     }
 }

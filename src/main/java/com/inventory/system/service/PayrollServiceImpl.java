@@ -3,6 +3,7 @@ package com.inventory.system.service;
 import com.inventory.system.common.entity.*;
 import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
+import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.*;
 import com.inventory.system.repository.*;
 import lombok.RequiredArgsConstructor;
@@ -361,7 +362,8 @@ public class PayrollServiceImpl implements PayrollService {
                 if (parts.length < 10) {
                     continue;
                 }
-                User user = userRepository.findByEmail(parts[0].trim())
+                String tenantId = TenantContext.requireTenantId();
+                User user = userRepository.findByEmailAndTenantId(parts[0].trim(), tenantId)
                         .orElseThrow(() -> new ResourceNotFoundException("User", "email", parts[0].trim()));
                 EmployeePayrollProfile profile = employeePayrollProfileRepository.findByUserId(user.getId())
                         .orElseThrow(() -> new ResourceNotFoundException("EmployeePayrollProfile", "userId", user.getId()));

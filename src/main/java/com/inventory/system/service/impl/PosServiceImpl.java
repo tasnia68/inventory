@@ -778,7 +778,8 @@ public class PosServiceImpl implements PosService {
 
     private User getCurrentUser() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        return userRepository.findByEmail(email)
+        String tenantId = TenantContext.requireTenantId();
+        return userRepository.findByEmailAndTenantId(email, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("Authenticated user not found"));
     }
 

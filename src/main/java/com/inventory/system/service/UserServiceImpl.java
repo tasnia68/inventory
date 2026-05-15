@@ -59,11 +59,12 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public void inviteUser(UserInvitationRequest request) {
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+        String tenantId = TenantContext.requireTenantId();
+        if (userRepository.findByEmailAndTenantId(request.getEmail(), tenantId).isPresent()) {
             throw new RuntimeException("User with this email already exists.");
         }
 
-        userInvitationRepository.findByEmail(request.getEmail()).ifPresent(existingInvitation -> {
+        userInvitationRepository.findByEmailAndTenantId(request.getEmail(), tenantId).ifPresent(existingInvitation -> {
             if (existingInvitation.getStatus() == UserInvitation.InvitationStatus.PENDING
                     && existingInvitation.getExpiryDate().isAfter(LocalDateTime.now())) {
                 throw new RuntimeException("Active invitation already exists for this email.");
@@ -131,7 +132,8 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserDto createUser(CreateUserRequest request) {
-        if (userRepository.findByEmail(request.getEmail()).isPresent()) {
+        String tenantId = TenantContext.requireTenantId();
+        if (userRepository.findByEmailAndTenantId(request.getEmail(), tenantId).isPresent()) {
             throw new RuntimeException("User already exists");
         }
 
@@ -209,7 +211,8 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserProfileResponse getCurrentUserProfile() {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByEmail(email)
+        String tenantId = TenantContext.requireTenantId();
+        User user = userRepository.findByEmailAndTenantId(email, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         Set<String> permissions = user.getRoles().stream()
@@ -222,7 +225,7 @@ public class UserServiceImpl implements UserService {
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
-                .tenantId(TenantContext.getTenantId())
+                .tenantId(tenantId)
                 .tenantSubdomain(resolveTenantSubdomain())
                 .createdAt(user.getCreatedAt())
                 .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
@@ -233,7 +236,8 @@ public class UserServiceImpl implements UserService {
     @Override
     public UserProfileResponse updateCurrentUserProfile(UpdateUserRequest request) {
         String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByEmail(email)
+        String tenantId = TenantContext.requireTenantId();
+        User user = userRepository.findByEmailAndTenantId(email, tenantId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         if (request.getFirstName() != null)
@@ -254,7 +258,7 @@ public class UserServiceImpl implements UserService {
                 .email(updatedUser.getEmail())
                 .firstName(updatedUser.getFirstName())
                 .lastName(updatedUser.getLastName())
-                .tenantId(TenantContext.getTenantId())
+                .tenantId(tenantId)
                 .tenantSubdomain(resolveTenantSubdomain())
                 .createdAt(updatedUser.getCreatedAt())
                 .roles(updatedUser.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
@@ -290,7 +294,8 @@ public class UserServiceImpl implements UserService {
     private void logActivity(String action, String details) {
         try {
             String email = SecurityContextHolder.getContext().getAuthentication().getName();
-            User user = userRepository.findByEmail(email).orElse(null);
+            String tenantId = TenantContext.requireTenantId();
+            User user = userRepository.findByEmailAndTenantId(email, tenantId).orElse(null);
 
             UserActivityLog log = new UserActivityLog();
             log.setAction(action);

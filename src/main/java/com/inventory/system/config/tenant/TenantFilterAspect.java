@@ -29,8 +29,8 @@ public class TenantFilterAspect {
     @Before("@annotation(org.springframework.transaction.annotation.Transactional) || " +
             "@within(org.springframework.transaction.annotation.Transactional)")
     public void enableTenantFilter(JoinPoint joinPoint) {
-        String tenantId = TenantContext.getTenantId();
-        if (!StringUtils.hasText(tenantId) || TenantContext.DEFAULT_TENANT.equals(tenantId)) {
+        String tenantId = TenantContext.getCurrentTenantId();
+        if (!StringUtils.hasText(tenantId)) {
             return;
         }
         try {

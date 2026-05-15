@@ -21,7 +21,7 @@ public class JpaAuditingConfiguration {
         @Override
         public Optional<String> getCurrentAuditor() {
             Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            String tenantId = TenantContext.getTenantId();
+            String tenantId = TenantContext.getCurrentTenantId();
 
             if (authentication == null
                     || !authentication.isAuthenticated()

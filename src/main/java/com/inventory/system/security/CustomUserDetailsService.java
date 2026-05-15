@@ -10,7 +10,6 @@ import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.util.Collection;
 import java.util.LinkedHashSet;
@@ -29,10 +28,7 @@ public class CustomUserDetailsService implements UserDetailsService {
     @Override
     @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
-        String tenantId = TenantContext.getTenantId();
-        if (!StringUtils.hasText(tenantId) || TenantContext.DEFAULT_TENANT.equals(tenantId)) {
-            throw new UsernameNotFoundException("Tenant context is required for user lookup: " + email);
-        }
+        String tenantId = TenantContext.requireTenantId();
 
         User user = userRepository.findByEmailAndTenantId(email, tenantId)
             .orElseThrow(() -> new UsernameNotFoundException("User not found with email: " + email));

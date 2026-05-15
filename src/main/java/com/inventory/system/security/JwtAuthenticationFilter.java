@@ -64,7 +64,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        String currentTenantId = TenantContext.getTenantId();
+        String currentTenantId = TenantContext.getCurrentTenantId();
 
         if (tokenTenantId != null && currentTenantId != null && !tokenTenantId.equals(currentTenantId)) {
             // Token tenant mismatch

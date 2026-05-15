@@ -1,6 +1,7 @@
 package com.inventory.system.config.tenant;
 
 import org.springframework.core.task.TaskDecorator;
+import org.springframework.util.StringUtils;
 
 /**
  * Propagates the current {@link TenantContext} from the submitting thread into the worker thread
@@ -15,14 +16,14 @@ public class TenantAwareTaskDecorator implements TaskDecorator {
 
     @Override
     public Runnable decorate(Runnable runnable) {
-        String tenantId = TenantContext.getTenantId();
+        String tenantId = TenantContext.getCurrentTenantId();
         return () -> {
-            TenantContext.setTenantId(tenantId);
-            try {
-                runnable.run();
-            } finally {
-                TenantContext.clear();
+            if (StringUtils.hasText(tenantId)) {
+                TenantContext.runWithTenant(tenantId, runnable);
+                return;
             }
+
+            runnable.run();
         };
     }
 }

@@ -38,7 +38,7 @@ public class RequestCorrelationFilter implements Filter {
         MDC.put(REQUEST_ID_MDC_KEY, requestId);
         httpResponse.setHeader(REQUEST_ID_HEADER, requestId);
 
-        String tenantId = TenantContext.getTenantId();
+        String tenantId = TenantContext.getCurrentTenantId();
         if (StringUtils.hasText(tenantId)) {
             MDC.put(TENANT_ID_MDC_KEY, tenantId);
         }

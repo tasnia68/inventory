@@ -38,3 +38,4 @@ A multi-tenant, industry-agnostic inventory management system using Spring Boot,
 
 ## Documentation
 See [ROADMAP.md](ROADMAP.md) for the project implementation roadmap and status.
+See [TENANT_MANAGEMENT.md](TENANT_MANAGEMENT.md) for tenant isolation, tenant-aware logging, and multi-tenant request-flow documentation.

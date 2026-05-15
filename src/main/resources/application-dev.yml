@@ -9,7 +9,7 @@ spring:
   jpa:
     hibernate:
       ddl-auto: validate
-    show-sql: true
+    show-sql: false
   flyway:
     enabled: true
     baseline-on-migrate: true
@@ -50,12 +50,14 @@ app:
 logging:
   level:
     root: INFO
+    org.hibernate.SQL: WARN
+    org.hibernate.orm.jdbc.bind: WARN
     org.springframework.web: DEBUG
     org.springframework.security: DEBUG
     com.inventory.system: DEBUG
     org.springframework.web.servlet.mvc.method.annotation: TRACE
 
-debug: true
+debug: false
 
 minio:
   url: ${MINIO_URL:http://localhost:9000}

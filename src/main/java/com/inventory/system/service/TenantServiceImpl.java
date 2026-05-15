@@ -77,15 +77,6 @@ public class TenantServiceImpl implements TenantService {
                 adminRole = roleRepository.save(adminRole);
             }
 
-            // Create Admin User
-            // Note: Since this is a new tenant, existsByEmail should be false in this context.
-            // If we wanted to enforce global uniqueness for email (across all tenants), we would need a global check.
-            // But per User entity, email is unique per tenant.
-            if (userRepository.existsByEmail(request.getAdminEmail())) {
-                 // Since context is set and filter enabled, this checks ONLY for this new tenant.
-                 // Should be false.
-            }
-
             User adminUser = new User();
             adminUser.setEmail(request.getAdminEmail());
             adminUser.setPassword(passwordEncoder.encode(request.getAdminPassword()));
