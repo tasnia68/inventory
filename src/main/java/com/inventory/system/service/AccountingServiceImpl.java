@@ -100,6 +100,7 @@ public class AccountingServiceImpl implements AccountingService {
     private final ChartOfAccountRepository chartOfAccountRepository;
     private final AccountingJournalRepository accountingJournalRepository;
     private final JournalEntryRepository journalEntryRepository;
+    private final AccountingPeriodService accountingPeriodService;
     private final JournalEntryLineRepository journalEntryLineRepository;
     private final FinancialEventRepository financialEventRepository;
     private final AccountsPayableInvoiceRepository accountsPayableInvoiceRepository;
@@ -110,6 +111,7 @@ public class AccountingServiceImpl implements AccountingService {
     private final CustomerRepository customerRepository;
     private final PurchaseOrderRepository purchaseOrderRepository;
     private final SalesOrderRepository salesOrderRepository;
+    private final com.inventory.system.repository.GoodsReceiptNoteRepository goodsReceiptNoteRepository;
     private final PosShiftRepository posShiftRepository;
     private final TreasuryAccountRepository treasuryAccountRepository;
     private final TreasuryReconciliationRepository treasuryReconciliationRepository;
@@ -216,6 +218,13 @@ public class AccountingServiceImpl implements AccountingService {
             throw new BadRequestException("Accounts payable invoice amount must be greater than zero");
         }
 
+        // Three-way match: PO ↔ GRN(s) ↔ Invoice. Skip when no PO is linked
+        // (manual AP invoice). Caller can set force=true to override (logged in notes).
+        String matchOverrideMemo = null;
+        if (purchaseOrder != null) {
+            matchOverrideMemo = assertThreeWayMatch(purchaseOrder, totalAmount, request.isForce());
+        }
+
         LocalDate invoiceDate = request.getInvoiceDate() == null ? LocalDate.now() : request.getInvoiceDate();
         AccountsPayableInvoice invoice = new AccountsPayableInvoice();
         invoice.setInvoiceNumber(generateDocumentNumber("APV"));
@@ -229,7 +238,10 @@ public class AccountingServiceImpl implements AccountingService {
         invoice.setPaidAmount(BigDecimal.ZERO.setScale(6, RoundingMode.HALF_UP));
         invoice.setBalanceDue(totalAmount);
         invoice.setStatus(InvoiceStatus.OPEN);
-        invoice.setNotes(blankToNull(request.getNotes()));
+        String operatorNotes = blankToNull(request.getNotes());
+        invoice.setNotes(matchOverrideMemo != null
+                ? (operatorNotes != null ? operatorNotes + "\n" + matchOverrideMemo : matchOverrideMemo)
+                : operatorNotes);
         invoice = accountsPayableInvoiceRepository.save(invoice);
 
         createPostedJournalEntry(
@@ -601,6 +613,7 @@ public class AccountingServiceImpl implements AccountingService {
 
         entry.setTotalDebits(scale(totalDebits));
         entry.setTotalCredits(scale(totalCredits));
+        accountingPeriodService.assertOpen(entry.getEntryDate());
         entry.setPostedAt(LocalDateTime.now());
         return mapEntry(journalEntryRepository.save(entry));
     }
@@ -737,6 +750,7 @@ public class AccountingServiceImpl implements AccountingService {
 
         reversal.setTotalDebits(scale(totalDebits));
         reversal.setTotalCredits(scale(totalCredits));
+        accountingPeriodService.assertOpen(reversal.getEntryDate());
         reversal.setPostedAt(LocalDateTime.now());
         original.setStatus(JournalEntryStatus.REVERSED);
         journalEntryRepository.save(original);
@@ -882,8 +896,61 @@ public class AccountingServiceImpl implements AccountingService {
 
         entry.setTotalDebits(scale(totalDebits));
         entry.setTotalCredits(scale(totalCredits));
+        accountingPeriodService.assertOpen(entry.getEntryDate());
         entry.setPostedAt(LocalDateTime.now());
         return journalEntryRepository.save(entry);
+    }
+
+    /**
+     * Three-way match: PurchaseOrder ↔ GoodsReceiptNote(s) ↔ AP Invoice.
+     * Rejects the invoice unless invoice total ≈ min(po.total, sum-of-GRN-accepted-value)
+     * within a 2% tolerance. Returns null on a clean match, or an override memo
+     * string when the caller passed force=true (so the override is auditable).
+     */
+    private String assertThreeWayMatch(com.inventory.system.common.entity.PurchaseOrder po, BigDecimal invoiceTotal, boolean force) {
+        java.util.List<com.inventory.system.common.entity.GoodsReceiptNote> grns =
+                goodsReceiptNoteRepository.findByPurchaseOrderId(po.getId());
+        if (grns.isEmpty()) {
+            if (force) {
+                return "3-way match override: no GRN exists for PO " + po.getPoNumber()
+                        + " (force=true)";
+            }
+            throw new BadRequestException("Cannot post invoice — no goods receipt has been recorded against PO "
+                    + po.getPoNumber() + " yet. Create a GRN first, or set force=true to override.");
+        }
+
+        BigDecimal receivedValue = grns.stream()
+                .flatMap(grn -> grn.getItems().stream())
+                .map(item -> {
+                    int qty = item.getAcceptedQuantity() != null ? item.getAcceptedQuantity() : 0;
+                    BigDecimal unit = item.getPurchaseOrderItem() != null && item.getPurchaseOrderItem().getUnitPrice() != null
+                            ? item.getPurchaseOrderItem().getUnitPrice() : BigDecimal.ZERO;
+                    return BigDecimal.valueOf(qty).multiply(unit);
+                })
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .setScale(6, RoundingMode.HALF_UP);
+
+        BigDecimal poTotal = po.getTotalAmount() != null ? scale(po.getTotalAmount()) : BigDecimal.ZERO;
+        BigDecimal expected = receivedValue.compareTo(poTotal) < 0 ? receivedValue : poTotal;
+        if (expected.compareTo(BigDecimal.ZERO) <= 0) {
+            // No values to match against — let it through (manual edge case).
+            return null;
+        }
+
+        BigDecimal variance = invoiceTotal.subtract(expected).abs();
+        BigDecimal tolerance = expected.multiply(new BigDecimal("0.02")); // 2%
+        boolean withinTolerance = variance.compareTo(tolerance) <= 0;
+        if (!withinTolerance) {
+            String detail = String.format(
+                    "PO total %s, received value %s, invoice total %s, variance %s (tolerance 2%% of expected %s)",
+                    poTotal, receivedValue, invoiceTotal, variance, expected);
+            if (force) {
+                return "3-way match override: " + detail;
+            }
+            throw new BadRequestException("Three-way match failed for PO " + po.getPoNumber()
+                    + ". " + detail + ". Set force=true to override.");
+        }
+        return null;
     }
 
     private void applyPaymentToInvoice(AccountsPayableInvoice invoice, BigDecimal amount) {

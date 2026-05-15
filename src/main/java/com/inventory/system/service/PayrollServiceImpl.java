@@ -44,6 +44,7 @@ public class PayrollServiceImpl implements PayrollService {
     private final ChartOfAccountRepository chartOfAccountRepository;
     private final AccountingJournalRepository accountingJournalRepository;
     private final JournalEntryRepository journalEntryRepository;
+    private final AccountingPeriodService accountingPeriodService;
 
     @Override
     @Transactional(readOnly = true)
@@ -524,6 +525,7 @@ public class PayrollServiceImpl implements PayrollService {
         if (entry.getTotalDebits().compareTo(entry.getTotalCredits()) != 0) {
             throw new BadRequestException("Payroll journal entry is not balanced");
         }
+        accountingPeriodService.assertOpen(entry.getEntryDate());
         entry.setPostedAt(LocalDateTime.now());
         journalEntryRepository.save(entry);
 
@@ -541,13 +543,49 @@ public class PayrollServiceImpl implements PayrollService {
         if (run.getStatus() != PayrollRunStatus.APPROVED) {
             throw new BadRequestException("Only approved payroll runs can be marked paid");
         }
+        PayrollSettings settings = getOrCreateSettings();
+        if (settings.getPayrollPayableAccount() == null || settings.getCashClearingAccount() == null) {
+            throw new BadRequestException(
+                    "Payroll settlement requires both payroll-payable and cash/clearing accounts in payroll settings");
+        }
+
+        BigDecimal totalNet = scale(run.getItems().stream().map(PayrollRunItem::getNetPay)
+                .reduce(BigDecimal.ZERO, BigDecimal::add));
+
         PayrollPayment payment = new PayrollPayment();
         payment.setPayrollRun(run);
         payment.setPaymentDate(request != null && request.getPaymentDate() != null ? request.getPaymentDate() : LocalDate.now());
         payment.setReference(blankToNull(request == null ? null : request.getReference()));
         payment.setNotes(blankToNull(request == null ? null : request.getNotes()));
-        payment.setAmount(scale(run.getItems().stream().map(PayrollRunItem::getNetPay).reduce(BigDecimal.ZERO, BigDecimal::add)));
+        payment.setAmount(totalNet);
         payrollPaymentRepository.save(payment);
+
+        // Settlement journal entry: drains the payable that was credited at approval time.
+        if (totalNet.compareTo(BigDecimal.ZERO) > 0) {
+            AccountingJournal journal = ensurePayrollJournal();
+            JournalEntry settlement = new JournalEntry();
+            settlement.setEntryNumber(generateJournalEntryNumber());
+            settlement.setJournal(journal);
+            settlement.setStatus(JournalEntryStatus.POSTED);
+            settlement.setEntryDate(LocalDateTime.now());
+            settlement.setSourceDocumentType("PAYROLL_PAYMENT");
+            settlement.setSourceDocumentId(payment.getId().toString());
+            settlement.setSourceDocumentNumber(payment.getReference() != null ? payment.getReference() : run.getRunNumber());
+            settlement.setMemo("Payroll settlement for " + run.getRunNumber());
+            settlement.setCurrency(run.getCurrency());
+
+            List<JournalEntryLine> lines = new ArrayList<>();
+            lines.add(journalLine(settlement, settings.getPayrollPayableAccount(), 1,
+                    "Settle payroll payable", totalNet, BigDecimal.ZERO));
+            lines.add(journalLine(settlement, settings.getCashClearingAccount(), 2,
+                    "Cash disbursed for payroll", BigDecimal.ZERO, totalNet));
+            settlement.setLines(lines);
+            settlement.setTotalDebits(totalNet);
+            settlement.setTotalCredits(totalNet);
+            accountingPeriodService.assertOpen(settlement.getEntryDate());
+            settlement.setPostedAt(LocalDateTime.now());
+            journalEntryRepository.save(settlement);
+        }
 
         run.setStatus(PayrollRunStatus.PAID);
         run.setPaidAt(LocalDateTime.now());

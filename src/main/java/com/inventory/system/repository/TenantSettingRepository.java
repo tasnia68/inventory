@@ -20,4 +20,14 @@ public interface TenantSettingRepository extends JpaRepository<TenantSetting, UU
     List<TenantSetting> findByTenantIdOrderBySettingKeyAsc(String tenantId);
 
     List<TenantSetting> findByTenantIdAndCategoryOrderBySettingKeyAsc(String tenantId, String category);
+
+    /**
+     * Native-query lookup that bypasses the Hibernate tenantFilter so platform-level
+     * settings (e.g. shared Gemini API key) can be read while the request runs in
+     * a different tenant's context.
+     */
+    @org.springframework.data.jpa.repository.Query(
+            value = "SELECT setting_value FROM tenant_settings WHERE setting_key = ?1 LIMIT 1",
+            nativeQuery = true)
+    Optional<String> findValueAcrossTenantsBySettingKey(String settingKey);
 }

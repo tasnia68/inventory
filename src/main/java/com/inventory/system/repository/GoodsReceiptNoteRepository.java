@@ -10,4 +10,6 @@ import java.util.UUID;
 @Repository
 public interface GoodsReceiptNoteRepository extends JpaRepository<GoodsReceiptNote, UUID>, JpaSpecificationExecutor<GoodsReceiptNote> {
     boolean existsByGrnNumber(String grnNumber);
+
+    java.util.List<GoodsReceiptNote> findByPurchaseOrderId(UUID purchaseOrderId);
 }

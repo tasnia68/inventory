@@ -65,6 +65,7 @@ public class StorefrontController {
 
     private final StorefrontService storefrontService;
     private final FileStorageService fileStorageService;
+    private final com.inventory.system.service.VirtualTryOnService virtualTryOnService;
 
     @GetMapping("/config")
     @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
@@ -275,6 +276,23 @@ public class StorefrontController {
     @org.springframework.web.bind.annotation.PostMapping("/public/cart/preview")
     public ResponseEntity<ApiResponse<StorefrontCartDto>> previewCart(@Valid @RequestBody StorefrontCartRequest request) {
         return ResponseEntity.ok(ApiResponse.success(storefrontService.previewCart(request), "Storefront cart priced successfully"));
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/public/virtual-try-on")
+    public ResponseEntity<ApiResponse<java.util.Map<String, String>>> virtualTryOn(@RequestBody java.util.Map<String, Object> body) {
+        String tenantId = com.inventory.system.config.tenant.TenantContext.getTenantId();
+        java.util.UUID variantId = body.get("productVariantId") != null
+                ? java.util.UUID.fromString(String.valueOf(body.get("productVariantId"))) : null;
+        String userImageBase64 = body.get("userImageBase64") != null
+                ? String.valueOf(body.get("userImageBase64")) : null;
+        String customerIdentifier = body.get("customerIdentifier") != null
+                ? String.valueOf(body.get("customerIdentifier")) : null;
+        com.inventory.system.service.VirtualTryOnService.TryOnResult result =
+                virtualTryOnService.requestTryOn(tenantId, customerIdentifier, variantId, userImageBase64);
+        return ResponseEntity.ok(ApiResponse.success(java.util.Map.of(
+                "imageBase64", result.imageBase64(),
+                "mimeType", result.mimeType()
+        ), "Try-on generated"));
     }
 
     @org.springframework.web.bind.annotation.PostMapping("/public/checkout")

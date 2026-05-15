@@ -69,6 +69,7 @@ public class FinancialEventServiceImpl implements FinancialEventService {
     private static final String ACCOUNT_COD_FEE_EXPENSE = "COD_FEE_EXPENSE";
     private static final String ACCOUNT_ACCRUED_COURIER_PAYABLE = "ACCRUED_COURIER_PAYABLE";
     private static final String ACCOUNT_BANK_DEPOSIT = "BANK_DEPOSIT";
+    private static final String ACCOUNT_TAX_PAYABLE = "TAX_PAYABLE";
 
     private final FinancialEventRepository financialEventRepository;
     private final StockMovementRepository stockMovementRepository;
@@ -229,13 +230,25 @@ public class FinancialEventServiceImpl implements FinancialEventService {
 
         BigDecimal cogsAmount = computeCogsForDelivery(salesOrder, partialDelivery);
         String currency = salesOrder.getCurrency() != null ? salesOrder.getCurrency() : defaultCurrency();
+
+        // Split tax out as a separate liability so revenue is reported net of tax.
+        // For partial delivery, prorate the order-level tax against the delivered fraction
+        // of the subtotal; for full delivery, use the captured taxAmount as-is.
+        BigDecimal taxAmount = computeRecognisedTax(salesOrder, revenueAmount, partialDelivery);
+        BigDecimal netRevenue = revenueAmount.subtract(taxAmount).max(BigDecimal.ZERO);
+
         List<LineDefinition> lines = new ArrayList<>();
         lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing",
                 revenueAmount, currency,
                 partialDelivery ? "COD collected for partial delivery" : "COD collected on delivery"));
         lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_SALES_REVENUE, "Sales Revenue",
-                revenueAmount, currency,
-                partialDelivery ? "Sales revenue recognised for delivered portion" : "Sales revenue recognised on delivery"));
+                netRevenue, currency,
+                partialDelivery ? "Sales revenue (net of tax) for delivered portion" : "Sales revenue (net of tax) on delivery"));
+        if (taxAmount.compareTo(BigDecimal.ZERO) > 0) {
+            lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_TAX_PAYABLE, "Tax Payable",
+                    taxAmount, currency,
+                    partialDelivery ? "Output tax accrued for delivered portion" : "Output tax accrued on delivery"));
+        }
         if (cogsAmount.compareTo(BigDecimal.ZERO) > 0) {
             lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_COGS, "Cost of Goods Sold",
                     cogsAmount, currency,
@@ -336,8 +349,14 @@ public class FinancialEventServiceImpl implements FinancialEventService {
         String currency = salesOrder.getCurrency() != null ? salesOrder.getCurrency() : defaultCurrency();
         List<LineDefinition> lines = new ArrayList<>();
         if (recognizedRevenue.compareTo(BigDecimal.ZERO) > 0) {
+            BigDecimal recognizedTax = computeRecognisedTax(salesOrder, recognizedRevenue, true);
+            BigDecimal recognizedNet = recognizedRevenue.subtract(recognizedTax).max(BigDecimal.ZERO);
             lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_SALES_RETURNS, "Sales Returns and Allowances",
-                    recognizedRevenue, currency, "Reversal of revenue on return for " + salesOrder.getSoNumber()));
+                    recognizedNet, currency, "Reversal of revenue (net of tax) on return for " + salesOrder.getSoNumber()));
+            if (recognizedTax.compareTo(BigDecimal.ZERO) > 0) {
+                lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_TAX_PAYABLE, "Tax Payable",
+                        recognizedTax, currency, "Reversal of output tax on return for " + salesOrder.getSoNumber()));
+            }
             lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing",
                     recognizedRevenue, currency, "Cash refund obligation for returned SO " + salesOrder.getSoNumber()));
         }
@@ -381,6 +400,33 @@ public class FinancialEventServiceImpl implements FinancialEventService {
                 """
                         {"salesOrderId":"%s","scenario":"partial_cancel","shippingAmount":"%s"}
                         """.formatted(salesOrder.getId(), shippingAmount).trim(),
+                lines);
+    }
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordTaxRemittance(String referenceNumber, BigDecimal amount, String currency, String notes) {
+        BigDecimal scaledAmount = scale(amount != null ? amount : BigDecimal.ZERO);
+        if (scaledAmount.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new com.inventory.system.common.exception.BadRequestException("Tax remittance amount must be greater than zero");
+        }
+        String resolvedCurrency = currency != null && !currency.isBlank() ? currency : defaultCurrency();
+        String reference = referenceNumber != null && !referenceNumber.isBlank()
+                ? referenceNumber.trim()
+                : "TAX-" + java.time.LocalDate.now();
+        List<LineDefinition> lines = List.of(
+                line(SubledgerEntryType.DEBIT, ACCOUNT_TAX_PAYABLE, "Tax Payable",
+                        scaledAmount, resolvedCurrency, "Tax filing remittance " + reference),
+                line(SubledgerEntryType.CREDIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing",
+                        scaledAmount, resolvedCurrency, "Cash paid for tax filing " + reference)
+        );
+        return upsertEvent(FinancialEventType.TAX_REMITTANCE, "TAX_REMITTANCE",
+                reference, reference, reference,
+                notes != null && !notes.isBlank() ? notes : "Tax remittance " + reference,
+                scaledAmount, resolvedCurrency,
+                """
+                        {"reference":"%s","amount":"%s"}
+                        """.formatted(reference, scaledAmount).trim(),
                 lines);
     }
 
@@ -476,6 +522,17 @@ public class FinancialEventServiceImpl implements FinancialEventService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal shipping = salesOrder.getShippingAmount() != null ? salesOrder.getShippingAmount() : BigDecimal.ZERO;
         return scale(linesTotal.add(shipping));
+    }
+
+    private BigDecimal computeRecognisedTax(SalesOrder salesOrder, BigDecimal recognisedRevenue, boolean partialDelivery) {
+        BigDecimal orderTax = salesOrder.getTaxAmount() != null ? salesOrder.getTaxAmount() : BigDecimal.ZERO;
+        if (orderTax.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
+        if (!partialDelivery) {
+            return scale(orderTax);
+        }
+        BigDecimal orderTotal = salesOrder.getTotalAmount() != null ? salesOrder.getTotalAmount() : BigDecimal.ZERO;
+        if (orderTotal.compareTo(BigDecimal.ZERO) <= 0) return BigDecimal.ZERO;
+        return scale(orderTax.multiply(recognisedRevenue).divide(orderTotal, 6, java.math.RoundingMode.HALF_UP));
     }
 
     private BigDecimal fulfilledLineTotal(SalesOrderItem item) {

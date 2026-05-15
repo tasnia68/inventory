@@ -25,6 +25,7 @@ public interface FinancialEventService {
     FinancialEventDto recordSalesOrderReturn(SalesOrder salesOrder);
     FinancialEventDto recordSalesOrderPartialCancel(SalesOrder salesOrder);
     FinancialEventDto recordCourierSettlement(String settlementReference, java.util.UUID courierProfileId, java.math.BigDecimal grossAmount, java.math.BigDecimal feeAmount, java.math.BigDecimal netAmount, String currency, String notes);
+    FinancialEventDto recordTaxRemittance(String referenceNumber, java.math.BigDecimal amount, String currency, String notes);
     FinancialEventDto recordSupplierReturn(SupplierReturn supplierReturn);
     FinancialEventDto recordDamageWriteOff(DamageRecord damageRecord);
     List<FinancialEventDto> getFinancialEvents(PostingStatus postingStatus, FinancialEventType eventType, String sourceDocumentType);

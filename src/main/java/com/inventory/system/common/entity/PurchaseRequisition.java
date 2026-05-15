@@ -16,6 +16,7 @@ import lombok.Setter;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "purchase_requisitions")
@@ -42,4 +43,10 @@ public class PurchaseRequisition extends BaseEntity {
 
     @OneToMany(mappedBy = "purchaseRequisition", cascade = CascadeType.ALL, orphanRemoval = true)
     private List<PurchaseRequisitionItem> items = new ArrayList<>();
+
+    @Column(name = "converted_at")
+    private LocalDateTime convertedAt;
+
+    @Column(name = "converted_purchase_order_id")
+    private UUID convertedPurchaseOrderId;
 }

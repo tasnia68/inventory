@@ -51,4 +51,22 @@ public class PurchaseRequisitionController {
         List<PurchaseRequisitionDto> list = purchaseRequisitionService.getByWarehouse(warehouseId);
         return ResponseEntity.ok(ApiResponse.success(list, "Purchase requisitions retrieved successfully"));
     }
+
+    @PostMapping("/{id}/convert-to-po")
+    public ResponseEntity<ApiResponse<java.util.Map<String, UUID>>> convertToPurchaseOrder(
+            @PathVariable UUID id,
+            @RequestBody java.util.Map<String, Object> body) {
+        UUID supplierId = body.get("supplierId") != null ? UUID.fromString(String.valueOf(body.get("supplierId"))) : null;
+        if (supplierId == null) {
+            throw new com.inventory.system.common.exception.BadRequestException("supplierId is required");
+        }
+        java.time.LocalDate expectedDeliveryDate = body.get("expectedDeliveryDate") != null
+                ? java.time.LocalDate.parse(String.valueOf(body.get("expectedDeliveryDate")))
+                : null;
+        UUID poId = purchaseRequisitionService.convertToPurchaseOrder(id, supplierId, expectedDeliveryDate);
+        return ResponseEntity.ok(ApiResponse.success(
+                java.util.Map.of("purchaseOrderId", poId),
+                "Purchase order created from requisition"
+        ));
+    }
 }

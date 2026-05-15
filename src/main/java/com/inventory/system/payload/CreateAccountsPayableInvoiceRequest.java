@@ -18,4 +18,6 @@ public class CreateAccountsPayableInvoiceRequest {
     private String currency;
     private BigDecimal totalAmount;
     private String notes;
+    /** When true, bypass three-way match validation. Override is logged into invoice notes. */
+    private boolean force = false;
 }

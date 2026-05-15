@@ -33,6 +33,8 @@ public class PurchaseRequisitionServiceImpl implements PurchaseRequisitionServic
     private final WarehouseRepository warehouseRepository;
     private final ReplenishmentService replenishmentService;
     private final ProductVariantRepository productVariantRepository;
+    private final com.inventory.system.repository.PurchaseOrderRepository purchaseOrderRepository;
+    private final com.inventory.system.repository.SupplierRepository supplierRepository;
 
     @Override
     @Transactional
@@ -87,6 +89,63 @@ public class PurchaseRequisitionServiceImpl implements PurchaseRequisitionServic
         return purchaseRequisitionRepository.findByWarehouseId(warehouseId).stream()
                 .map(this::mapToDto)
                 .collect(Collectors.toList());
+    }
+
+    @Override
+    @Transactional
+    public java.util.UUID convertToPurchaseOrder(UUID prId, UUID supplierId, java.time.LocalDate expectedDeliveryDate) {
+        PurchaseRequisition pr = purchaseRequisitionRepository.findById(prId)
+                .orElseThrow(() -> new ResourceNotFoundException("PurchaseRequisition", "id", prId));
+        if (pr.getStatus() != PurchaseRequisitionStatus.APPROVED) {
+            throw new com.inventory.system.common.exception.BadRequestException(
+                    "Only APPROVED requisitions can be converted to a PO; current status is " + pr.getStatus());
+        }
+        if (pr.getConvertedPurchaseOrderId() != null) {
+            throw new com.inventory.system.common.exception.BadRequestException(
+                    "Requisition " + pr.getReference() + " is already linked to PO " + pr.getConvertedPurchaseOrderId());
+        }
+        if (pr.getItems() == null || pr.getItems().isEmpty()) {
+            throw new com.inventory.system.common.exception.BadRequestException(
+                    "Requisition has no line items");
+        }
+
+        com.inventory.system.common.entity.Supplier supplier = supplierRepository.findById(supplierId)
+                .orElseThrow(() -> new ResourceNotFoundException("Supplier", "id", supplierId));
+
+        com.inventory.system.common.entity.PurchaseOrder po =
+                new com.inventory.system.common.entity.PurchaseOrder();
+        po.setSupplier(supplier);
+        po.setExpectedDeliveryDate(expectedDeliveryDate);
+        po.setOrderDate(LocalDateTime.now());
+        po.setStatus(com.inventory.system.common.entity.PurchaseOrderStatus.PENDING);
+        po.setPoNumber("PO-" + UUID.randomUUID().toString().substring(0, 8).toUpperCase());
+        po.setNotes("Generated from requisition " + pr.getReference()
+                + (pr.getNotes() != null ? "\n" + pr.getNotes() : ""));
+
+        java.util.List<com.inventory.system.common.entity.PurchaseOrderItem> poItems = new java.util.ArrayList<>();
+        java.math.BigDecimal poTotal = java.math.BigDecimal.ZERO;
+        for (PurchaseRequisitionItem prItem : pr.getItems()) {
+            com.inventory.system.common.entity.PurchaseOrderItem poItem =
+                    new com.inventory.system.common.entity.PurchaseOrderItem();
+            poItem.setPurchaseOrder(po);
+            poItem.setProductVariant(prItem.getProductVariant());
+            int qty = prItem.getQuantity() != null ? prItem.getQuantity().intValue() : 0;
+            poItem.setQuantity(qty);
+            // Default unit price to zero — operator fills it on the PO before approval.
+            poItem.setUnitPrice(java.math.BigDecimal.ZERO);
+            poItem.setTotalPrice(java.math.BigDecimal.ZERO);
+            poItem.setReceivedQuantity(0);
+            poItems.add(poItem);
+        }
+        po.setItems(poItems);
+        po.setTotalAmount(poTotal);
+        com.inventory.system.common.entity.PurchaseOrder savedPo = purchaseOrderRepository.save(po);
+
+        pr.setConvertedAt(LocalDateTime.now());
+        pr.setConvertedPurchaseOrderId(savedPo.getId());
+        purchaseRequisitionRepository.save(pr);
+
+        return savedPo.getId();
     }
 
     private PurchaseRequisitionDto mapToDto(PurchaseRequisition pr) {

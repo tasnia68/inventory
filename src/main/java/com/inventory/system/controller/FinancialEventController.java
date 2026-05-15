@@ -10,11 +10,14 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @RestController
@@ -45,5 +48,15 @@ public class FinancialEventController {
                 financialEventService.retryFinancialEvent(id),
                 "Financial event moved back to pending"
         ));
+    }
+
+    @PostMapping("/tax-remittance")
+    public ResponseEntity<ApiResponse<FinancialEventDto>> recordTaxRemittance(@RequestBody Map<String, Object> body) {
+        String reference = body.get("referenceNumber") != null ? String.valueOf(body.get("referenceNumber")) : null;
+        BigDecimal amount = body.get("amount") != null ? new BigDecimal(String.valueOf(body.get("amount"))) : null;
+        String currency = body.get("currency") != null ? String.valueOf(body.get("currency")) : null;
+        String notes = body.get("notes") != null ? String.valueOf(body.get("notes")) : null;
+        FinancialEventDto event = financialEventService.recordTaxRemittance(reference, amount, currency, notes);
+        return ResponseEntity.ok(ApiResponse.success(event, "Tax remittance posted"));
     }
 }

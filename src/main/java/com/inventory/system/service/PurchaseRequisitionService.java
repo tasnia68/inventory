@@ -13,4 +13,5 @@ public interface PurchaseRequisitionService {
     PurchaseRequisitionDto getById(UUID id);
     Page<PurchaseRequisitionDto> getAll(Pageable pageable);
     List<PurchaseRequisitionDto> getByWarehouse(UUID warehouseId);
+    UUID convertToPurchaseOrder(UUID prId, UUID supplierId, java.time.LocalDate expectedDeliveryDate);
 }
