@@ -73,6 +73,8 @@ public class SecurityConfiguration {
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/storefront/domains/caddy/validate"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
+                                                                                "/api/v1/integrations/shopify/oauth/callback"),
+                                                                new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/product-images/*/file"),
                                                                 new org.springframework.security.web.util.matcher.AntPathRequestMatcher(
                                                                                 "/api/v1/users/invite/accept"),

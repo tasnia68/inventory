@@ -19,16 +19,27 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
+import org.springframework.web.util.UriComponentsBuilder;
 
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 import java.math.BigDecimal;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Comparator;
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -36,7 +47,11 @@ public class ShopifyIntegrationService {
 
     private static final String CATEGORY = "SHOPIFY";
     private static final String STORE_DOMAIN = "shopify.store_domain";
+    private static final String CLIENT_ID = "shopify.client_id";
+    private static final String CLIENT_SECRET = "shopify.client_secret";
     private static final String ADMIN_API_TOKEN = "shopify.admin_api_token";
+    private static final String OAUTH_STATE = "shopify.oauth_state";
+    private static final String OAUTH_SCOPES = "shopify.oauth_scopes";
     private static final String WEBHOOK_SECRET = "shopify.webhook_secret";
     private static final String ENABLED = "shopify.enabled";
     private static final String SYNC_CATALOG = "shopify.sync_catalog";
@@ -46,6 +61,7 @@ public class ShopifyIntegrationService {
     private static final String LAST_SYNC_AT = "shopify.last_sync_at";
     private static final String LAST_WEBHOOK_AT = "shopify.last_webhook_at";
     private static final String API_VERSION = "2026-04";
+    private static final String REQUIRED_SCOPES = "read_products,read_orders";
 
     private final TenantSettingService tenantSettingService;
     private final CategoryRepository categoryRepository;
@@ -70,6 +86,12 @@ public class ShopifyIntegrationService {
         if (StringUtils.hasText(request.getStoreDomain())) {
             save(STORE_DOMAIN, normalizeDomain(request.getStoreDomain()), "STRING");
         }
+        if (StringUtils.hasText(request.getClientId())) {
+            save(CLIENT_ID, request.getClientId().trim(), "SECRET");
+        }
+        if (StringUtils.hasText(request.getClientSecret())) {
+            save(CLIENT_SECRET, request.getClientSecret().trim(), "SECRET");
+        }
         if (StringUtils.hasText(request.getAdminApiToken())) {
             save(ADMIN_API_TOKEN, request.getAdminApiToken().trim(), "SECRET");
         }
@@ -82,8 +104,59 @@ public class ShopifyIntegrationService {
         save(SYNC_INVENTORY, String.valueOf(!Boolean.FALSE.equals(request.getSyncInventory())), "BOOLEAN");
 
         ShopifyConnectionDto current = buildConnection(publicBaseUrl, false, false);
-        save(HEALTH, isConfigured(current) ? "CONFIGURED" : "NOT_CONFIGURED", "STRING");
+        save(HEALTH, isConfigured(current) ? "CONFIGURED" : hasOauthCredentials(current) ? "CONFIGURED" : "NOT_CONFIGURED", "STRING");
         return buildConnection(publicBaseUrl, false, false);
+    }
+
+    @Transactional
+    public ShopifyConnectionDto startOAuthInstall(String publicBaseUrl) {
+        ShopifyConnectionDto current = buildConnection(publicBaseUrl, false, true);
+        if (!StringUtils.hasText(current.getStoreDomain())
+                || !StringUtils.hasText(current.getClientId())
+                || !StringUtils.hasText(current.getClientSecret())) {
+            save(HEALTH, "MISSING_CREDENTIALS", "STRING");
+            return buildConnection(publicBaseUrl, false, false);
+        }
+        String state = encodeState(TenantContext.getTenantId(), UUID.randomUUID().toString());
+        save(OAUTH_STATE, state, "SECRET");
+        save(OAUTH_SCOPES, REQUIRED_SCOPES, "STRING");
+        return buildConnection(publicBaseUrl, false, false);
+    }
+
+    @Transactional
+    public String completeOAuthInstall(Map<String, String[]> parameters, String publicBaseUrl) {
+        ShopifyConnectionDto current = buildConnection(publicBaseUrl, false, true);
+        String shop = firstParameter(parameters, "shop");
+        String code = firstParameter(parameters, "code");
+        String state = firstParameter(parameters, "state");
+        String hmac = firstParameter(parameters, "hmac");
+
+        if (!StringUtils.hasText(shop) || !StringUtils.hasText(code) || !StringUtils.hasText(state) || !StringUtils.hasText(hmac)) {
+            save(HEALTH, "FAILED", "STRING");
+            throw new IllegalArgumentException("Shopify callback is missing required OAuth parameters.");
+        }
+        if (!state.equals(setting(OAUTH_STATE, ""))) {
+            save(HEALTH, "FAILED", "STRING");
+            throw new IllegalArgumentException("Shopify OAuth state did not match the pending install.");
+        }
+        if (!verifyOAuthHmac(parameters, current.getClientSecret(), hmac)) {
+            save(HEALTH, "FAILED", "STRING");
+            throw new IllegalArgumentException("Shopify OAuth HMAC verification failed.");
+        }
+
+        String normalizedShop = normalizeDomain(shop);
+        JsonNode tokenResponse = exchangeOAuthCode(normalizedShop, current.getClientId(), current.getClientSecret(), code);
+        String accessToken = text(tokenResponse.get("access_token"));
+        if (!StringUtils.hasText(accessToken)) {
+            save(HEALTH, "FAILED", "STRING");
+            throw new IllegalStateException("Shopify did not return an Admin API access token.");
+        }
+
+        save(STORE_DOMAIN, normalizedShop, "STRING");
+        save(ADMIN_API_TOKEN, accessToken, "SECRET");
+        save(OAUTH_SCOPES, firstText(tokenResponse.get("scope"), REQUIRED_SCOPES), "STRING");
+        save(HEALTH, "CONNECTED", "STRING");
+        return buildBackofficeReturnUrl(publicBaseUrl, "connected");
     }
 
     @Transactional
@@ -340,10 +413,14 @@ public class ShopifyIntegrationService {
     }
 
     private ShopifyConnectionDto buildConnection(String publicBaseUrl, boolean includeToken, boolean includeSecret) {
+        String clientId = setting(CLIENT_ID, "");
+        String clientSecret = setting(CLIENT_SECRET, "");
         String adminApiToken = setting(ADMIN_API_TOKEN, "");
         String webhookSecret = setting(WEBHOOK_SECRET, "");
         return ShopifyConnectionDto.builder()
                 .storeDomain(setting(STORE_DOMAIN, ""))
+            .clientId(includeSecret ? clientId : "")
+            .clientSecret(includeSecret ? clientSecret : "")
                 .adminApiToken(includeToken ? adminApiToken : "")
                 .webhookSecret(includeSecret ? webhookSecret : "")
                 .enabled(bool(ENABLED, false))
@@ -353,10 +430,28 @@ public class ShopifyIntegrationService {
                 .health(setting(HEALTH, "NOT_CONFIGURED"))
                 .lastSyncAt(setting(LAST_SYNC_AT, null))
                 .lastWebhookAt(setting(LAST_WEBHOOK_AT, null))
+                .clientIdConfigured(StringUtils.hasText(clientId))
+                .clientSecretConfigured(StringUtils.hasText(clientSecret))
                 .adminApiTokenConfigured(StringUtils.hasText(adminApiToken))
                 .webhookSecretConfigured(StringUtils.hasText(webhookSecret))
                 .webhookUrl(buildWebhookUrl(publicBaseUrl))
+                .oauthCallbackUrl(buildOAuthCallbackUrl(publicBaseUrl))
+                .installUrl(buildInstallUrl(publicBaseUrl, clientId))
+                .oauthScopes(setting(OAUTH_SCOPES, REQUIRED_SCOPES))
                 .build();
+    }
+
+    public static Optional<String> tenantFromOAuthState(String state) {
+        if (!StringUtils.hasText(state)) {
+            return Optional.empty();
+        }
+        try {
+            String decoded = new String(Base64.getUrlDecoder().decode(state), StandardCharsets.UTF_8);
+            int separator = decoded.indexOf(':');
+            return separator > 0 ? Optional.of(decoded.substring(0, separator)) : Optional.empty();
+        } catch (IllegalArgumentException ignored) {
+            return Optional.empty();
+        }
     }
 
     private String buildWebhookUrl(String publicBaseUrl) {
@@ -366,8 +461,104 @@ public class ShopifyIntegrationService {
         return publicBaseUrl.replaceAll("/+$", "") + "/api/webhooks/shopify/" + TenantContext.getTenantId() + "/orders";
     }
 
+    private String buildOAuthCallbackUrl(String publicBaseUrl) {
+        String path = "/api/v1/integrations/shopify/oauth/callback";
+        if (!StringUtils.hasText(publicBaseUrl)) {
+            return path;
+        }
+        return publicBaseUrl.replaceAll("/+$", "") + path;
+    }
+
+    private String buildInstallUrl(String publicBaseUrl, String clientId) {
+        String storeDomain = setting(STORE_DOMAIN, "");
+        String state = setting(OAUTH_STATE, "");
+        if (!StringUtils.hasText(storeDomain) || !StringUtils.hasText(clientId) || !StringUtils.hasText(publicBaseUrl) || !StringUtils.hasText(state)) {
+            return null;
+        }
+        return UriComponentsBuilder.newInstance()
+                .scheme("https")
+                .host(storeDomain)
+                .path("/admin/oauth/authorize")
+                .queryParam("client_id", clientId)
+                .queryParam("scope", REQUIRED_SCOPES)
+                .queryParam("redirect_uri", buildOAuthCallbackUrl(publicBaseUrl))
+                .queryParam("state", state)
+                .build()
+                .toUriString();
+    }
+
+    private String buildBackofficeReturnUrl(String publicBaseUrl, String status) {
+        String base = StringUtils.hasText(publicBaseUrl) ? publicBaseUrl.replaceAll("/+$", "") : "";
+        return base + "/inventory/plugins/shopify?shopify=" + URLEncoder.encode(status, StandardCharsets.UTF_8);
+    }
+
+    private String encodeState(String tenantId, String nonce) {
+        return Base64.getUrlEncoder().withoutPadding()
+                .encodeToString((tenantId + ":" + nonce).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private boolean hasOauthCredentials(ShopifyConnectionDto dto) {
+        return StringUtils.hasText(dto.getStoreDomain())
+                && StringUtils.hasText(dto.getClientId())
+                && StringUtils.hasText(dto.getClientSecret());
+    }
+
     private boolean isConfigured(ShopifyConnectionDto dto) {
         return StringUtils.hasText(dto.getStoreDomain()) && StringUtils.hasText(dto.getAdminApiToken());
+    }
+
+    private JsonNode exchangeOAuthCode(String shop, String clientId, String clientSecret, String code) {
+        try {
+            String body = objectMapper.writeValueAsString(Map.of(
+                    "client_id", clientId,
+                    "client_secret", clientSecret,
+                    "code", code));
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create("https://" + shop + "/admin/oauth/access_token"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body))
+                    .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("Shopify token exchange returned HTTP " + response.statusCode());
+            }
+            return objectMapper.readTree(response.body());
+        } catch (Exception ex) {
+            throw new IllegalStateException("Shopify token exchange failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    private boolean verifyOAuthHmac(Map<String, String[]> parameters, String clientSecret, String receivedHmac) {
+        if (!StringUtils.hasText(clientSecret)) {
+            return false;
+        }
+        try {
+            String message = parameters.entrySet().stream()
+                    .filter(entry -> !"hmac".equals(entry.getKey()) && !"signature".equals(entry.getKey()))
+                    .sorted(Comparator.comparing(Map.Entry::getKey))
+                    .map(entry -> entry.getKey() + "=" + String.join(",", List.of(entry.getValue())))
+                    .collect(Collectors.joining("&"));
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(clientSecret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            String calculated = bytesToHex(mac.doFinal(message.getBytes(StandardCharsets.UTF_8)));
+            return calculated.equalsIgnoreCase(receivedHmac);
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
+    private String bytesToHex(byte[] bytes) {
+        StringBuilder builder = new StringBuilder(bytes.length * 2);
+        for (byte b : bytes) {
+            builder.append(String.format("%02x", b));
+        }
+        return builder.toString();
+    }
+
+    private String firstParameter(Map<String, String[]> parameters, String key) {
+        String[] values = parameters.get(key);
+        return values == null || values.length == 0 ? null : values[0];
     }
 
     private void save(String key, String value, String type) {

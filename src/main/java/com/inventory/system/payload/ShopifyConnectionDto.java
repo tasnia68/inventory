@@ -11,6 +11,8 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class ShopifyConnectionDto {
     private String storeDomain;
+    private String clientId;
+    private String clientSecret;
     private String adminApiToken;
     private String webhookSecret;
     private Boolean enabled;
@@ -20,7 +22,12 @@ public class ShopifyConnectionDto {
     private String health;
     private String lastSyncAt;
     private String lastWebhookAt;
+    private Boolean clientIdConfigured;
+    private Boolean clientSecretConfigured;
     private Boolean adminApiTokenConfigured;
     private Boolean webhookSecretConfigured;
     private String webhookUrl;
+    private String oauthCallbackUrl;
+    private String installUrl;
+    private String oauthScopes;
 }

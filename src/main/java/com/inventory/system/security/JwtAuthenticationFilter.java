@@ -36,6 +36,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String requestPath = request.getRequestURI();
         if (requestPath.startsWith("/api/v1/storefront/public/")
                 || requestPath.startsWith("/api/v1/auth/")
+            || requestPath.equals("/api/v1/integrations/shopify/oauth/callback")
                 || requestPath.startsWith("/api/webhooks/")) {
             filterChain.doFilter(request, response);
             return;

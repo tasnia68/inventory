@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
+import org.springframework.web.servlet.view.RedirectView;
 
 @RestController
 @RequestMapping("/api/v1/integrations/shopify")
@@ -43,6 +44,20 @@ public class ShopifyIntegrationController {
         return ResponseEntity.ok(ApiResponse.success(
                 shopifyIntegrationService.testConnection(publicBaseUrl(request)),
                 "Shopify connection tested"));
+    }
+
+    @PostMapping("/oauth/start")
+    public ResponseEntity<ApiResponse<ShopifyConnectionDto>> startOAuthInstall(HttpServletRequest request) {
+        return ResponseEntity.ok(ApiResponse.success(
+                shopifyIntegrationService.startOAuthInstall(publicBaseUrl(request)),
+                "Shopify install URL generated"));
+    }
+
+    @GetMapping("/oauth/callback")
+    public RedirectView completeOAuthInstall(HttpServletRequest request) {
+        return new RedirectView(shopifyIntegrationService.completeOAuthInstall(
+                request.getParameterMap(),
+                publicBaseUrl(request)));
     }
 
     @PostMapping("/sync/products")

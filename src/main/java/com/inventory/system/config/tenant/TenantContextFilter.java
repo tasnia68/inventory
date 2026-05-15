@@ -1,6 +1,7 @@
 package com.inventory.system.config.tenant;
 
 import com.inventory.system.security.JwtService;
+import com.inventory.system.service.ShopifyIntegrationService;
 import com.inventory.system.service.StorefrontDomainService;
 import jakarta.persistence.EntityManager;
 import jakarta.servlet.Filter;
@@ -64,6 +65,12 @@ public class TenantContextFilter implements Filter {
             tenantId = resolveStorefrontTenant(req);
             if (!StringUtils.hasText(tenantId)) {
                 res.sendError(HttpServletResponse.SC_NOT_FOUND, "Unknown storefront domain");
+                return;
+            }
+        } else if (requestPath.equals("/api/v1/integrations/shopify/oauth/callback")) {
+            tenantId = ShopifyIntegrationService.tenantFromOAuthState(req.getParameter("state")).orElse(null);
+            if (!StringUtils.hasText(tenantId)) {
+                res.sendError(HttpServletResponse.SC_BAD_REQUEST, "Shopify OAuth callback is missing tenant state");
                 return;
             }
         } else if (requestPath.startsWith("/api/webhooks/")) {
