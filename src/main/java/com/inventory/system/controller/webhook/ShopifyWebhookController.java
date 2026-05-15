@@ -3,6 +3,7 @@ package com.inventory.system.controller.webhook;
 import com.inventory.system.common.entity.ExternalOrderSource;
 import com.inventory.system.common.entity.InboundWebhookStatus;
 import com.inventory.system.payload.ApiResponse;
+import com.inventory.system.service.ShopifyIntegrationService;
 import com.inventory.system.service.TenantSettingService;
 import com.inventory.system.service.ingestion.ExternalOrderIngestionService;
 import com.inventory.system.service.ingestion.WebhookSignatureVerifier;
@@ -32,6 +33,7 @@ public class ShopifyWebhookController {
     private final ExternalOrderIngestionService ingestionService;
     private final WebhookSignatureVerifier signatureVerifier;
     private final TenantSettingService tenantSettingService;
+        private final ShopifyIntegrationService shopifyIntegrationService;
 
     @PostMapping(value = "/orders", consumes = "application/json")
     public ResponseEntity<ApiResponse<ExternalOrderIngestionService.IngestionResult>> orders(
@@ -54,6 +56,9 @@ public class ShopifyWebhookController {
         String payload = new String(rawBody, StandardCharsets.UTF_8);
         ExternalOrderIngestionService.IngestionResult result = ingestionService.ingest(
                 ExternalOrderSource.SHOPIFY, topic, payload, signature);
+        if (result.status() != InboundWebhookStatus.FAILED) {
+            shopifyIntegrationService.recordWebhookReceived();
+        }
         HttpStatus responseStatus = result.status() == InboundWebhookStatus.FAILED ? HttpStatus.BAD_REQUEST : HttpStatus.OK;
         return ResponseEntity.status(responseStatus).body(ApiResponse.success(result, result.status().name()));
     }
