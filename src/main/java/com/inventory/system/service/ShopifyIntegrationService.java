@@ -45,7 +45,7 @@ public class ShopifyIntegrationService {
     private static final String HEALTH = "shopify.health";
     private static final String LAST_SYNC_AT = "shopify.last_sync_at";
     private static final String LAST_WEBHOOK_AT = "shopify.last_webhook_at";
-    private static final String API_VERSION = "2024-10";
+    private static final String API_VERSION = "2026-04";
 
     private final TenantSettingService tenantSettingService;
     private final CategoryRepository categoryRepository;
