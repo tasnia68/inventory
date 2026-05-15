@@ -66,7 +66,85 @@ This exists because the servlet filter may enable the Hibernate filter on one `S
 
 Code: `src/main/java/com/inventory/system/config/tenant/TenantAwareTaskDecorator.java`
 
+Reusable wrapper helpers also exist directly on `TenantContext` for code that needs to submit work to another executor explicitly.
+
+Code: `src/main/java/com/inventory/system/config/tenant/TenantContext.java`
+
 It deliberately does not invent a default tenant when none exists. That is safer for production multi-tenancy because missing tenant context should be visible instead of silently using the wrong tenant.
+
+### What Is Covered Today
+
+- The servlet request thread established by `TenantContextFilter`.
+- Background work submitted to `reportingTaskExecutor`.
+- Spring MVC async request processing that uses the configured MVC async executor.
+- `CompletableFuture` and `ForkJoinPool` code that routes through `TenantAsync`.
+
+Code references:
+
+- `src/main/java/com/inventory/system/config/AsyncExecutionConfiguration.java`
+- `src/main/java/com/inventory/system/config/WebMvcConfiguration.java`
+
+`WebMvcConfiguration` now sets a tenant-aware `mvcAsyncTaskExecutor` through `configureAsyncSupport(...)`, so controller methods that rely on Spring MVC async execution do not silently lose tenant context when work resumes on an executor-managed worker thread.
+
+For unmanaged async primitives, the backend now provides `TenantAsync`.
+
+Code:
+
+- `src/main/java/com/inventory/system/config/tenant/TenantAsync.java`
+- `src/test/java/com/inventory/system/config/tenant/TenantAsyncTest.java`
+
+`TenantAsync` provides approved tenant-aware entry points for:
+
+- `CompletableFuture.runAsync(...)`
+- `CompletableFuture.supplyAsync(...)`
+- `ForkJoinPool.commonPool()` submission
+- explicit `ForkJoinPool` submission
+- wrapping a general `Executor` with `TenantAsync.tenantAware(...)`
+
+Recommended examples:
+
+```java
+TenantAsync.runAsync(() -> notificationService.publishEvent());
+
+TenantAsync.supplyAsync(() -> reportService.buildSnapshot());
+
+TenantAsync.supplyAsync(
+   () -> reportService.buildSnapshot(),
+   reportingTaskExecutor
+);
+
+TenantAsync.submit(() -> reconciliationService.runBatch());
+```
+
+If code must pass an executor into another API, use the tenant-aware wrapper or the Spring bean named `tenantAwareCommonPoolExecutor`.
+
+### What Is Still Unsafe Unless You Propagate Explicitly
+
+- direct raw `ForkJoinPool.commonPool()` calls that bypass `TenantAsync`
+- direct `CompletableFuture.runAsync(...)` or `supplyAsync(...)` calls that bypass `TenantAsync` and do not pass a tenant-aware executor
+- raw `new Thread(...)`
+- third-party libraries that hop onto their own unmanaged executors
+
+For those cases, capture and reapply tenant context explicitly with `TenantContext.wrap(...)`, `TenantContext.wrapSupplier(...)`, or `TenantContext.wrapCallable(...)`, or route the work through `TenantAsync`.
+
+Example:
+
+```java
+CompletableFuture.supplyAsync(
+   TenantContext.wrapSupplier(() -> reportService.buildSnapshot()),
+   mvcAsyncTaskExecutor
+);
+```
+
+Or with an unmanaged pool when you cannot avoid it:
+
+```java
+ForkJoinPool.commonPool().submit(
+   TenantContext.wrap(() -> reconciliationService.runBatch())
+);
+```
+
+The design remains fail-closed: if no tenant existed on the submitting thread, the wrapped task also runs without a synthetic tenant.
 
 ## Authentication and Tenant Matching
 
@@ -90,6 +168,8 @@ Code references:
 Tenant isolation is covered at two levels:
 
 - `TenantContextTest` verifies thread-local lifecycle, required-tenant failures, scoped tenant switching, and concurrent thread isolation.
+- `TenantContextTest` also verifies explicit wrapper-based propagation for cross-thread runnable and callable execution.
+- `TenantAsyncTest` verifies `CompletableFuture` and `ForkJoinPool` propagation and cleanup behavior with scenario-specific test cases.
 - `TenantAwareTaskDecoratorTest` verifies async tenant propagation and confirms no synthetic default tenant is introduced.
 - `TenantContextFilterConcurrencyTest` drives two concurrent real filter requests with different `X-Tenant-ID` values and verifies each request sees only its own tenant and clears tenant context after completion.
 

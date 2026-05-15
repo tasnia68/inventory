@@ -3,6 +3,7 @@ package com.inventory.system.config.tenant;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 
+import java.util.concurrent.Callable;
 import java.util.function.Supplier;
 
 @Slf4j
@@ -51,9 +52,62 @@ public class TenantContext {
         }
     }
 
+    public static Runnable wrap(Runnable action) {
+        String capturedTenantId = getCurrentTenantId();
+        return () -> runCaptured(capturedTenantId, action);
+    }
+
+    public static <T> Supplier<T> wrapSupplier(Supplier<T> action) {
+        String capturedTenantId = getCurrentTenantId();
+        return () -> callCaptured(capturedTenantId, action);
+    }
+
+    public static <T> Callable<T> wrapCallable(Callable<T> action) {
+        String capturedTenantId = getCurrentTenantId();
+        return () -> callCaptured(capturedTenantId, action);
+    }
+
     public static void clear() {
         log.debug("Clearing tenantId");
         CURRENT_TENANT.remove();
+    }
+
+    private static void runCaptured(String tenantId, Runnable action) {
+        String previousTenantId = getCurrentTenantId();
+        applyCaptured(tenantId);
+        try {
+            action.run();
+        } finally {
+            restore(previousTenantId);
+        }
+    }
+
+    private static <T> T callCaptured(String tenantId, Supplier<T> action) {
+        String previousTenantId = getCurrentTenantId();
+        applyCaptured(tenantId);
+        try {
+            return action.get();
+        } finally {
+            restore(previousTenantId);
+        }
+    }
+
+    private static <T> T callCaptured(String tenantId, Callable<T> action) throws Exception {
+        String previousTenantId = getCurrentTenantId();
+        applyCaptured(tenantId);
+        try {
+            return action.call();
+        } finally {
+            restore(previousTenantId);
+        }
+    }
+
+    private static void applyCaptured(String tenantId) {
+        if (StringUtils.hasText(tenantId)) {
+            CURRENT_TENANT.set(tenantId);
+            return;
+        }
+        clear();
     }
 
     private static void restore(String tenantId) {

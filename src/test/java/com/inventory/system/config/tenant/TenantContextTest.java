@@ -61,6 +61,52 @@ public class TenantContextTest {
     }
 
     @Test
+    public void wrappedRunnablePropagatesCapturedTenantIntoAnotherThread() throws Exception {
+        TenantContext.setTenantId("tenant-a");
+        Runnable wrapped = TenantContext.wrap(() -> Assertions.assertEquals("tenant-a", TenantContext.getTenantId()));
+        TenantContext.clear();
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<?> future = executor.submit(wrapped);
+            future.get(5, TimeUnit.SECONDS);
+        } finally {
+            executor.shutdownNow();
+        }
+
+        Assertions.assertNull(TenantContext.getCurrentTenantId());
+    }
+
+    @Test
+    public void wrappedCallableRestoresPreviousWorkerTenantAfterExecution() throws Exception {
+        TenantContext.setTenantId("request-tenant");
+        Callable<String> wrapped = TenantContext.wrapCallable(() -> {
+            Assertions.assertEquals("request-tenant", TenantContext.getTenantId());
+            return TenantContext.getTenantId();
+        });
+        TenantContext.clear();
+
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<String> future = executor.submit(() -> {
+                TenantContext.setTenantId("worker-tenant");
+                try {
+                    String result = wrapped.call();
+                    Assertions.assertEquals("worker-tenant", TenantContext.getTenantId());
+                    return result;
+                } finally {
+                    TenantContext.clear();
+                }
+            });
+            Assertions.assertEquals("request-tenant", future.get(5, TimeUnit.SECONDS));
+            Future<String> verifyRestored = executor.submit(TenantContext::getCurrentTenantId);
+            Assertions.assertNull(verifyRestored.get(5, TimeUnit.SECONDS));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     public void concurrentThreadsKeepIndependentTenantContexts() throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch ready = new CountDownLatch(2);
