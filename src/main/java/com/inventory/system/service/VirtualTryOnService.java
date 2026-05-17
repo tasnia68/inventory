@@ -149,7 +149,7 @@ public class VirtualTryOnService {
 
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(String.format(GEMINI_ENDPOINT_TEMPLATE, model, apiKey)))
-                .timeout(Duration.ofSeconds(60))
+                .timeout(Duration.ofSeconds(180))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
@@ -161,15 +161,32 @@ public class VirtualTryOnService {
         }
 
         JsonNode root = objectMapper.readTree(response.body());
-        JsonNode parts = root.path("candidates").path(0).path("content").path("parts");
+        JsonNode candidate = root.path("candidates").path(0);
+        JsonNode parts = candidate.path("content").path("parts");
+        StringBuilder textParts = new StringBuilder();
         for (JsonNode part : parts) {
             JsonNode inline = part.has("inline_data") ? part.path("inline_data") : part.path("inlineData");
             if (!inline.isMissingNode() && inline.has("data")) {
                 String mime = inline.path("mime_type").asText(inline.path("mimeType").asText("image/jpeg"));
                 return new TryOnResult(inline.path("data").asText(), mime);
             }
+            if (part.has("text")) {
+                textParts.append(part.path("text").asText()).append(' ');
+            }
         }
-        throw new BadRequestException("Gemini response did not include an image part");
+        // No image — surface the real reason (safety block, text-only reply, prompt feedback).
+        String finishReason = candidate.path("finishReason").asText("");
+        String blockReason = root.path("promptFeedback").path("blockReason").asText("");
+        StringBuilder reason = new StringBuilder("Gemini returned no image");
+        if (!finishReason.isBlank()) reason.append("; finishReason=").append(finishReason);
+        if (!blockReason.isBlank()) reason.append("; blockReason=").append(blockReason);
+        if (textParts.length() > 0) {
+            String t = textParts.toString().trim();
+            reason.append("; model said: ").append(t.length() > 300 ? t.substring(0, 300) + "…" : t);
+        }
+        log.warn("Virtual try-on no-image response: {}", response.body().length() > 800
+                ? response.body().substring(0, 800) : response.body());
+        throw new BadRequestException(reason.toString());
     }
 
     private static String stripDataUri(String value) {
