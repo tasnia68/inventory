@@ -1,5 +1,6 @@
 package com.inventory.system.common.exception;
 
+import com.inventory.system.config.tenant.routing.TenantDatasourceUnavailableException;
 import com.inventory.system.payload.ApiResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +46,19 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleStorefrontModuleUnavailableException(StorefrontModuleUnavailableException ex) {
         logger.error("Storefront unavailable: {}", ex.getMessage());
         return new ResponseEntity<>(new ApiResponse<>(false, ex.getMessage()), HttpStatus.NOT_FOUND);
+    }
+
+    /**
+     * Fail-closed: a tenant configured for a dedicated database could not be
+     * served. We deliberately return 503 (Service Unavailable) and NEVER fall
+     * back to the shared database — surfacing the failure is the safe outcome.
+     */
+    @ExceptionHandler(TenantDatasourceUnavailableException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTenantDatasourceUnavailable(TenantDatasourceUnavailableException ex) {
+        logger.error("Tenant datasource unavailable (failing closed): {}", ex.getMessage());
+        return new ResponseEntity<>(
+                new ApiResponse<>(false, "This tenant's database is temporarily unavailable. Please try again later."),
+                HttpStatus.SERVICE_UNAVAILABLE);
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)

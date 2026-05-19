@@ -38,7 +38,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class TenantCatalogService {
 
     private static final String SQL =
-            "SELECT mode, status, jdbc_url_enc, jdbc_username_enc, jdbc_password_enc "
+            "SELECT mode, status, jdbc_url_enc, jdbc_username_enc, jdbc_password_enc, flyway_version "
             + "FROM tenant_datasource WHERE tenant_id = ?";
 
     private record CacheEntry(ResolvedRouting routing, long expiresAtMillis) {}
@@ -105,6 +105,20 @@ public class TenantCatalogService {
 
         if (mode == TenantDatasourceMode.SHARED) {
             return ResolvedRouting.shared(sharedKey);
+        }
+
+        // Schema-baseline gate: a dedicated DB whose migrations are behind the
+        // application baseline must not be served (fail closed). Disabled while
+        // expectedSchemaVersion is blank (Phase 4 provisioning turns it on).
+        String expected = props.getExpectedSchemaVersion();
+        if (StringUtils.hasText(expected)) {
+            String actual = row.get("flyway_version") == null
+                    ? null : String.valueOf(row.get("flyway_version"));
+            if (!expected.equals(actual)) {
+                throw new TenantDatasourceUnavailableException(
+                        "Tenant " + tenantId + " dedicated DB schema is '" + actual
+                        + "' but application baseline is '" + expected + "' — failing closed");
+            }
         }
 
         // DEDICATED + ACTIVE: decrypt connection details in-memory.

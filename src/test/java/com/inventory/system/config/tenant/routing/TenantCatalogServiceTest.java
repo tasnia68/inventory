@@ -113,6 +113,34 @@ class TenantCatalogServiceTest {
     }
 
     @Test
+    void dedicatedSchemaBehindBaselineFailsClosed() {
+        props.setExpectedSchemaVersion("59");
+        jdbc.update("INSERT INTO tenant_datasource "
+                + "(tenant_id,mode,status,jdbc_url_enc,jdbc_username_enc,jdbc_password_enc,flyway_version,created_at) "
+                + "VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)",
+                "acme", "DEDICATED", "ACTIVE",
+                cipher.encrypt("jdbc:postgresql://acme-db:5432/acme"),
+                cipher.encrypt("u"), cipher.encrypt("p"), "42");
+        assertThatThrownBy(() -> service.resolve("acme"))
+                .isInstanceOf(TenantDatasourceUnavailableException.class)
+                .hasMessageContaining("baseline");
+    }
+
+    @Test
+    void dedicatedSchemaAtBaselineResolves() {
+        props.setExpectedSchemaVersion("59");
+        jdbc.update("INSERT INTO tenant_datasource "
+                + "(tenant_id,mode,status,jdbc_url_enc,jdbc_username_enc,jdbc_password_enc,flyway_version,created_at) "
+                + "VALUES (?,?,?,?,?,?,?,CURRENT_TIMESTAMP)",
+                "acme", "DEDICATED", "ACTIVE",
+                cipher.encrypt("jdbc:postgresql://acme-db:5432/acme"),
+                cipher.encrypt("u"), cipher.encrypt("p"), "59");
+        ResolvedRouting r = service.resolve("acme");
+        assertThat(r.shared()).isFalse();
+        assertThat(r.routingKey()).isEqualTo("acme");
+    }
+
+    @Test
     void cachedThenInvalidatedRereads() {
         insert("acme", "SHARED", "ACTIVE", null, null, null);
         assertThat(service.resolve("acme").shared()).isTrue();      // cached

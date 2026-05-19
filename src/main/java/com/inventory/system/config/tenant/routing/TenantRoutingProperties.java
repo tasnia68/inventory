@@ -25,6 +25,14 @@ public class TenantRoutingProperties {
     /** Logical id of the active KEK, recorded on each encrypted row for rotation. */
     private String keyId = "env:v1";
 
+    /**
+     * Expected Flyway schema version a DEDICATED tenant DB must be at to be
+     * routable. Blank = gate disabled (Phase 3 ships the mechanism; Phase 4
+     * provisioning stamps the version and turns this on). When set, a
+     * DEDICATED row whose {@code flyway_version} differs fails closed.
+     */
+    private String expectedSchemaVersion = "";
+
     /** Default per-dedicated-tenant Hikari pool sizing (overridable per row). */
     private int poolMaxSize = 5;
     private int poolMinIdle = 0;
@@ -49,6 +57,9 @@ public class TenantRoutingProperties {
 
     public String getKeyId() { return keyId; }
     public void setKeyId(String keyId) { this.keyId = keyId; }
+
+    public String getExpectedSchemaVersion() { return expectedSchemaVersion; }
+    public void setExpectedSchemaVersion(String expectedSchemaVersion) { this.expectedSchemaVersion = expectedSchemaVersion; }
 
     public int getPoolMaxSize() { return poolMaxSize; }
     public void setPoolMaxSize(int poolMaxSize) { this.poolMaxSize = poolMaxSize; }
