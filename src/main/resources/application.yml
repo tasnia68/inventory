@@ -29,6 +29,15 @@ app:
       platform-base-domain: ${APP_STOREFRONT_BASE_DOMAIN:localhost}
       admin-domain: ${APP_ADMIN_DOMAIN:localhost}
       verification-target: ${APP_STOREFRONT_VERIFICATION_TARGET:localhost}
+  # Hybrid (Bridge) multi-tenant DB routing. Master flag is OFF until Phase 2
+  # sign-off; Phases 0/1 only build infra. KEK comes from the environment and
+  # is never persisted (see CredentialCipher).
+  tenant:
+    routing:
+      enabled: ${APP_TENANT_ROUTING_ENABLED:false}
+      shared-identifier: __shared__
+      kek: ${MASTERINVENTORY_TENANT_KEK:}
+      key-id: ${MASTERINVENTORY_TENANT_KEK_ID:env:v1}
   security:
     jwt:
       secret-key: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
