@@ -1,38 +1,67 @@
 package com.inventory.system.config.tenant.routing;
 
-import com.inventory.system.common.entity.TenantDatasource;
-import com.inventory.system.common.entity.TenantDatasourceMode;
-import com.inventory.system.common.entity.TenantDatasourceStatus;
-import com.inventory.system.repository.TenantDatasourceRepository;
+import com.zaxxer.hikari.HikariDataSource;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.JdbcTemplate;
 
-import java.util.Optional;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
-import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.when;
 
 class TenantCatalogServiceTest {
 
-    private TenantDatasourceRepository repo;
+    private HikariDataSource ds;
+    private JdbcTemplate jdbc;
     private CredentialCipher cipher;
     private TenantRoutingProperties props;
     private TenantCatalogService service;
 
     @BeforeEach
     void setUp() {
-        repo = mock(TenantDatasourceRepository.class);
+        ds = new HikariDataSource();
+        ds.setJdbcUrl("jdbc:h2:mem:catalog_" + UUID.randomUUID()
+                + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL");
+        ds.setUsername("sa");
+        ds.setPassword("");
+        jdbc = new JdbcTemplate(ds);
+        jdbc.execute("""
+            CREATE TABLE tenant_datasource (
+              tenant_id VARCHAR(255) PRIMARY KEY,
+              mode VARCHAR(16) NOT NULL,
+              status VARCHAR(16) NOT NULL,
+              jdbc_url_enc TEXT, jdbc_username_enc TEXT, jdbc_password_enc TEXT,
+              key_id VARCHAR(64), pool_max_size INT, pool_min_idle INT,
+              idle_timeout_ms BIGINT, flyway_version VARCHAR(32),
+              provisioned_at TIMESTAMP, last_migrated_at TIMESTAMP,
+              last_routed_at TIMESTAMP, last_error TEXT,
+              created_at TIMESTAMP NOT NULL, created_by VARCHAR(255),
+              updated_at TIMESTAMP, updated_by VARCHAR(255))
+            """);
+
         props = new TenantRoutingProperties();
         props.setKek("unit-test-kek");
         cipher = new CredentialCipher(props);
-        service = new TenantCatalogService(repo, cipher, props);
+        service = new TenantCatalogService(ds, cipher, props);
+    }
+
+    @AfterEach
+    void tearDown() {
+        ds.close();
+    }
+
+    private void insert(String tenant, String mode, String status,
+                        String urlEnc, String userEnc, String passEnc) {
+        jdbc.update("INSERT INTO tenant_datasource "
+                + "(tenant_id,mode,status,jdbc_url_enc,jdbc_username_enc,jdbc_password_enc,created_at) "
+                + "VALUES (?,?,?,?,?,?,CURRENT_TIMESTAMP)",
+                tenant, mode, status, urlEnc, userEnc, passEnc);
     }
 
     @Test
     void absentRowResolvesToShared() {
-        when(repo.findById("acme")).thenReturn(Optional.empty());
         ResolvedRouting r = service.resolve("acme");
         assertThat(r.shared()).isTrue();
         assertThat(r.routingKey()).isEqualTo(props.getSharedIdentifier());
@@ -46,24 +75,16 @@ class TenantCatalogServiceTest {
 
     @Test
     void sharedActiveRowResolvesToShared() {
-        TenantDatasource row = new TenantDatasource();
-        row.setTenantId("acme");
-        row.setMode(TenantDatasourceMode.SHARED);
-        row.setStatus(TenantDatasourceStatus.ACTIVE);
-        when(repo.findById("acme")).thenReturn(Optional.of(row));
+        insert("acme", "SHARED", "ACTIVE", null, null, null);
         assertThat(service.resolve("acme").shared()).isTrue();
     }
 
     @Test
     void dedicatedActiveResolvesWithDecryptedCreds() {
-        TenantDatasource row = new TenantDatasource();
-        row.setTenantId("acme");
-        row.setMode(TenantDatasourceMode.DEDICATED);
-        row.setStatus(TenantDatasourceStatus.ACTIVE);
-        row.setJdbcUrlEnc(cipher.encrypt("jdbc:postgresql://acme-db:5432/acme"));
-        row.setJdbcUsernameEnc(cipher.encrypt("acme_user"));
-        row.setJdbcPasswordEnc(cipher.encrypt("s3cr3t"));
-        when(repo.findById("acme")).thenReturn(Optional.of(row));
+        insert("acme", "DEDICATED", "ACTIVE",
+                cipher.encrypt("jdbc:postgresql://acme-db:5432/acme"),
+                cipher.encrypt("acme_user"),
+                cipher.encrypt("s3cr3t"));
 
         ResolvedRouting r = service.resolve("acme");
         assertThat(r.shared()).isFalse();
@@ -76,39 +97,29 @@ class TenantCatalogServiceTest {
 
     @Test
     void nonActiveStatusFailsClosed() {
-        for (TenantDatasourceStatus status : new TenantDatasourceStatus[]{
-                TenantDatasourceStatus.PENDING,
-                TenantDatasourceStatus.MIGRATING,
-                TenantDatasourceStatus.DISABLED}) {
-            TenantDatasource row = new TenantDatasource();
-            row.setTenantId("t-" + status);
-            row.setMode(TenantDatasourceMode.DEDICATED);
-            row.setStatus(status);
-            when(repo.findById("t-" + status)).thenReturn(Optional.of(row));
+        for (String status : new String[]{"PENDING", "MIGRATING", "DISABLED"}) {
+            insert("t-" + status, "DEDICATED", status, null, null, null);
             assertThatThrownBy(() -> service.resolve("t-" + status))
                     .isInstanceOf(TenantDatasourceUnavailableException.class)
-                    .hasMessageContaining(status.name());
+                    .hasMessageContaining(status);
         }
     }
 
     @Test
     void dedicatedWithMissingCredsFailsClosed() {
-        TenantDatasource row = new TenantDatasource();
-        row.setTenantId("acme");
-        row.setMode(TenantDatasourceMode.DEDICATED);
-        row.setStatus(TenantDatasourceStatus.ACTIVE);
-        when(repo.findById("acme")).thenReturn(Optional.of(row));
+        insert("acme", "DEDICATED", "ACTIVE", null, null, null);
         assertThatThrownBy(() -> service.resolve("acme"))
                 .isInstanceOf(TenantDatasourceUnavailableException.class);
     }
 
     @Test
-    void invalidateForcesReread() {
-        when(repo.findById("acme")).thenReturn(Optional.empty());
-        service.resolve("acme");
+    void cachedThenInvalidatedRereads() {
+        insert("acme", "SHARED", "ACTIVE", null, null, null);
+        assertThat(service.resolve("acme").shared()).isTrue();      // cached
+        jdbc.update("UPDATE tenant_datasource SET status='DISABLED' WHERE tenant_id='acme'");
+        assertThat(service.resolve("acme").shared()).isTrue();      // still cached
         service.invalidate("acme");
-        service.resolve("acme");
-        // two distinct (uncached) reads
-        org.mockito.Mockito.verify(repo, org.mockito.Mockito.times(2)).findById("acme");
+        assertThatThrownBy(() -> service.resolve("acme"))           // re-read: now fails closed
+                .isInstanceOf(TenantDatasourceUnavailableException.class);
     }
 }

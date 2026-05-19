@@ -1,14 +1,15 @@
 package com.inventory.system.config.tenant.routing;
 
-import com.inventory.system.common.entity.TenantDatasource;
 import com.inventory.system.common.entity.TenantDatasourceMode;
 import com.inventory.system.common.entity.TenantDatasourceStatus;
-import com.inventory.system.repository.TenantDatasourceRepository;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
+import javax.sql.DataSource;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -17,29 +18,40 @@ import java.util.concurrent.ConcurrentHashMap;
  * truth; results are cached with a short TTL and explicitly invalidated on
  * mutation.
  *
+ * <p><strong>Reads the catalog via plain JDBC on the shared DataSource — never
+ * via JPA.</strong> The connection provider is consumed while Hibernate's
+ * EntityManagerFactory is being built, so any dependency on a JPA repository
+ * here would create an unresolvable circular reference (EMF → customizer →
+ * provider → catalog → repository → EMF). The control-plane must be readable
+ * independently of the persistence unit it configures.
+ *
  * <p>Safe-by-default: a missing catalog row resolves to SHARED. Any
  * non-ACTIVE status, or a DEDICATED row with unusable credentials, throws
  * {@link TenantDatasourceUnavailableException} (fail-closed) — it must never
  * degrade to the shared DB.
  *
- * <p>Gated by {@code app.tenant.routing.enabled}; absent as a bean (and thus
- * inert) until Phase 2 sign-off.
+ * <p>Gated by {@code app.tenant.routing.enabled}; absent (and inert) until
+ * Phase 2 sign-off.
  */
 @Service
 @ConditionalOnProperty(prefix = "app.tenant.routing", name = "enabled", havingValue = "true")
 public class TenantCatalogService {
 
+    private static final String SQL =
+            "SELECT mode, status, jdbc_url_enc, jdbc_username_enc, jdbc_password_enc "
+            + "FROM tenant_datasource WHERE tenant_id = ?";
+
     private record CacheEntry(ResolvedRouting routing, long expiresAtMillis) {}
 
-    private final TenantDatasourceRepository repository;
+    private final JdbcTemplate jdbc;
     private final CredentialCipher cipher;
     private final TenantRoutingProperties props;
     private final ConcurrentHashMap<String, CacheEntry> cache = new ConcurrentHashMap<>();
 
-    public TenantCatalogService(TenantDatasourceRepository repository,
+    public TenantCatalogService(DataSource sharedDataSource,
                                 CredentialCipher cipher,
                                 TenantRoutingProperties props) {
-        this.repository = repository;
+        this.jdbc = new JdbcTemplate(sharedDataSource);
         this.cipher = cipher;
         this.props = props;
     }
@@ -52,7 +64,6 @@ public class TenantCatalogService {
         cache.clear();
     }
 
-    @Transactional(readOnly = true)
     public ResolvedRouting resolve(String tenantId) {
         String sharedKey = props.getSharedIdentifier();
         if (!StringUtils.hasText(tenantId) || sharedKey.equals(tenantId)) {
@@ -71,30 +82,35 @@ public class TenantCatalogService {
     }
 
     private ResolvedRouting resolveUncached(String tenantId, String sharedKey) {
-        TenantDatasource row = repository.findById(tenantId).orElse(null);
+        List<Map<String, Object>> rows = jdbc.queryForList(SQL, tenantId);
 
         // Absence = shared/active default (a missing row can never be misread
         // as dedicated).
-        if (row == null) {
+        if (rows.isEmpty()) {
             return ResolvedRouting.shared(sharedKey);
         }
 
-        // Any non-ACTIVE status fails closed regardless of mode (operator
-        // disabled, provisioning, or mid-cutover).
-        if (row.getStatus() != TenantDatasourceStatus.ACTIVE) {
+        Map<String, Object> row = rows.get(0);
+        TenantDatasourceStatus status =
+                TenantDatasourceStatus.valueOf(String.valueOf(row.get("status")));
+        TenantDatasourceMode mode =
+                TenantDatasourceMode.valueOf(String.valueOf(row.get("mode")));
+
+        // Any non-ACTIVE status fails closed regardless of mode.
+        if (status != TenantDatasourceStatus.ACTIVE) {
             throw new TenantDatasourceUnavailableException(
-                    "Tenant " + tenantId + " datasource is " + row.getStatus()
+                    "Tenant " + tenantId + " datasource is " + status
                     + " (not ACTIVE) — failing closed");
         }
 
-        if (row.getMode() == TenantDatasourceMode.SHARED) {
+        if (mode == TenantDatasourceMode.SHARED) {
             return ResolvedRouting.shared(sharedKey);
         }
 
         // DEDICATED + ACTIVE: decrypt connection details in-memory.
-        String url = decryptRequired(row.getJdbcUrlEnc(), tenantId, "jdbc url");
-        String user = decryptRequired(row.getJdbcUsernameEnc(), tenantId, "username");
-        String pass = decryptRequired(row.getJdbcPasswordEnc(), tenantId, "password");
+        String url = decryptRequired((String) row.get("jdbc_url_enc"), tenantId, "jdbc url");
+        String user = decryptRequired((String) row.get("jdbc_username_enc"), tenantId, "username");
+        String pass = decryptRequired((String) row.get("jdbc_password_enc"), tenantId, "password");
         return ResolvedRouting.dedicated(tenantId, url, user, pass, hostOf(url));
     }
 
