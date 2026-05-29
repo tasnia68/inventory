@@ -46,6 +46,14 @@ app:
         - http://localhost:5174
         - http://localhost:4173
         - http://127.0.0.1:4173
+  # Per-tenant dedicated DB feature: ON for local dev with a placeholder KEK.
+  # The base application.yml still reads these from environment variables for
+  # all other profiles, so prod/staging/deploy are unaffected by these values.
+  # DO NOT use this KEK in any environment that has real tenant credentials.
+  tenant:
+    routing:
+      enabled: true
+      kek: local-dev-tenant-kek-DO-NOT-USE-IN-PROD
 
 logging:
   level:

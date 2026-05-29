@@ -50,8 +50,10 @@ public class SuperAdminTenantDatasourceController {
     }
 
     @PostMapping("/test")
-    public ResponseEntity<ApiResponse<Map<String, Object>>> test(@PathVariable String tenantId) {
-        boolean ok = adminService.testConnection(tenantId);
+    public ResponseEntity<ApiResponse<Map<String, Object>>> test(
+            @PathVariable String tenantId,
+            @RequestBody(required = false) TenantDatasourceRequest probe) {
+        boolean ok = adminService.testConnection(tenantId, probe);
         return ResponseEntity.ok(ApiResponse.success(
                 Map.of("ok", ok), ok ? "Connection succeeded" : "Connection failed"));
     }

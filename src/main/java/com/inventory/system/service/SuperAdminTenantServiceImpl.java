@@ -8,6 +8,7 @@ import com.inventory.system.payload.SuperAdminTenantUpdateRequest;
 import com.inventory.system.payload.TenantRequest;
 import com.inventory.system.payload.TenantResponse;
 import com.inventory.system.repository.TenantRepository;
+import com.inventory.system.repository.TenantSettingRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,7 @@ public class SuperAdminTenantServiceImpl implements SuperAdminTenantService {
     private final TenantRepository tenantRepository;
     private final TenantService tenantService;
     private final TenantSettingService tenantSettingService;
+    private final TenantSettingRepository tenantSettingRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -114,8 +116,13 @@ public class SuperAdminTenantServiceImpl implements SuperAdminTenantService {
     }
 
     private boolean isStorefrontEnabled(String tenantId) {
-        return tenantSettingService.findSettingForTenant(tenantId, STOREFRONT_MODULE_ENABLED_KEY)
-                .map(setting -> Boolean.parseBoolean(setting.getValue()))
+        // Bypass the Hibernate tenantFilter: the super-admin lists every tenant
+        // while running in the platform tenant's context, so a filtered query
+        // would never return another tenant's row (every tenant would render
+        // as Disabled regardless of its actual setting).
+        return tenantSettingRepository
+                .findValueByTenantIdAndSettingKey(tenantId, STOREFRONT_MODULE_ENABLED_KEY)
+                .map(Boolean::parseBoolean)
                 .orElse(false);
     }
 }

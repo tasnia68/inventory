@@ -66,7 +66,11 @@ public class TenantSettingServiceImpl implements TenantSettingService {
     @Override
     @Transactional
     public TenantSettingDto updateSettingForTenant(String tenantId, String key, String value, String type, String category) {
-        TenantSetting setting = tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, key)
+        // Native finder bypasses the Hibernate tenantFilter so super-admin
+        // upserts targeting another tenant's row find the existing entity
+        // (instead of creating a duplicate that collides with
+        // uk_tenant_settings_key_tenant).
+        TenantSetting setting = tenantSettingRepository.findEntityByTenantIdAndSettingKey(tenantId, key)
                 .orElse(new TenantSetting());
 
         if (setting.getId() == null) {
