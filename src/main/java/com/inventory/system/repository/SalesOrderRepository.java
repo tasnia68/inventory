@@ -17,4 +17,5 @@ public interface SalesOrderRepository extends JpaRepository<SalesOrder, UUID>, J
     Optional<SalesOrder> findBySoNumberAndCustomerEmailIgnoreCase(String soNumber, String email);
     Optional<SalesOrder> findBySoNumberAndCustomerPhoneNumber(String soNumber, String phoneNumber);
     Page<SalesOrder> findByCustomerId(UUID customerId, Pageable pageable);
+    long countByCustomerId(UUID customerId);
 }

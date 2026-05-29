@@ -28,6 +28,8 @@ public class StorefrontCheckoutRequest {
     private String paymentReference;
     private LocalDate expectedDeliveryDate;
     private List<String> couponCodes = new ArrayList<>();
+    private List<String> giftCardCodes = new ArrayList<>();
+    private String referralCode;
 
     @NotEmpty(message = "Checkout items cannot be empty")
     @Valid

@@ -21,5 +21,7 @@ public class StorefrontCartDto {
     private BigDecimal taxAmount;
     private BigDecimal totalAmount;
     private List<String> appliedCouponCodes = new ArrayList<>();
+    private BigDecimal giftCardAmount = BigDecimal.ZERO;
+    private List<String> appliedGiftCardCodes = new ArrayList<>();
     private List<StorefrontCartLineDto> lines = new ArrayList<>();
 }

@@ -1,0 +1,56 @@
+package com.inventory.system.payload;
+
+import com.inventory.system.common.entity.DiscountAppliesToScope;
+import com.inventory.system.common.entity.DiscountChannel;
+import com.inventory.system.common.entity.DiscountCustomerEligibility;
+import com.inventory.system.common.entity.DiscountKind;
+import com.inventory.system.common.entity.DiscountMinPurchaseType;
+import com.inventory.system.common.entity.DiscountStatus;
+import com.inventory.system.common.entity.DiscountValueType;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.util.List;
+
+public record CreateDiscountRequest(
+        String name,
+        String description,
+        DiscountStatus status,
+        DiscountKind kind,
+        DiscountValueType valueType,
+        BigDecimal value,
+        BigDecimal maxDiscountAmount,
+        DiscountAppliesToScope appliesToScope,
+        DiscountCustomerEligibility customerEligibility,
+        DiscountMinPurchaseType minPurchaseType,
+        BigDecimal minPurchaseAmount,
+        BigDecimal minPurchaseQuantity,
+        Integer usageLimitTotal,
+        Integer usageLimitPerCustomer,
+        LocalDateTime startsAt,
+        LocalDateTime endsAt,
+        String scheduleDaysOfWeek,
+        LocalTime scheduleStartTime,
+        LocalTime scheduleEndTime,
+        String scheduleTimezone,
+        Boolean stackable,
+        Boolean combineWithOrderDiscounts,
+        Boolean combineWithProductDiscounts,
+        Boolean combineWithShippingDiscounts,
+        String exclusionGroup,
+        Integer priority,
+        Boolean autoApply,
+        DiscountChannel salesChannel,
+        BigDecimal bogoBuyQuantity,
+        BigDecimal bogoGetQuantity,
+        DiscountValueType bogoGetValueType,
+        BigDecimal bogoGetValue,
+        BigDecimal bundleQuantity,
+        BigDecimal bundlePrice,
+        BigDecimal freeShippingMaxAmount,
+        String freeShippingCountries,
+        List<DiscountTierDto> tiers,
+        List<DiscountProductInclusionDto> productInclusions,
+        List<DiscountCustomerInclusionDto> customerInclusions
+) {}

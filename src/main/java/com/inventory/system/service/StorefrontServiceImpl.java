@@ -144,6 +144,8 @@ public class StorefrontServiceImpl implements StorefrontService {
     private final StorefrontLoginChallengeRepository storefrontLoginChallengeRepository;
     private final StorefrontAccountSessionRepository storefrontAccountSessionRepository;
     private final PricingEngineService pricingEngineService;
+    private final GiftCardService giftCardService;
+    private final org.springframework.context.ApplicationEventPublisher salesEventPublisher;
     private final StockReservationService stockReservationService;
     private final StorefrontPublishVersionRepository storefrontPublishVersionRepository;
     private final TenantSettingRepository tenantSettingRepository;
@@ -678,7 +680,7 @@ public class StorefrontServiceImpl implements StorefrontService {
         requirePublicStorefrontAccess();
         Warehouse warehouse = resolveWarehouse(request.getWarehouseId());
         Customer customer = resolvePricingCustomer(request.getCustomerId(), request.getCustomerEmail(), request.getCustomerPhoneNumber());
-        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer, request.getExpectedDeliveryDate());
+        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), request.getGiftCardCodes(), request.getReferralCode(), customer, request.getExpectedDeliveryDate());
         PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, pricingRequest);
 
         return toCartDto(warehouse, pricingEvaluation, request.getCurrency());
@@ -698,14 +700,15 @@ public class StorefrontServiceImpl implements StorefrontService {
         validateCustomerEligibility(customer);
         LocalDate expectedDeliveryDate = request.getExpectedDeliveryDate() != null ? request.getExpectedDeliveryDate() : LocalDate.now().plusDays(3);
 
-        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), customer, expectedDeliveryDate);
+        SalesOrderRequest pricingRequest = toSalesOrderRequest(request.getItems(), warehouse.getId(), request.getCurrency(), request.getCouponCodes(), request.getGiftCardCodes(), request.getReferralCode(), customer, expectedDeliveryDate);
         PricingEvaluation pricingEvaluation = pricingEngineService.evaluateSalesOrder(customer, warehouse, pricingRequest);
         Map<UUID, ProductVariant> variantMap = loadVariants(request.getItems());
         Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(pricingEvaluation);
 
         BigDecimal shippingAmount = computeShippingAmount(pricingEvaluation.getNetSubtotal());
         BigDecimal taxAmount = computeTaxAmount(pricingEvaluation.getNetSubtotal());
-        BigDecimal grandTotal = pricingEvaluation.getNetSubtotal().add(shippingAmount).add(taxAmount);
+        BigDecimal beforeGift = pricingEvaluation.getNetSubtotal().add(shippingAmount).add(taxAmount);
+        BigDecimal grandTotal = beforeGift;
 
         SalesOrder salesOrder = new SalesOrder();
         salesOrder.setCustomer(customer);
@@ -724,6 +727,7 @@ public class StorefrontServiceImpl implements StorefrontService {
         salesOrder.setTaxAmount(taxAmount);
         salesOrder.setTotalAmount(grandTotal);
         salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
+        salesOrder.setReferralCode(request.getReferralCode());
 
         List<SalesOrderItem> items = new ArrayList<>();
         for (StorefrontCartItemRequest itemRequest : request.getItems()) {
@@ -746,6 +750,31 @@ public class StorefrontServiceImpl implements StorefrontService {
 
         SalesOrder savedOrder = salesOrderRepository.save(salesOrder);
         pricingEngineService.recordRedemptions(pricingEvaluation, savedOrder, null, customer, SalesChannel.WEB_ORDER, savedOrder.getSoNumber());
+
+        if (request.getGiftCardCodes() != null && !request.getGiftCardCodes().isEmpty()) {
+            BigDecimal redeemed = giftCardService.redeemCodes(
+                    request.getGiftCardCodes(),
+                    beforeGift,
+                    savedOrder.getId(),
+                    null,
+                    savedOrder.getSoNumber()
+            );
+            if (redeemed != null && redeemed.signum() > 0) {
+                savedOrder.setGiftCardAmount(redeemed);
+                savedOrder.setAppliedGiftCardCodes(String.join(", ", request.getGiftCardCodes()));
+                savedOrder.setTotalAmount(beforeGift.subtract(redeemed));
+                savedOrder = salesOrderRepository.save(savedOrder);
+            }
+        }
+
+        salesEventPublisher.publishEvent(new com.inventory.system.service.order.events.SalesOrderCreatedEvent(
+                savedOrder.getId(),
+                customer != null ? customer.getId() : null,
+                SalesChannel.WEB_ORDER,
+                request.getReferralCode(),
+                savedOrder.getTotalAmount(),
+                LocalDateTime.now()
+        ));
 
         reserveStockForOrder(savedOrder, warehouse);
 
@@ -1939,7 +1968,11 @@ public class StorefrontServiceImpl implements StorefrontService {
 
         BigDecimal shippingAmount = computeShippingAmount(pricingEvaluation.getNetSubtotal());
         BigDecimal taxAmount = computeTaxAmount(pricingEvaluation.getNetSubtotal());
-        BigDecimal grandTotal = pricingEvaluation.getNetSubtotal().add(shippingAmount).add(taxAmount);
+        BigDecimal beforeGift = pricingEvaluation.getNetSubtotal().add(shippingAmount).add(taxAmount);
+        BigDecimal giftAmount = pricingEvaluation.getGiftCardAmount() != null
+                ? pricingEvaluation.getGiftCardAmount() : BigDecimal.ZERO;
+        BigDecimal grandTotal = beforeGift.subtract(giftAmount);
+        if (grandTotal.signum() < 0) grandTotal = BigDecimal.ZERO;
 
         return new StorefrontCartDto(
             currency != null && !currency.isBlank() ? currency : "BDT",
@@ -1951,6 +1984,8 @@ public class StorefrontServiceImpl implements StorefrontService {
                 taxAmount,
                 grandTotal,
                 new ArrayList<>(pricingEvaluation.getAppliedCouponCodes()),
+                giftAmount,
+                new ArrayList<>(pricingEvaluation.getAppliedGiftCardCodes()),
                 lines
         );
     }
@@ -1991,11 +2026,24 @@ public class StorefrontServiceImpl implements StorefrontService {
                                                   List<String> couponCodes,
                                                   Customer customer,
                                                   LocalDate expectedDeliveryDate) {
+        return toSalesOrderRequest(items, warehouseId, currency, couponCodes, List.of(), null, customer, expectedDeliveryDate);
+    }
+
+    private SalesOrderRequest toSalesOrderRequest(List<StorefrontCartItemRequest> items,
+                                                  UUID warehouseId,
+                                                  String currency,
+                                                  List<String> couponCodes,
+                                                  List<String> giftCardCodes,
+                                                  String referralCode,
+                                                  Customer customer,
+                                                  LocalDate expectedDeliveryDate) {
         SalesOrderRequest request = new SalesOrderRequest();
         request.setCustomerId(customer != null ? customer.getId() : null);
         request.setWarehouseId(warehouseId);
         request.setCurrency(currency != null && !currency.isBlank() ? currency : "BDT");
         request.setCouponCodes(couponCodes != null ? couponCodes : List.of());
+        request.setGiftCardCodes(giftCardCodes != null ? giftCardCodes : List.of());
+        request.setReferralCode(referralCode);
         request.setPriority(OrderPriority.HIGH);
         request.setExpectedDeliveryDate(expectedDeliveryDate != null ? expectedDeliveryDate : LocalDate.now().plusDays(3));
         request.setItems(items.stream().map(this::toSalesOrderItemRequest).toList());

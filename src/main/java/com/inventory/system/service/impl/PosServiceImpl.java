@@ -110,6 +110,8 @@ public class PosServiceImpl implements PosService {
     private final SalesOrderRepository salesOrderRepository;
     private final StockService stockService;
     private final PricingEngineService pricingEngineService;
+    private final com.inventory.system.service.GiftCardService giftCardService;
+    private final org.springframework.context.ApplicationEventPublisher salesEventPublisher;
     private final FinancialEventService financialEventService;
 
     @Override
@@ -689,6 +691,31 @@ public class PosServiceImpl implements PosService {
             posSuspendedSaleRepository.save(suspendedSale);
         }
         pricingEngineService.recordRedemptions(pricingEvaluation, salesOrder, savedSale, customer, SalesChannel.POS, savedSale.getReceiptNumber());
+
+        if (request.getGiftCardCodes() != null && !request.getGiftCardCodes().isEmpty()) {
+            BigDecimal due = savedSale.getTotalAmount() != null ? savedSale.getTotalAmount() : BigDecimal.ZERO;
+            BigDecimal redeemed = giftCardService.redeemCodes(
+                    request.getGiftCardCodes(), due, salesOrder.getId(), savedSale.getId(), savedSale.getReceiptNumber());
+            if (redeemed != null && redeemed.signum() > 0) {
+                savedSale.setGiftCardAmount(redeemed);
+                savedSale.setAppliedGiftCardCodes(String.join(", ", request.getGiftCardCodes()));
+                savedSale.setTotalAmount(due.subtract(redeemed));
+                savedSale = posSaleRepository.save(savedSale);
+                salesOrder.setGiftCardAmount(redeemed);
+                salesOrder.setAppliedGiftCardCodes(savedSale.getAppliedGiftCardCodes());
+                salesOrder.setTotalAmount(savedSale.getTotalAmount());
+                salesOrderRepository.save(salesOrder);
+            }
+        }
+
+        salesEventPublisher.publishEvent(new com.inventory.system.service.order.events.SalesOrderCreatedEvent(
+                salesOrder.getId(),
+                customer != null ? customer.getId() : null,
+                SalesChannel.POS,
+                null,
+                savedSale.getTotalAmount(),
+                LocalDateTime.now()
+        ));
         financialEventService.recordPosSale(savedSale);
         return mapSale(savedSale);
     }

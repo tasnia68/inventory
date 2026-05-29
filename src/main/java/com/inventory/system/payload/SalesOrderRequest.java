@@ -30,6 +30,10 @@ public class SalesOrderRequest {
 
     private List<String> couponCodes = new ArrayList<>();
 
+    private List<String> giftCardCodes = new ArrayList<>();
+
+    private String referralCode;
+
     @NotEmpty(message = "Items list cannot be empty")
     @Valid
     private List<SalesOrderItemRequest> items;

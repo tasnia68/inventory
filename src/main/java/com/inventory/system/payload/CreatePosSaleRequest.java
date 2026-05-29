@@ -44,6 +44,8 @@ public class CreatePosSaleRequest {
 
     private List<String> couponCodes = new ArrayList<>();
 
+    private List<String> giftCardCodes = new ArrayList<>();
+
     @Valid
     private List<PosSalePaymentRequest> payments = new ArrayList<>();
 

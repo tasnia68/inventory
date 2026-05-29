@@ -101,6 +101,12 @@ public class PosSale extends BaseEntity {
     @Column(name = "applied_coupon_codes", columnDefinition = "TEXT")
     private String appliedCouponCodes;
 
+    @Column(name = "gift_card_amount", precision = 19, scale = 6)
+    private BigDecimal giftCardAmount = BigDecimal.ZERO;
+
+    @Column(name = "applied_gift_card_codes", columnDefinition = "TEXT")
+    private String appliedGiftCardCodes;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 

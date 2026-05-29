@@ -1,33 +1,21 @@
 package com.inventory.system.payload;
 
-import com.inventory.system.common.entity.SalesChannel;
-import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotEmpty;
-import jakarta.validation.constraints.NotNull;
-import lombok.Data;
+import com.inventory.system.common.entity.DiscountChannel;
 
 import java.math.BigDecimal;
-import java.util.ArrayList;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
 
-@Data
-public class PricingPreviewRequest {
-    private UUID customerId;
-
-    @NotNull
-    private UUID warehouseId;
-
-    private UUID terminalId;
-
-    @NotNull
-    private SalesChannel salesChannel;
-
-    private BigDecimal manualDiscountAmount = BigDecimal.ZERO;
-
-    private List<String> couponCodes = new ArrayList<>();
-
-    @Valid
-    @NotEmpty
-    private List<PricingPreviewItemRequest> items;
-}
+public record PricingPreviewRequest(
+        UUID customerId,
+        String customerEmail,
+        DiscountChannel channel,
+        BigDecimal shippingAmount,
+        String shippingCountry,
+        LocalDateTime evaluationTime,
+        List<String> discountCodes,
+        List<String> giftCardCodes,
+        String referralCode,
+        List<PricingPreviewItemRequest> items
+) {}

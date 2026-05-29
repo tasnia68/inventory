@@ -73,6 +73,15 @@ public class SalesOrder extends BaseEntity {
     @Column(name = "applied_coupon_codes", columnDefinition = "TEXT")
     private String appliedCouponCodes;
 
+    @Column(name = "gift_card_amount", precision = 19, scale = 6)
+    private BigDecimal giftCardAmount = BigDecimal.ZERO;
+
+    @Column(name = "applied_gift_card_codes", columnDefinition = "TEXT")
+    private String appliedGiftCardCodes;
+
+    @Column(name = "referral_code", length = 64)
+    private String referralCode;
+
     @Column(name = "currency", length = 3)
     private String currency;
 

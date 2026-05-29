@@ -18,6 +18,8 @@ public class StorefrontCartRequest {
     private String currency;
     private LocalDate expectedDeliveryDate;
     private List<String> couponCodes = new ArrayList<>();
+    private List<String> giftCardCodes = new ArrayList<>();
+    private String referralCode;
 
     @NotEmpty(message = "Cart items cannot be empty")
     @Valid

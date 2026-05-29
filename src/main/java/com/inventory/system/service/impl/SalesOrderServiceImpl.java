@@ -38,7 +38,8 @@ public class SalesOrderServiceImpl implements SalesOrderService {
     private final StockReservationService stockReservationService;
     private final WarehouseRepository warehouseRepository;
     private final PricingEngineService pricingEngineService;
-    private final PromotionRedemptionRepository promotionRedemptionRepository;
+    private final DiscountRedemptionRepository discountRedemptionRepository;
+    private final com.inventory.system.service.GiftCardService giftCardService;
     private final ApplicationEventPublisher eventPublisher;
     private final ShipmentRepository shipmentRepository;
     private final StockService stockService;
@@ -105,10 +106,26 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
         salesOrder.setTotalAmount(pricingEvaluation.getNetSubtotal());
         salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
+        salesOrder.setReferralCode(request.getReferralCode());
 
         SalesOrder savedSo = salesOrderRepository.save(salesOrder);
         pricingEngineService.recordRedemptions(pricingEvaluation, savedSo, null, customer, SalesChannel.SALES_ORDER, savedSo.getSoNumber());
+        savedSo = applyGiftCards(savedSo, request.getGiftCardCodes(), pricingEvaluation.getNetSubtotal());
+        eventPublisher.publishEvent(new com.inventory.system.service.order.events.SalesOrderCreatedEvent(
+                savedSo.getId(), customer.getId(), SalesChannel.SALES_ORDER,
+                request.getReferralCode(), savedSo.getTotalAmount(), LocalDateTime.now()
+        ));
         return mapToDto(savedSo);
+    }
+
+    private SalesOrder applyGiftCards(SalesOrder order, java.util.List<String> codes, BigDecimal due) {
+        if (codes == null || codes.isEmpty() || due == null || due.signum() <= 0) return order;
+        BigDecimal redeemed = giftCardService.redeemCodes(codes, due, order.getId(), null, order.getSoNumber());
+        if (redeemed == null || redeemed.signum() <= 0) return order;
+        order.setGiftCardAmount(redeemed);
+        order.setAppliedGiftCardCodes(String.join(", ", codes));
+        order.setTotalAmount(due.subtract(redeemed));
+        return salesOrderRepository.save(order);
     }
 
     @Override
@@ -172,7 +189,12 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         validateCustomerEligibility(customer);
         salesOrder.setCustomer(customer);
 
-        promotionRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+        discountRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+        // Reverse any gift-card debits before re-pricing so the cards' balances are usable again.
+        giftCardService.reverseRedemptionsForOrder(salesOrder.getId(),
+                "Order " + salesOrder.getSoNumber() + " updated");
+        salesOrder.setGiftCardAmount(BigDecimal.ZERO);
+        salesOrder.setAppliedGiftCardCodes(null);
 
         Warehouse warehouse = warehouseRepository.findById(request.getWarehouseId())
                 .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found with ID: " + request.getWarehouseId()));
@@ -222,9 +244,11 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         salesOrder.setDiscountAmount(pricingEvaluation.getTotalDiscount());
         salesOrder.setTotalAmount(pricingEvaluation.getNetSubtotal());
         salesOrder.setAppliedCouponCodes(String.join(", ", pricingEvaluation.getAppliedCouponCodes()));
+        salesOrder.setReferralCode(request.getReferralCode());
 
         SalesOrder savedSo = salesOrderRepository.save(salesOrder);
         pricingEngineService.recordRedemptions(pricingEvaluation, savedSo, null, customer, SalesChannel.SALES_ORDER, savedSo.getSoNumber());
+        savedSo = applyGiftCards(savedSo, request.getGiftCardCodes(), pricingEvaluation.getNetSubtotal());
         return mapToDto(savedSo);
     }
 
@@ -509,7 +533,11 @@ public class SalesOrderServiceImpl implements SalesOrderService {
                 salesOrder.getCustomer(), salesOrder.getWarehouse(), syntheticRequest);
         Map<UUID, Deque<PricingEvaluationLine>> pricedLines = buildLineQueues(eval);
 
-        promotionRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+        discountRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+        giftCardService.reverseRedemptionsForOrder(salesOrder.getId(),
+                "Order " + salesOrder.getSoNumber() + " items updated");
+        salesOrder.setGiftCardAmount(BigDecimal.ZERO);
+        salesOrder.setAppliedGiftCardCodes(null);
         salesOrder.getItems().clear();
 
         for (SalesOrderItemRequest itemReq : itemRequests) {
@@ -557,7 +585,14 @@ public class SalesOrderServiceImpl implements SalesOrderService {
         }
 
         stockReservationService.releaseReservationsByReference(salesOrder.getSoNumber());
-        promotionRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+        discountRedemptionRepository.deleteBySalesOrderId(salesOrder.getId());
+        // Refund any redeemed gift-card balances back to the customer on cancellation.
+        BigDecimal refunded = giftCardService.reverseRedemptionsForOrder(salesOrder.getId(),
+                "Order " + salesOrder.getSoNumber() + " cancelled");
+        if (refunded != null && refunded.signum() > 0) {
+            salesOrder.setGiftCardAmount(BigDecimal.ZERO);
+            salesOrder.setAppliedGiftCardCodes(null);
+        }
 
         salesOrder.setStatus(SalesOrderStatus.CANCELLED);
         salesOrderRepository.save(salesOrder);
