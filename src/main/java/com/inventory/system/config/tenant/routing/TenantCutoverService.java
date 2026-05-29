@@ -10,6 +10,8 @@ import org.springframework.util.StringUtils;
 
 import javax.sql.DataSource;
 import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.sql.Timestamp;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -84,6 +86,12 @@ public class TenantCutoverService {
 
         setStatus(tenantId, "MIGRATING", null);
         try {
+            // Cutover semantics = "wipe and reload". Drop the public schema in
+            // the dedicated DB so any prior attempt (incl. wrong-column tables)
+            // is cleared before the migrator re-bootstraps a clean schema.
+            // Safe because a dedicated DB only ever holds this one tenant.
+            resetDedicatedSchema(url, user, pass);
+
             String version = migrator.migrateToBaseline(url, user, pass);
 
             Map<String, TenantDataCopier.TableCount> reportRaw =
@@ -130,6 +138,24 @@ public class TenantCutoverService {
             throw new IllegalStateException("Tenant " + tenantId + " is DEDICATED but " + what + " is not set");
         }
         return cipher.decrypt(s);
+    }
+
+    /**
+     * Drop and recreate the {@code public} schema on the dedicated database so
+     * a previously-failed cutover (e.g. with stale column names) can't haunt a
+     * retry. The dedicated DB exclusively holds this tenant's data, so this
+     * destroys nothing belonging to anyone else.
+     */
+    private void resetDedicatedSchema(String url, String user, String pass) {
+        try (Connection c = DriverManager.getConnection(url, user, pass);
+             Statement s = c.createStatement()) {
+            s.execute("DROP SCHEMA IF EXISTS public CASCADE");
+            s.execute("CREATE SCHEMA public");
+            s.execute("GRANT ALL ON SCHEMA public TO CURRENT_USER");
+        } catch (Exception e) {
+            throw new TenantDatasourceUnavailableException(
+                    "Could not reset dedicated schema before cutover: " + e.getMessage(), e);
+        }
     }
 
     private String sharedJdbcUrl() {

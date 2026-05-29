@@ -104,18 +104,40 @@ public class TenantDatasourceAdminService {
         return get(tenantId);
     }
 
-    /** Open a throwaway connection to validate config. Never echoes creds. */
-    public boolean testConnection(String tenantId) {
+    /**
+     * Open a throwaway connection to validate config.
+     *
+     * <p>If {@code probe} is supplied with a JDBC URL it dials those creds
+     * directly (lets the operator test before saving). Otherwise the saved
+     * row's encrypted creds are decrypted in memory and dialled — supplied
+     * password takes precedence over the stored one, supplied username
+     * defaults to the stored value if blank, so the operator can also test a
+     * password without persisting it.
+     *
+     * <p>Never echoes credentials in any return value or log.
+     */
+    public boolean testConnection(String tenantId, TenantDatasourceRequest probe) {
+        if (probe != null && StringUtils.hasText(probe.getJdbcUrl())) {
+            return dial(probe.getJdbcUrl(), probe.getUsername(), probe.getPassword());
+        }
         List<Map<String, Object>> rows = jdbc.queryForList(
                 "SELECT jdbc_url_enc,jdbc_username_enc,jdbc_password_enc "
                 + "FROM tenant_datasource WHERE tenant_id=?", tenantId);
         if (rows.isEmpty()) {
-            throw new IllegalStateException("No datasource configured for tenant " + tenantId);
+            throw new IllegalStateException("No datasource configured for tenant " + tenantId
+                    + " — fill in the JDBC URL/username/password and test, or save first.");
         }
         Map<String, Object> r = rows.get(0);
-        String url = cipher.decrypt((String) r.get("jdbc_url_enc"));
-        String user = cipher.decrypt((String) r.get("jdbc_username_enc"));
-        String pass = cipher.decrypt((String) r.get("jdbc_password_enc"));
+        String storedUrl  = cipher.decrypt((String) r.get("jdbc_url_enc"));
+        String storedUser = cipher.decrypt((String) r.get("jdbc_username_enc"));
+        String storedPass = cipher.decrypt((String) r.get("jdbc_password_enc"));
+        String useUser = (probe != null && StringUtils.hasText(probe.getUsername())) ? probe.getUsername() : storedUser;
+        String usePass = (probe != null && StringUtils.hasText(probe.getPassword())) ? probe.getPassword() : storedPass;
+        return dial(storedUrl, useUser, usePass);
+    }
+
+    /** Open one short-lived JDBC connection and report whether it is valid. */
+    private boolean dial(String url, String user, String pass) {
         try (Connection c = DriverManager.getConnection(url, user, pass)) {
             return c.isValid(5);
         } catch (Exception e) {
