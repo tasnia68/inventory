@@ -19,4 +19,5 @@ public class UserProfileResponse {
     private Set<String> roles;
     private Set<String> permissions;
     private LocalDateTime createdAt;
+    private boolean forcePasswordChange;
 }

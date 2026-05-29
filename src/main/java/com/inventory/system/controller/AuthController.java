@@ -1,11 +1,15 @@
 package com.inventory.system.controller;
 
 import com.inventory.system.payload.AuthResponse;
+import com.inventory.system.payload.ChangePasswordRequest;
 import com.inventory.system.payload.LoginRequest;
 import com.inventory.system.service.AuthService;
+import com.inventory.system.service.UserService;
+import jakarta.validation.Valid;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -14,9 +18,11 @@ public class AuthController {
 
     private static final Logger log = LoggerFactory.getLogger(AuthController.class);
     private final AuthService authService;
+    private final UserService userService;
 
-    public AuthController(AuthService authService) {
+    public AuthController(AuthService authService, UserService userService) {
         this.authService = authService;
+        this.userService = userService;
     }
 
     @GetMapping("/test")
@@ -34,5 +40,16 @@ public class AuthController {
         AuthResponse response = authService.authenticate(request);
         log.info("===== LOGIN SUCCESSFUL =====");
         return ResponseEntity.ok(response);
+    }
+
+    /**
+     * Change the currently authenticated user's password. Required after first login when
+     * the user was provisioned with a temporary password (force_password_change flag).
+     */
+    @PostMapping("/change-password")
+    @PreAuthorize("isAuthenticated()")
+    public ResponseEntity<Void> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        userService.changePassword(request);
+        return ResponseEntity.noContent().build();
     }
 }

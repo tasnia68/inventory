@@ -4,9 +4,12 @@ import com.inventory.system.common.entity.Role;
 import com.inventory.system.common.entity.User;
 import com.inventory.system.common.entity.UserActivityLog;
 import com.inventory.system.common.entity.UserInvitation;
+import com.inventory.system.common.entity.Warehouse;
+import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.AcceptInvitationRequest;
+import com.inventory.system.payload.ChangePasswordRequest;
 import com.inventory.system.payload.CreateUserRequest;
 import com.inventory.system.payload.UpdateUserRequest;
 import com.inventory.system.payload.UserDto;
@@ -17,6 +20,7 @@ import com.inventory.system.repository.RoleRepository;
 import com.inventory.system.repository.UserActivityLogRepository;
 import com.inventory.system.repository.UserInvitationRepository;
 import com.inventory.system.repository.UserRepository;
+import com.inventory.system.repository.WarehouseRepository;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -40,6 +44,7 @@ public class UserServiceImpl implements UserService {
     private final EmailService emailService;
     private final PasswordEncoder passwordEncoder;
     private final TenantRepository tenantRepository;
+    private final WarehouseRepository warehouseRepository;
 
     public UserServiceImpl(UserRepository userRepository,
             RoleRepository roleRepository,
@@ -47,13 +52,15 @@ public class UserServiceImpl implements UserService {
             UserActivityLogRepository userActivityLogRepository,
             EmailService emailService,
             PasswordEncoder passwordEncoder,
-            TenantRepository tenantRepository) {
+            TenantRepository tenantRepository,
+            WarehouseRepository warehouseRepository) {
         this.userRepository = userRepository;
         this.roleRepository = roleRepository;
         this.userInvitationRepository = userInvitationRepository;
         this.userActivityLogRepository = userActivityLogRepository;
         this.emailService = emailService;
         this.passwordEncoder = passwordEncoder;
+        this.warehouseRepository = warehouseRepository;
         this.tenantRepository = tenantRepository;
     }
 
@@ -134,15 +141,29 @@ public class UserServiceImpl implements UserService {
     public UserDto createUser(CreateUserRequest request) {
         String tenantId = TenantContext.requireTenantId();
         if (userRepository.findByEmailAndTenantId(request.getEmail(), tenantId).isPresent()) {
-            throw new RuntimeException("User already exists");
+            throw new BadRequestException("User already exists with email: " + request.getEmail());
+        }
+
+        // Resolve password: explicit -> generate -> reject
+        String plainPassword;
+        boolean wasGenerated = false;
+        if (request.isGeneratePassword() || request.getPassword() == null || request.getPassword().isBlank()) {
+            plainPassword = generateRandomPassword(10);
+            wasGenerated = true;
+        } else {
+            plainPassword = request.getPassword();
         }
 
         User user = new User();
         user.setEmail(request.getEmail());
-        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setPassword(passwordEncoder.encode(plainPassword));
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());
+        user.setPhone(request.getPhone());
+        user.setDepartment(request.getDepartment());
+        user.setJobTitle(request.getJobTitle());
         user.setEnabled(true);
+        user.setForcePasswordChange(request.isForcePasswordChange());
 
         if (request.getRoles() != null && !request.getRoles().isEmpty()) {
             Set<Role> roles = new HashSet<>();
@@ -154,9 +175,54 @@ public class UserServiceImpl implements UserService {
             user.setRoles(roles);
         }
 
+        if (request.getWarehouseIds() != null && !request.getWarehouseIds().isEmpty()) {
+            Set<Warehouse> warehouses = new HashSet<>();
+            for (UUID warehouseId : request.getWarehouseIds()) {
+                Warehouse w = warehouseRepository.findById(warehouseId)
+                        .orElseThrow(() -> new ResourceNotFoundException("Warehouse not found: " + warehouseId));
+                warehouses.add(w);
+            }
+            user.setWarehouses(warehouses);
+        }
+
         User savedUser = userRepository.save(user);
         logActivity("CREATE_USER", "Created user: " + savedUser.getEmail());
-        return mapToDto(savedUser);
+
+        UserDto dto = mapToDto(savedUser);
+        if (wasGenerated) {
+            // ONLY returned in the create response — never persisted in plain form, never re-fetchable.
+            dto.setGeneratedPassword(plainPassword);
+        }
+        return dto;
+    }
+
+    @Override
+    public void changePassword(ChangePasswordRequest request) {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        String tenantId = TenantContext.requireTenantId();
+        User user = userRepository.findByEmailAndTenantId(email, tenantId)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (!passwordEncoder.matches(request.getCurrentPassword(), user.getPassword())) {
+            throw new BadRequestException("Current password is incorrect");
+        }
+        if (passwordEncoder.matches(request.getNewPassword(), user.getPassword())) {
+            throw new BadRequestException("New password must differ from current password");
+        }
+
+        user.setPassword(passwordEncoder.encode(request.getNewPassword()));
+        user.setForcePasswordChange(false);
+        userRepository.save(user);
+        logActivity("CHANGE_PASSWORD", "Password changed");
+    }
+
+    private static final java.security.SecureRandom RANDOM = new java.security.SecureRandom();
+    private static final String PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#";
+
+    private String generateRandomPassword(int length) {
+        StringBuilder sb = new StringBuilder(length);
+        for (int i = 0; i < length; i++) sb.append(PASSWORD_ALPHABET.charAt(RANDOM.nextInt(PASSWORD_ALPHABET.length())));
+        return sb.toString();
     }
 
     @Override
@@ -230,6 +296,7 @@ public class UserServiceImpl implements UserService {
                 .createdAt(user.getCreatedAt())
                 .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
                 .permissions(permissions)
+                .forcePasswordChange(user.isForcePasswordChange())
                 .build();
     }
 
@@ -263,6 +330,7 @@ public class UserServiceImpl implements UserService {
                 .createdAt(updatedUser.getCreatedAt())
                 .roles(updatedUser.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
                 .permissions(permissions)
+                .forcePasswordChange(updatedUser.isForcePasswordChange())
                 .build();
     }
 
@@ -286,8 +354,15 @@ public class UserServiceImpl implements UserService {
                 .email(user.getEmail())
                 .firstName(user.getFirstName())
                 .lastName(user.getLastName())
+                .phone(user.getPhone())
+                .department(user.getDepartment())
+                .jobTitle(user.getJobTitle())
                 .enabled(user.isEnabled())
+                .forcePasswordChange(user.isForcePasswordChange())
                 .roles(user.getRoles().stream().map(Role::getName).collect(Collectors.toSet()))
+                .warehouseIds(user.getWarehouses() == null
+                        ? java.util.Set.of()
+                        : user.getWarehouses().stream().map(Warehouse::getId).collect(Collectors.toSet()))
                 .build();
     }
 

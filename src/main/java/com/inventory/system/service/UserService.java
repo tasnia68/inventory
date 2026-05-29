@@ -2,6 +2,7 @@ package com.inventory.system.service;
 
 import com.inventory.system.common.entity.User;
 import com.inventory.system.payload.AcceptInvitationRequest;
+import com.inventory.system.payload.ChangePasswordRequest;
 import com.inventory.system.payload.CreateUserRequest;
 import com.inventory.system.payload.UpdateUserRequest;
 import com.inventory.system.payload.UserDto;
@@ -15,6 +16,7 @@ public interface UserService {
     void inviteUser(UserInvitationRequest request);
     void acceptInvitation(AcceptInvitationRequest request);
     UserDto createUser(CreateUserRequest request);
+    void changePassword(ChangePasswordRequest request);
     UserDto updateUser(UUID id, UpdateUserRequest request);
     void deleteUser(UUID id);
     UserDto getUser(UUID id);

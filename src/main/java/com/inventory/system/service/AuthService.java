@@ -1,11 +1,13 @@
 package com.inventory.system.service;
 
 import com.inventory.system.common.entity.Tenant;
+import com.inventory.system.common.entity.User;
 import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.AuthResponse;
 import com.inventory.system.payload.LoginRequest;
 import com.inventory.system.repository.TenantRepository;
+import com.inventory.system.repository.UserRepository;
 import com.inventory.system.security.JwtService;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.userdetails.UserDetails;
@@ -22,15 +24,18 @@ public class AuthService {
     private final JwtService jwtService;
     private final TenantRepository tenantRepository;
     private final PasswordEncoder passwordEncoder;
+    private final UserRepository userRepository;
 
     public AuthService(UserDetailsService userDetailsService,
                        JwtService jwtService,
                        TenantRepository tenantRepository,
-                       PasswordEncoder passwordEncoder) {
+                       PasswordEncoder passwordEncoder,
+                       UserRepository userRepository) {
         this.userDetailsService = userDetailsService;
         this.jwtService = jwtService;
         this.tenantRepository = tenantRepository;
         this.passwordEncoder = passwordEncoder;
+        this.userRepository = userRepository;
     }
 
     public AuthResponse authenticate(LoginRequest request) {
@@ -48,11 +53,17 @@ public class AuthService {
             String accessToken = jwtService.generateToken(userDetails, TenantContext.getTenantId());
             String refreshToken = jwtService.generateRefreshToken(userDetails);
 
+            boolean mustChangePassword = userRepository
+                    .findByEmailAndTenantId(request.getEmail(), tenantId)
+                    .map(User::isForcePasswordChange)
+                    .orElse(false);
+
             return AuthResponse.builder()
                     .accessToken(accessToken)
                     .refreshToken(refreshToken)
                     .tenantId(tenantId)
                     .tenantSubdomain(tenantSubdomain)
+                    .mustChangePassword(mustChangePassword)
                     .build();
         } finally {
             TenantContext.clear();

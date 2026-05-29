@@ -15,4 +15,6 @@ public class AuthResponse {
     private String refreshToken;
     private String tenantId;
     private String tenantSubdomain;
+    /** When true, the client must redirect to a change-password screen before using the app. */
+    private boolean mustChangePassword;
 }

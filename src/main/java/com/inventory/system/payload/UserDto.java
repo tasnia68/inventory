@@ -13,6 +13,14 @@ public class UserDto {
     private String email;
     private String firstName;
     private String lastName;
+    private String phone;
+    private String department;
+    private String jobTitle;
     private boolean enabled;
+    private boolean forcePasswordChange;
     private Set<String> roles;
+    private Set<UUID> warehouseIds;
+
+    /** Present ONLY in the response of admin-create-staff when password was generated server-side. */
+    private String generatedPassword;
 }
