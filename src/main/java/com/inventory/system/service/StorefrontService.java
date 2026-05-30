@@ -66,6 +66,8 @@ public interface StorefrontService {
     List<StorefrontThemeManifestDto> listAvailableThemes();
     StorefrontThemeManifestDto getThemeManifest(String themeKey);
     StorefrontThemeEditorDto activateTheme(String themeKey);
+    com.inventory.system.payload.StorefrontThemeUpgradeStatusDto getActiveThemeUpgradeStatus();
+    StorefrontThemeEditorDto applyActiveThemeUpgrade();
 
     List<StorefrontAccountProfileDto> listStorefrontAccounts();
     StorefrontAnalyticsDto getStorefrontAnalytics(java.time.LocalDate from, java.time.LocalDate to);

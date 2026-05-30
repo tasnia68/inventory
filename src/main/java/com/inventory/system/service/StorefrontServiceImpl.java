@@ -314,6 +314,48 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     @Override
+    @Transactional(readOnly = true)
+    public com.inventory.system.payload.StorefrontThemeUpgradeStatusDto getActiveThemeUpgradeStatus() {
+        requireAdminStorefrontAccess();
+        StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
+        String templateKey = draft != null && draft.getTemplateKey() != null
+                ? draft.getTemplateKey()
+                : defaultSite().getTemplateKey();
+        StorefrontThemeManifestDto manifest = storefrontThemeRegistry.findByKey(templateKey).orElse(null);
+        if (manifest == null) {
+            return new com.inventory.system.payload.StorefrontThemeUpgradeStatusDto(
+                    templateKey, templateKey, null, null, false, null, null);
+        }
+        StorefrontPublishVersion latest = storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc().orElse(null);
+        String activeVersion = latest != null ? latest.getThemeVersion() : null;
+        String availableVersion = manifest.getVersion();
+        // Treat the manifest as authoritative — published version null/missing means
+        // the tenant hasn't published since theme versioning was introduced, so
+        // treat that as "needs publish" only if versions actually differ.
+        boolean hasUpgrade = availableVersion != null && !availableVersion.equals(activeVersion);
+        return new com.inventory.system.payload.StorefrontThemeUpgradeStatusDto(
+                manifest.getKey(),
+                manifest.getName(),
+                activeVersion,
+                availableVersion,
+                hasUpgrade,
+                latest != null && latest.getPublishedAt() != null ? latest.getPublishedAt().toString() : null,
+                manifest.getMigrations()
+        );
+    }
+
+    @Override
+    @Transactional
+    public StorefrontThemeEditorDto applyActiveThemeUpgrade() {
+        requireAdminStorefrontAccess();
+        StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
+        String templateKey = draft != null && draft.getTemplateKey() != null
+                ? draft.getTemplateKey()
+                : defaultSite().getTemplateKey();
+        return activateTheme(templateKey);
+    }
+
+    @Override
     @Transactional
     public StorefrontThemeEditorDto activateTheme(String themeKey) {
         requireAdminStorefrontAccess();

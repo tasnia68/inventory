@@ -98,6 +98,18 @@ public class StorefrontController {
         return ResponseEntity.ok(ApiResponse.success(storefrontService.activateTheme(themeKey), "Theme activated"));
     }
 
+    @GetMapping("/admin/themes/active/upgrade")
+    @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
+    public ResponseEntity<ApiResponse<com.inventory.system.payload.StorefrontThemeUpgradeStatusDto>> getActiveThemeUpgradeStatus() {
+        return ResponseEntity.ok(ApiResponse.success(storefrontService.getActiveThemeUpgradeStatus()));
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/admin/themes/active/upgrade")
+    @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
+    public ResponseEntity<ApiResponse<StorefrontThemeEditorDto>> applyActiveThemeUpgrade() {
+        return ResponseEntity.ok(ApiResponse.success(storefrontService.applyActiveThemeUpgrade(), "Theme upgrade applied"));
+    }
+
     @GetMapping("/admin/domains")
     @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
     public ResponseEntity<ApiResponse<StorefrontDomainContextDto>> getDomainContext() {
