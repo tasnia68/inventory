@@ -32,6 +32,14 @@ public class ProductVariant extends BaseEntity {
     @Column(name = "compare_at_price")
     private BigDecimal compareAtPrice;
 
+    /**
+     * Per-variant base cost (the unit cost recorded against stock movements
+     * defaults to this when none is supplied). ProductCost.averageCost stays
+     * as the running per-warehouse weighted average — `cost` here is the seed.
+     */
+    @Column(name = "cost")
+    private BigDecimal cost;
+
     @Column(name = "storefront_badge")
     private String storefrontBadge;
 

@@ -21,6 +21,23 @@ public class ProductTemplate extends BaseEntity {
     @Column(name = "is_active")
     private Boolean isActive = true;
 
+    /**
+     * Lifecycle: DRAFT / ACTIVE / ARCHIVED. Replaces the binary isActive flag
+     * (kept for back-compat; new code should prefer status). Set via V68
+     * migration; default ACTIVE.
+     */
+    @Column(name = "status", nullable = false, length = 16)
+    private String status = "ACTIVE";
+
+    @Column(name = "vendor")
+    private String vendor;
+
+    @Column(name = "product_type", length = 128)
+    private String productType;
+
+    @Column(name = "tags", columnDefinition = "TEXT")
+    private String tags;
+
     @Column(name = "is_batch_tracked")
     private Boolean isBatchTracked = false;
 

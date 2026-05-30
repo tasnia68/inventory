@@ -60,4 +60,9 @@ public interface ProductService {
 
     // Simple Product (Convenience API)
     ProductVariantDto createSimpleProduct(SimpleProductDto simpleProductDto);
+
+    // One-shot create / update: template + attributes + variants + initial stock.
+    // Powers the v2 single-page ProductEditor; both endpoints are transactional.
+    ProductTemplateDto bulkCreateProduct(com.inventory.system.payload.BulkProductCreateRequest request);
+    ProductTemplateDto bulkUpdateProduct(UUID templateId, com.inventory.system.payload.BulkProductUpdateRequest request);
 }

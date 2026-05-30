@@ -42,6 +42,7 @@ public class ProductServiceImpl implements ProductService {
     private final UnitOfMeasureRepository unitOfMeasureRepository;
     private final ProductVariantVersionRepository productVariantVersionRepository;
     private final ObjectMapper objectMapper;
+    private final StockService stockService;
 
     @Override
     public String generateSku(ProductVariant variant) {
@@ -63,6 +64,10 @@ public class ProductServiceImpl implements ProductService {
         template.setName(productTemplateDto.getName());
         template.setDescription(productTemplateDto.getDescription());
         template.setIsActive(productTemplateDto.getIsActive() != null ? productTemplateDto.getIsActive() : true);
+        template.setStatus(normalizeStatus(productTemplateDto.getStatus(), template.getIsActive()));
+        template.setVendor(productTemplateDto.getVendor());
+        template.setProductType(productTemplateDto.getProductType());
+        template.setTags(productTemplateDto.getTags());
         template.setPublishedToStorefront(productTemplateDto.getPublishedToStorefront() != null ? productTemplateDto.getPublishedToStorefront() : false);
         template.setStorefrontSlug(normalizeStorefrontSlug(productTemplateDto.getStorefrontSlug(), productTemplateDto.getName()));
         template.setStorefrontTitle(productTemplateDto.getStorefrontTitle());
@@ -89,6 +94,16 @@ public class ProductServiceImpl implements ProductService {
         return mapToDto(template);
     }
 
+    private String normalizeStatus(String status, Boolean fallbackIsActive) {
+        if (status != null && !status.isBlank()) {
+            String upper = status.trim().toUpperCase();
+            if (upper.equals("DRAFT") || upper.equals("ACTIVE") || upper.equals("ARCHIVED")) {
+                return upper;
+            }
+        }
+        return Boolean.FALSE.equals(fallbackIsActive) ? "ARCHIVED" : "ACTIVE";
+    }
+
     @Override
     @Transactional
     public ProductTemplateDto updateTemplate(UUID id, ProductTemplateDto productTemplateDto) {
@@ -99,6 +114,18 @@ public class ProductServiceImpl implements ProductService {
         template.setDescription(productTemplateDto.getDescription());
         if (productTemplateDto.getIsActive() != null) {
             template.setIsActive(productTemplateDto.getIsActive());
+        }
+        if (productTemplateDto.getStatus() != null) {
+            template.setStatus(normalizeStatus(productTemplateDto.getStatus(), template.getIsActive()));
+        }
+        if (productTemplateDto.getVendor() != null) {
+            template.setVendor(productTemplateDto.getVendor());
+        }
+        if (productTemplateDto.getProductType() != null) {
+            template.setProductType(productTemplateDto.getProductType());
+        }
+        if (productTemplateDto.getTags() != null) {
+            template.setTags(productTemplateDto.getTags());
         }
         if (productTemplateDto.getPublishedToStorefront() != null) {
             template.setPublishedToStorefront(productTemplateDto.getPublishedToStorefront());
@@ -297,6 +324,7 @@ public class ProductServiceImpl implements ProductService {
         variant.setTemplate(template);
         variant.setPrice(dto.getPrice());
         variant.setCompareAtPrice(dto.getCompareAtPrice());
+        variant.setCost(dto.getCost());
         variant.setStorefrontBadge(normalizeOptionalText(dto.getStorefrontBadge()));
         variant.setStorefrontFeatured(Boolean.TRUE.equals(dto.getStorefrontFeatured()));
         String barcode = dto.getBarcode();
@@ -400,6 +428,9 @@ public class ProductServiceImpl implements ProductService {
             variant.setPrice(dto.getPrice());
         }
         variant.setCompareAtPrice(dto.getCompareAtPrice());
+        if (dto.getCost() != null) {
+            variant.setCost(dto.getCost());
+        }
         variant.setStorefrontBadge(normalizeOptionalText(dto.getStorefrontBadge()));
         if (dto.getStorefrontFeatured() != null) {
             variant.setStorefrontFeatured(dto.getStorefrontFeatured());
@@ -666,6 +697,10 @@ public class ProductServiceImpl implements ProductService {
         dto.setName(template.getName());
         dto.setDescription(template.getDescription());
         dto.setIsActive(template.getIsActive());
+        dto.setStatus(template.getStatus());
+        dto.setVendor(template.getVendor());
+        dto.setProductType(template.getProductType());
+        dto.setTags(template.getTags());
         dto.setPublishedToStorefront(template.getPublishedToStorefront());
         dto.setStorefrontSlug(template.getStorefrontSlug());
         dto.setStorefrontTitle(template.getStorefrontTitle());
@@ -727,6 +762,7 @@ public class ProductServiceImpl implements ProductService {
         dto.setBarcode(variant.getBarcode());
         dto.setPrice(variant.getPrice());
         dto.setCompareAtPrice(variant.getCompareAtPrice());
+        dto.setCost(variant.getCost());
         dto.setStorefrontBadge(variant.getStorefrontBadge());
         dto.setStorefrontFeatured(variant.getStorefrontFeatured());
         if (variant.getTemplate() != null) {
@@ -887,5 +923,199 @@ public class ProductServiceImpl implements ProductService {
         }
         String normalized = value.trim();
         return normalized.isEmpty() ? null : normalized;
+    }
+
+    // --- v2 Bulk Create / Update ---
+
+    @Override
+    @Transactional
+    public ProductTemplateDto bulkCreateProduct(BulkProductCreateRequest request) {
+        if (request == null || request.getTemplate() == null) {
+            throw new BadRequestException("Template payload is required");
+        }
+        if (request.getVariants() == null || request.getVariants().isEmpty()) {
+            throw new BadRequestException("At least one variant is required");
+        }
+
+        ProductTemplateDto createdTemplate = createTemplate(request.getTemplate());
+        UUID templateId = createdTemplate.getId();
+
+        // Create attributes first so variant attribute-value lookups find them by name.
+        Map<String, UUID> attributesByName = new LinkedHashMap<>();
+        if (request.getAttributes() != null) {
+            for (BulkProductCreateRequest.AttributeSpec spec : request.getAttributes()) {
+                ProductAttributeDto attrDto = new ProductAttributeDto();
+                attrDto.setName(spec.getName());
+                attrDto.setType(spec.getType() != null ? spec.getType() : ProductAttribute.AttributeType.DROPDOWN);
+                attrDto.setRequired(spec.getRequired() != null ? spec.getRequired() : Boolean.FALSE);
+                attrDto.setOptions(spec.getOptions());
+                attrDto.setTemplateId(templateId);
+                attrDto.setGroupId(spec.getGroupId());
+                ProductAttributeDto saved = createProductAttribute(attrDto);
+                attributesByName.put(spec.getName(), saved.getId());
+            }
+        }
+
+        for (BulkProductCreateRequest.VariantSpec spec : request.getVariants()) {
+            ProductVariantDto variantDto = new ProductVariantDto();
+            variantDto.setTemplateId(templateId);
+            variantDto.setSku(spec.getSku());
+            variantDto.setBarcode(spec.getBarcode());
+            variantDto.setPrice(spec.getPrice());
+            variantDto.setCompareAtPrice(spec.getCompareAtPrice());
+            variantDto.setCost(spec.getCost());
+            variantDto.setStorefrontBadge(spec.getStorefrontBadge());
+            variantDto.setStorefrontFeatured(spec.getStorefrontFeatured());
+
+            if (spec.getAttributeValues() != null && !spec.getAttributeValues().isEmpty()) {
+                List<ProductVariantDto.AttributeValueDto> avList = new ArrayList<>();
+                for (Map.Entry<String, String> entry : spec.getAttributeValues().entrySet()) {
+                    UUID attrId = attributesByName.get(entry.getKey());
+                    if (attrId == null) {
+                        throw new BadRequestException("Variant references unknown attribute: " + entry.getKey());
+                    }
+                    ProductVariantDto.AttributeValueDto av = new ProductVariantDto.AttributeValueDto();
+                    av.setAttributeId(attrId);
+                    av.setValue(entry.getValue());
+                    avList.add(av);
+                }
+                variantDto.setAttributeValues(avList);
+            }
+
+            ProductVariantDto savedVariant = createProductVariant(variantDto);
+
+            if (spec.getInitialStocks() != null) {
+                for (BulkProductCreateRequest.InitialStock stock : spec.getInitialStocks()) {
+                    if (stock.getQuantity() == null || stock.getQuantity().signum() == 0) {
+                        continue;
+                    }
+                    applyStockMovement(savedVariant.getId(), stock, spec.getCost(),
+                            stock.getQuantity().signum() < 0
+                                    ? StockMovement.StockMovementType.OUT
+                                    : StockMovement.StockMovementType.IN);
+                }
+            }
+        }
+
+        return getTemplate(templateId);
+    }
+
+    @Override
+    @Transactional
+    public ProductTemplateDto bulkUpdateProduct(UUID templateId, BulkProductUpdateRequest request) {
+        if (request == null) {
+            throw new BadRequestException("Update payload is required");
+        }
+
+        ProductTemplate template = productTemplateRepository.findById(templateId)
+                .orElseThrow(() -> new ResourceNotFoundException("Product Template", "id", templateId));
+
+        if (request.getTemplate() != null) {
+            // Reuse updateTemplate's partial-patch semantics.
+            updateTemplate(templateId, request.getTemplate());
+        }
+
+        // Sync attributes by name (additive — does not delete attributes missing from the request).
+        Map<String, UUID> attributesByName = productAttributeRepository.findByTemplateId(templateId).stream()
+                .collect(Collectors.toMap(ProductAttribute::getName, ProductAttribute::getId, (a, b) -> a, LinkedHashMap::new));
+        if (request.getAttributes() != null) {
+            for (BulkProductCreateRequest.AttributeSpec spec : request.getAttributes()) {
+                if (attributesByName.containsKey(spec.getName())) continue;
+                ProductAttributeDto attrDto = new ProductAttributeDto();
+                attrDto.setName(spec.getName());
+                attrDto.setType(spec.getType() != null ? spec.getType() : ProductAttribute.AttributeType.DROPDOWN);
+                attrDto.setRequired(spec.getRequired() != null ? spec.getRequired() : Boolean.FALSE);
+                attrDto.setOptions(spec.getOptions());
+                attrDto.setTemplateId(templateId);
+                attrDto.setGroupId(spec.getGroupId());
+                ProductAttributeDto saved = createProductAttribute(attrDto);
+                attributesByName.put(spec.getName(), saved.getId());
+            }
+        }
+
+        if (request.getVariants() != null) {
+            List<UUID> seenVariantIds = new ArrayList<>();
+            for (BulkProductUpdateRequest.VariantPatch patch : request.getVariants()) {
+                ProductVariantDto saved;
+                if (patch.getId() == null) {
+                    ProductVariantDto variantDto = new ProductVariantDto();
+                    variantDto.setTemplateId(templateId);
+                    variantDto.setSku(patch.getSku());
+                    variantDto.setBarcode(patch.getBarcode());
+                    variantDto.setPrice(patch.getPrice());
+                    variantDto.setCompareAtPrice(patch.getCompareAtPrice());
+                    variantDto.setCost(patch.getCost());
+                    variantDto.setStorefrontBadge(patch.getStorefrontBadge());
+                    variantDto.setStorefrontFeatured(patch.getStorefrontFeatured());
+                    variantDto.setAttributeValues(buildAttributeValueDtos(patch.getAttributeValues(), attributesByName));
+                    saved = createProductVariant(variantDto);
+                } else {
+                    ProductVariantDto variantDto = new ProductVariantDto();
+                    variantDto.setTemplateId(templateId);
+                    variantDto.setSku(patch.getSku());
+                    variantDto.setBarcode(patch.getBarcode());
+                    variantDto.setPrice(patch.getPrice());
+                    variantDto.setCompareAtPrice(patch.getCompareAtPrice());
+                    variantDto.setCost(patch.getCost());
+                    variantDto.setStorefrontBadge(patch.getStorefrontBadge());
+                    variantDto.setStorefrontFeatured(patch.getStorefrontFeatured());
+                    variantDto.setAttributeValues(buildAttributeValueDtos(patch.getAttributeValues(), attributesByName));
+                    saved = updateProductVariant(patch.getId(), variantDto);
+                }
+                seenVariantIds.add(saved.getId());
+
+                if (patch.getStockAdjustments() != null) {
+                    for (BulkProductCreateRequest.InitialStock adj : patch.getStockAdjustments()) {
+                        if (adj.getQuantity() == null || adj.getQuantity().signum() == 0) continue;
+                        applyStockMovement(saved.getId(), adj, patch.getCost(),
+                                adj.getQuantity().signum() < 0
+                                        ? StockMovement.StockMovementType.OUT
+                                        : StockMovement.StockMovementType.ADJUSTMENT);
+                    }
+                }
+            }
+
+            if (Boolean.TRUE.equals(request.getDeleteMissingVariants())) {
+                List<UUID> existing = productVariantRepository.findByTemplateId(templateId).stream()
+                        .map(ProductVariant::getId).collect(Collectors.toList());
+                for (UUID existingId : existing) {
+                    if (!seenVariantIds.contains(existingId)) {
+                        deleteProductVariant(existingId);
+                    }
+                }
+            }
+        }
+
+        // Discard local template reference (it may be stale after partial updates).
+        return getTemplate(template.getId());
+    }
+
+    private List<ProductVariantDto.AttributeValueDto> buildAttributeValueDtos(Map<String, String> source, Map<String, UUID> attributesByName) {
+        if (source == null || source.isEmpty()) return null;
+        List<ProductVariantDto.AttributeValueDto> out = new ArrayList<>();
+        for (Map.Entry<String, String> entry : source.entrySet()) {
+            UUID attrId = attributesByName.get(entry.getKey());
+            if (attrId == null) {
+                throw new BadRequestException("Variant references unknown attribute: " + entry.getKey());
+            }
+            ProductVariantDto.AttributeValueDto av = new ProductVariantDto.AttributeValueDto();
+            av.setAttributeId(attrId);
+            av.setValue(entry.getValue());
+            out.add(av);
+        }
+        return out;
+    }
+
+    private void applyStockMovement(UUID variantId, BulkProductCreateRequest.InitialStock stock, BigDecimal fallbackCost,
+                                    StockMovement.StockMovementType type) {
+        StockAdjustmentDto adj = new StockAdjustmentDto();
+        adj.setProductVariantId(variantId);
+        adj.setWarehouseId(stock.getWarehouseId());
+        adj.setQuantity(stock.getQuantity().abs());
+        adj.setUnitCost(stock.getUnitCost() != null ? stock.getUnitCost() : fallbackCost);
+        adj.setBatchId(stock.getBatchId());
+        adj.setReason(stock.getReason() != null ? stock.getReason() : "Initial stock from product editor");
+        adj.setType(type);
+        stockService.adjustStock(adj);
     }
 }

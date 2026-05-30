@@ -1,10 +1,13 @@
 package com.inventory.system.controller;
 
 import com.inventory.system.payload.ApiResponse;
+import com.inventory.system.payload.BulkProductCreateRequest;
 import com.inventory.system.payload.BulkProductOperationRequest;
 import com.inventory.system.payload.BulkProductOperationResultDto;
+import com.inventory.system.payload.BulkProductUpdateRequest;
 import com.inventory.system.payload.ProductImportResultDto;
 import com.inventory.system.payload.ProductSearchRequest;
+import com.inventory.system.payload.ProductTemplateDto;
 import com.inventory.system.payload.ProductVariantDto;
 import com.inventory.system.payload.ProductVariantVersionDto;
 import com.inventory.system.payload.SimpleProductDto;
@@ -34,6 +37,22 @@ public class ProductController {
     public ResponseEntity<ApiResponse<ProductVariantDto>> createSimpleProduct(@Valid @RequestBody SimpleProductDto simpleProductDto) {
         ProductVariantDto createdProduct = productService.createSimpleProduct(simpleProductDto);
         return new ResponseEntity<>(new ApiResponse<>(true, "Simple product created successfully", createdProduct), HttpStatus.CREATED);
+    }
+
+    @PostMapping("/bulk-create")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<ApiResponse<ProductTemplateDto>> bulkCreateProduct(@Valid @RequestBody BulkProductCreateRequest request) {
+        ProductTemplateDto created = productService.bulkCreateProduct(request);
+        return new ResponseEntity<>(new ApiResponse<>(true, "Product created with variants and initial stock", created), HttpStatus.CREATED);
+    }
+
+    @PutMapping("/{templateId}/bulk-update")
+    @PreAuthorize("hasRole('ADMIN') or hasRole('MANAGER')")
+    public ResponseEntity<ApiResponse<ProductTemplateDto>> bulkUpdateProduct(
+            @PathVariable UUID templateId,
+            @Valid @RequestBody BulkProductUpdateRequest request) {
+        ProductTemplateDto updated = productService.bulkUpdateProduct(templateId, request);
+        return ResponseEntity.ok(new ApiResponse<>(true, "Product updated", updated));
     }
 
     @PostMapping

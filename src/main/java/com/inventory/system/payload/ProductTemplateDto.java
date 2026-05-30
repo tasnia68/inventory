@@ -11,6 +11,10 @@ public class ProductTemplateDto {
     private String name;
     private String description;
     private Boolean isActive;
+    private String status; // DRAFT | ACTIVE | ARCHIVED
+    private String vendor;
+    private String productType;
+    private String tags; // comma-separated free tags
     private UUID categoryId;
     private String categoryName;
     private UUID uomId;
