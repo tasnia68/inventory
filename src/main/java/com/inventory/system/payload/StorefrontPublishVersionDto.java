@@ -15,4 +15,6 @@ public class StorefrontPublishVersionDto {
     private String publishedAt;
     private Integer restoredFromVersionNumber;
     private String status;
+    private String themeKey;
+    private String themeVersion;
 }

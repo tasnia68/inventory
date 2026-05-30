@@ -29,6 +29,7 @@ import com.inventory.system.payload.StorefrontProductPageDto;
 import com.inventory.system.payload.StorefrontProductDto;
 import com.inventory.system.payload.StorefrontThemeDocumentDto;
 import com.inventory.system.payload.StorefrontThemeEditorDto;
+import com.inventory.system.payload.StorefrontThemeManifestDto;
 import com.inventory.system.payload.UpdateStorefrontConfigRequest;
 import com.inventory.system.common.exception.ResourceNotFoundException;
 import com.inventory.system.config.tenant.TenantContext;
@@ -77,6 +78,24 @@ public class StorefrontController {
     @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
     public ResponseEntity<ApiResponse<StorefrontThemeEditorDto>> getAdminThemeEditor() {
         return ResponseEntity.ok(ApiResponse.success(storefrontService.getAdminThemeEditor()));
+    }
+
+    @GetMapping("/admin/themes/registry")
+    @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
+    public ResponseEntity<ApiResponse<List<StorefrontThemeManifestDto>>> listAvailableThemes() {
+        return ResponseEntity.ok(ApiResponse.success(storefrontService.listAvailableThemes()));
+    }
+
+    @GetMapping("/admin/themes/{themeKey}")
+    @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
+    public ResponseEntity<ApiResponse<StorefrontThemeManifestDto>> getThemeManifest(@PathVariable String themeKey) {
+        return ResponseEntity.ok(ApiResponse.success(storefrontService.getThemeManifest(themeKey)));
+    }
+
+    @org.springframework.web.bind.annotation.PostMapping("/admin/themes/{themeKey}/activate")
+    @PreAuthorize("hasAuthority('MENU:ANALYTICS')")
+    public ResponseEntity<ApiResponse<StorefrontThemeEditorDto>> activateTheme(@PathVariable String themeKey) {
+        return ResponseEntity.ok(ApiResponse.success(storefrontService.activateTheme(themeKey), "Theme activated"));
     }
 
     @GetMapping("/admin/domains")

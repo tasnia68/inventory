@@ -28,6 +28,7 @@ import com.inventory.system.payload.StorefrontLoginRequest;
 import com.inventory.system.payload.StorefrontLoginVerifyRequest;
 import com.inventory.system.payload.StorefrontThemeDocumentDto;
 import com.inventory.system.payload.StorefrontThemeEditorDto;
+import com.inventory.system.payload.StorefrontThemeManifestDto;
 import com.inventory.system.payload.UpdateStorefrontConfigRequest;
 
 import java.util.List;
@@ -60,6 +61,12 @@ public interface StorefrontService {
     StorefrontPublishVersionDto publishDraftTheme(StorefrontPublishRequest request);
     StorefrontPublishVersionDto restoreThemeRevision(UUID versionId, StorefrontPublishRequest request);
     StorefrontConfigDto getAdminThemePreview();
+
+    // Theme registry (Shopify-style folder-based themes loaded from classpath manifests)
+    List<StorefrontThemeManifestDto> listAvailableThemes();
+    StorefrontThemeManifestDto getThemeManifest(String themeKey);
+    StorefrontThemeEditorDto activateTheme(String themeKey);
+
     List<StorefrontAccountProfileDto> listStorefrontAccounts();
     StorefrontAnalyticsDto getStorefrontAnalytics(java.time.LocalDate from, java.time.LocalDate to);
 

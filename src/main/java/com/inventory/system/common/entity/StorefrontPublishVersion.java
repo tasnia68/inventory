@@ -31,5 +31,11 @@ public class StorefrontPublishVersion extends BaseEntity {
 
     @Column(name = "restored_from_version_number")
     private Integer restoredFromVersionNumber;
+
+    @Column(name = "theme_key", length = 128)
+    private String themeKey;
+
+    @Column(name = "theme_version", length = 64)
+    private String themeVersion;
 }
 

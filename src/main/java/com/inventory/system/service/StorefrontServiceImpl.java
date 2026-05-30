@@ -63,6 +63,7 @@ import com.inventory.system.payload.StorefrontThemeDto;
 import com.inventory.system.payload.StorefrontThemeBlockDto;
 import com.inventory.system.payload.StorefrontThemeDocumentDto;
 import com.inventory.system.payload.StorefrontThemeEditorDto;
+import com.inventory.system.payload.StorefrontThemeManifestDto;
 import com.inventory.system.payload.StorefrontThemeSectionDto;
 import com.inventory.system.payload.StorefrontThemeSnapshotDto;
 import com.inventory.system.payload.StorefrontThemeTemplateDto;
@@ -154,6 +155,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     private final ObjectMapper objectMapper;
     private final StorefrontDomainService storefrontDomainService;
     private final StorefrontPageRepository storefrontPageRepository;
+    private final StorefrontThemeRegistry storefrontThemeRegistry;
     private final org.springframework.transaction.PlatformTransactionManager platformTransactionManager;
 
     @Override
@@ -290,6 +292,53 @@ public class StorefrontServiceImpl implements StorefrontService {
     public StorefrontConfigDto getAdminThemePreview() {
         requireAdminStorefrontAccess();
         return enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument()));
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public List<StorefrontThemeManifestDto> listAvailableThemes() {
+        requireAdminStorefrontAccess();
+        return storefrontThemeRegistry.listAll();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StorefrontThemeManifestDto getThemeManifest(String themeKey) {
+        requireAdminStorefrontAccess();
+        return storefrontThemeRegistry.findByKey(themeKey)
+                .orElseThrow(() -> new ResourceNotFoundException("Theme manifest not found: " + themeKey));
+    }
+
+    @Override
+    @Transactional
+    public StorefrontThemeEditorDto activateTheme(String themeKey) {
+        requireAdminStorefrontAccess();
+        StorefrontThemeManifestDto manifest = storefrontThemeRegistry.findByKey(themeKey)
+                .orElseThrow(() -> new ResourceNotFoundException("Theme manifest not found: " + themeKey));
+
+        StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
+        if (draft == null) {
+            draft = new StorefrontThemeDocumentDto();
+        }
+        draft.setTemplateKey(manifest.getKey());
+        if (draft.getSettings() == null) {
+            draft.setSettings(new LinkedHashMap<>());
+        }
+        Object siteObj = draft.getSettings().get("site");
+        if (siteObj instanceof Map<?, ?>) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> siteMap = (Map<String, Object>) siteObj;
+            siteMap.put("templateKey", manifest.getKey());
+        } else {
+            Map<String, Object> siteMap = new LinkedHashMap<>();
+            siteMap.put("templateKey", manifest.getKey());
+            draft.getSettings().put("site", siteMap);
+        }
+
+        StorefrontThemeDocumentDto normalized = normalizeThemeDocument(draft);
+        persistDraftThemeDocument(normalized);
+        persistConfig(deriveLegacyConfig(normalized));
+        return getAdminThemeEditor();
     }
 
     @Override
@@ -874,6 +923,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 currentTheme,
                 current
         )));
+        stampThemeMetadata(version, currentTheme);
 
         StorefrontPublishVersion saved = storefrontPublishVersionRepository.save(version);
         writeStringSetting(ACTIVE_REVISION_ID_KEY, saved.getId().toString());
@@ -912,6 +962,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 snapshot.getThemeDocument(),
                 snapshot.getConfig()
         )));
+        stampThemeMetadata(rollbackVersion, snapshot.getThemeDocument());
 
         StorefrontPublishVersion saved = storefrontPublishVersionRepository.save(rollbackVersion);
         writeStringSetting(ACTIVE_REVISION_ID_KEY, saved.getId().toString());
@@ -1211,7 +1262,9 @@ public class StorefrontServiceImpl implements StorefrontService {
                 version.getNote(),
                 version.getPublishedAt().toString(),
                 version.getRestoredFromVersionNumber(),
-                "PUBLISHED"
+                "PUBLISHED",
+                version.getThemeKey(),
+                version.getThemeVersion()
         );
     }
 
@@ -1688,7 +1741,20 @@ public class StorefrontServiceImpl implements StorefrontService {
         );
     }
 
+    private void stampThemeMetadata(StorefrontPublishVersion version, StorefrontThemeDocumentDto themeDocument) {
+        String themeKey = themeDocument != null ? themeDocument.getTemplateKey() : null;
+        version.setThemeKey(themeKey);
+        version.setThemeVersion(storefrontThemeRegistry.findByKey(themeKey)
+                .map(StorefrontThemeManifestDto::getVersion)
+                .orElse(null));
+    }
+
     private Map<String, Object> buildThemeSchema(String templateKey) {
+        Optional<Map<String, Object>> fromRegistry = storefrontThemeRegistry.buildSchemaForKey(templateKey, THEME_SCHEMA_VERSION);
+        if (fromRegistry.isPresent()) {
+            return fromRegistry.get();
+        }
+        // Fallback: inline definition (kept for safety if no manifest is registered for this templateKey)
         Map<String, Object> schema = new LinkedHashMap<>();
         schema.put("version", THEME_SCHEMA_VERSION);
         schema.put("templateKey", templateKey);

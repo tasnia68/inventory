@@ -1,0 +1,248 @@
+{
+  "key": "marland_manor",
+  "name": "Marland Manor",
+  "version": "1.0.0",
+  "description": "Editorial boutique storefront with rich hero, curated grids, and concierge feel. The original Marland theme.",
+  "author": "Pathfinder Tech",
+  "screenshot": "/storefront-assets/themes/marland_manor/screenshot.png",
+  "tags": ["boutique", "editorial", "luxury"],
+  "supportedSectionGroups": ["header", "body", "footer"],
+  "defaultSettings": {
+    "site": {
+      "templateKey": "marland_manor",
+      "productCardHoverMode": "NONE",
+      "productCardHoverZoom": false
+    },
+    "theme": {
+      "primary": "#1d1f1c",
+      "secondary": "#766858",
+      "accent": "#b88746",
+      "surface": "#f8f5ef",
+      "surfaceMuted": "#ece6da",
+      "text": "#1d1f1c",
+      "textMuted": "#6b6258",
+      "radius": "8",
+      "shadow": "0 12px 32px -16px rgba(29,31,28,0.18)",
+      "headingFont": "Cormorant Garamond, serif",
+      "bodyFont": "Inter, system-ui, sans-serif"
+    }
+  },
+  "templateTree": [
+    { "id": "settings", "label": "Theme settings" },
+    { "id": "header", "label": "Header" },
+    { "id": "home", "label": "Home page" },
+    { "id": "footer", "label": "Footer" }
+  ],
+  "settingsGroups": [
+    {
+      "id": "site",
+      "label": "Brand & storefront",
+      "fields": [
+        { "id": "templateKey", "label": "Template", "type": "select", "options": [
+          { "value": "marland_manor", "label": "Marland Manor" },
+          { "value": "atelier", "label": "Atelier" }
+        ]},
+        { "id": "name", "label": "Store name", "type": "text" },
+        { "id": "tagline", "label": "Tagline", "type": "text" },
+        { "id": "announcement", "label": "Announcement", "type": "textarea" },
+        { "id": "domain", "label": "Domain", "type": "text" },
+        { "id": "logoUrl", "label": "Logo URL", "type": "text" },
+        { "id": "iconUrl", "label": "Icon URL", "type": "text" },
+        { "id": "logoWidth", "label": "Logo width", "type": "number" },
+        { "id": "productCardHoverMode", "label": "Product hover image", "type": "select", "options": [
+          { "value": "NONE", "label": "None" },
+          { "value": "SECOND_IMAGE", "label": "Second image" }
+        ]},
+        { "id": "productCardHoverZoom", "label": "Hover zoom", "type": "toggle" },
+        { "id": "warehouseId", "label": "Storefront warehouse", "type": "entity_warehouse" },
+        { "id": "shippingFlatRate", "label": "Shipping flat rate", "type": "number" },
+        { "id": "freeShippingThreshold", "label": "Free shipping threshold", "type": "number" },
+        { "id": "taxRate", "label": "Tax rate (%)", "type": "number" }
+      ]
+    },
+    {
+      "id": "seo",
+      "label": "SEO & preferences",
+      "fields": [
+        { "id": "seoTitle", "label": "Default page title", "type": "text" },
+        { "id": "seoDescription", "label": "Default meta description", "type": "textarea" },
+        { "id": "faviconUrl", "label": "Favicon URL", "type": "text" }
+      ]
+    },
+    {
+      "id": "social",
+      "label": "Social media",
+      "fields": [
+        { "id": "socialFacebook", "label": "Facebook URL", "type": "text" },
+        { "id": "socialInstagram", "label": "Instagram URL", "type": "text" },
+        { "id": "socialTwitter", "label": "X (Twitter) URL", "type": "text" },
+        { "id": "socialTiktok", "label": "TikTok URL", "type": "text" },
+        { "id": "socialYoutube", "label": "YouTube URL", "type": "text" }
+      ]
+    },
+    {
+      "id": "checkout",
+      "label": "Checkout",
+      "fields": [
+        { "id": "checkoutRequirePhone", "label": "Require phone number", "type": "toggle" },
+        { "id": "checkoutAllowNotes", "label": "Allow order notes", "type": "toggle" },
+        { "id": "checkoutTermsText", "label": "Terms & conditions text", "type": "textarea" },
+        { "id": "emailOrderConfirmation", "label": "Send order confirmation email", "type": "toggle" }
+      ]
+    },
+    {
+      "id": "theme",
+      "label": "Theme tokens",
+      "fields": [
+        { "id": "primary", "label": "Primary", "type": "color" },
+        { "id": "secondary", "label": "Secondary", "type": "color" },
+        { "id": "accent", "label": "Accent", "type": "color" },
+        { "id": "surface", "label": "Surface", "type": "color" },
+        { "id": "text", "label": "Text", "type": "color" },
+        { "id": "radius", "label": "Radius", "type": "number" },
+        { "id": "headingFont", "label": "Heading font", "type": "text" },
+        { "id": "bodyFont", "label": "Body font", "type": "text" }
+      ]
+    }
+  ],
+  "sectionDefinitions": {
+    "announcement_bar": {
+      "label": "Announcement bar",
+      "group": "header",
+      "settings": [
+        { "id": "text", "label": "Text", "type": "textarea" },
+        { "id": "enabled", "label": "Enabled", "type": "toggle" }
+      ],
+      "blockTypes": []
+    },
+    "header_nav": {
+      "label": "Header navigation",
+      "group": "header",
+      "settings": [
+        { "id": "drawerButtonLabel", "label": "Drawer button label", "type": "text" },
+        { "id": "drawerLabel", "label": "Drawer eyebrow", "type": "text" },
+        { "id": "drawerTitle", "label": "Drawer title", "type": "text" },
+        { "id": "drawerDescription", "label": "Drawer description", "type": "textarea" },
+        { "id": "allCollectionsLabel", "label": "All collections label", "type": "text" },
+        { "id": "searchPlaceholder", "label": "Search placeholder", "type": "text" },
+        { "id": "cartLabel", "label": "Cart label", "type": "text" }
+      ],
+      "blockTypes": ["nav_link"]
+    },
+    "hero_banner": {
+      "label": "Hero banner",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "headline", "label": "Headline", "type": "text" },
+        { "id": "subheadline", "label": "Subheadline", "type": "textarea" },
+        { "id": "imageUrl", "label": "Image URL", "type": "text" }
+      ],
+      "blockTypes": ["hero_button"]
+    },
+    "promo_strip": {
+      "label": "Promo strip",
+      "group": "body",
+      "settings": [],
+      "blockTypes": ["promo_item"]
+    },
+    "featured_products": {
+      "label": "Featured products",
+      "group": "body",
+      "settings": [
+        { "id": "source", "label": "Source", "type": "select", "options": [
+          { "value": "manual", "label": "Manual selection" },
+          { "value": "newest", "label": "Newest products" },
+          { "value": "featured", "label": "Featured products" },
+          { "value": "collection", "label": "By collection" }
+        ]},
+        { "id": "collectionSlug", "label": "Collection source", "type": "entity_collection" },
+        { "id": "limit", "label": "Limit", "type": "number" },
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "description", "label": "Description", "type": "textarea" },
+        { "id": "ctaLabel", "label": "CTA label", "type": "text" }
+      ],
+      "blockTypes": ["product_reference"]
+    },
+    "featured_collections": {
+      "label": "Featured collections",
+      "group": "body",
+      "settings": [
+        { "id": "limit", "label": "Limit", "type": "number" },
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "description", "label": "Description", "type": "textarea" },
+        { "id": "ctaLabel", "label": "CTA label", "type": "text" },
+        { "id": "collectionKickerLabel", "label": "Card kicker", "type": "text" },
+        { "id": "collectionCardCtaLabel", "label": "Card CTA", "type": "text" }
+      ],
+      "blockTypes": ["collection_reference"]
+    },
+    "footer_links": {
+      "label": "Footer links",
+      "group": "footer",
+      "settings": [
+        { "id": "brandName", "label": "Brand name", "type": "text" },
+        { "id": "tagline", "label": "Tagline", "type": "textarea" }
+      ],
+      "blockTypes": ["footer_link"]
+    }
+  },
+  "blockDefinitions": {
+    "nav_link": {
+      "label": "Navigation link",
+      "settings": [
+        { "id": "label", "label": "Label", "type": "text" },
+        { "id": "href", "label": "Link", "type": "text" }
+      ]
+    },
+    "hero_button": {
+      "label": "Hero button",
+      "settings": [
+        { "id": "label", "label": "Label", "type": "text" },
+        { "id": "href", "label": "Link", "type": "text" }
+      ]
+    },
+    "promo_item": {
+      "label": "Promo item",
+      "settings": [
+        { "id": "text", "label": "Text", "type": "text" }
+      ]
+    },
+    "product_reference": {
+      "label": "Product reference",
+      "settings": [
+        { "id": "productSlug", "label": "Product", "type": "entity_product" }
+      ]
+    },
+    "collection_reference": {
+      "label": "Collection reference",
+      "settings": [
+        { "id": "collectionSlug", "label": "Collection", "type": "entity_collection" }
+      ]
+    },
+    "footer_link": {
+      "label": "Footer link",
+      "settings": [
+        { "id": "label", "label": "Label", "type": "text" },
+        { "id": "href", "label": "Link", "type": "text" }
+      ]
+    }
+  },
+  "templatePresets": {
+    "header": [
+      { "type": "announcement_bar", "label": "Announcement bar" },
+      { "type": "header_nav", "label": "Header navigation" }
+    ],
+    "home": [
+      { "type": "hero_banner", "label": "Hero banner" },
+      { "type": "promo_strip", "label": "Promo strip" },
+      { "type": "featured_products", "label": "Featured products" },
+      { "type": "featured_collections", "label": "Featured collections" }
+    ],
+    "footer": [
+      { "type": "footer_links", "label": "Footer links" }
+    ]
+  }
+}
