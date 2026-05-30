@@ -22,6 +22,7 @@ public class StorefrontThemeManifestDto {
     private String screenshot;
     private String extendsKey; // JSON key: "extends"
     private List<String> tags;
+    private List<String> aliases;
     private List<String> supportedSectionGroups;
     private Map<String, Object> defaultSettings = new LinkedHashMap<>();
     private List<Map<String, Object>> templateTree;

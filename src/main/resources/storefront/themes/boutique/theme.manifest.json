@@ -1,15 +1,16 @@
 {
-  "key": "marland_manor",
-  "name": "Marland Manor",
-  "version": "1.0.0",
-  "description": "Editorial boutique storefront with rich hero, curated grids, and concierge feel. The original Marland theme.",
+  "key": "boutique",
+  "name": "Boutique",
+  "version": "2.0.0",
+  "description": "Editorial boutique storefront with rich hero, curated grids, and concierge feel. Successor to Marland Manor (existing tenants auto-upgrade via the `marland_manor` alias).",
   "author": "Pathfinder Tech",
-  "screenshot": "/storefront-assets/themes/marland_manor/screenshot.png",
+  "screenshot": "/storefront-assets/themes/boutique/screenshot.png",
+  "aliases": ["marland_manor"],
   "tags": ["boutique", "editorial", "luxury"],
   "supportedSectionGroups": ["header", "body", "footer"],
   "defaultSettings": {
     "site": {
-      "templateKey": "marland_manor",
+      "templateKey": "boutique",
       "productCardHoverMode": "NONE",
       "productCardHoverZoom": false
     },
@@ -39,8 +40,9 @@
       "label": "Brand & storefront",
       "fields": [
         { "id": "templateKey", "label": "Template", "type": "select", "options": [
-          { "value": "marland_manor", "label": "Marland Manor" },
-          { "value": "atelier", "label": "Atelier" }
+          { "value": "boutique", "label": "Boutique" },
+          { "value": "minimal", "label": "Minimal" },
+          { "value": "magazine", "label": "Magazine" }
         ]},
         { "id": "name", "label": "Store name", "type": "text" },
         { "id": "tagline", "label": "Tagline", "type": "text" },

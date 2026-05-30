@@ -5,7 +5,7 @@
   "description": "Content-first editorial layout. Heavy on blog posts, lookbooks, and large editorial heroes. Best for brands with stories to tell beyond the product.",
   "author": "Pathfinder Tech",
   "screenshot": "/storefront-assets/themes/magazine/screenshot.png",
-  "extends": "marland_manor",
+  "extends": "boutique",
   "tags": ["editorial", "magazine", "content-first", "blog-heavy"],
   "defaultSettings": {
     "site": {

@@ -1855,7 +1855,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                         "id", "site",
                         "label", "Brand & storefront",
                         "fields", List.of(
-                                field("templateKey", "Template", "select", List.of(option("marland_manor", "Marland Manor"), option("atelier", "Atelier"))),
+                                field("templateKey", "Template", "select", List.of(option("boutique", "Boutique"), option("minimal", "Minimal"), option("magazine", "Magazine"))),
                                 field("name", "Store name", "text"),
                                 field("tagline", "Tagline", "text"),
                                 field("announcement", "Announcement", "textarea"),
@@ -2596,7 +2596,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     private StorefrontSiteDto defaultSite() {
         return new StorefrontSiteDto(
                 true,
-                "marland_manor",
+                "boutique",
                 "Marl & Manor",
                 "Everyday essentials with a sharper point of view.",
                 "Shop our latest arrivals!",

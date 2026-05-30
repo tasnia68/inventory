@@ -5,7 +5,7 @@
   "description": "Clean monochrome storefront. Type-driven, lots of whitespace, restrained color. Built for brands where the product photography does the talking.",
   "author": "Pathfinder Tech",
   "screenshot": "/storefront-assets/themes/minimal/screenshot.png",
-  "extends": "marland_manor",
+  "extends": "boutique",
   "tags": ["minimal", "monochrome", "type-driven"],
   "defaultSettings": {
     "site": {

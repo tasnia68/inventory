@@ -34,10 +34,12 @@ public class StorefrontThemeRegistry {
     private final ObjectMapper objectMapper;
 
     private final Map<String, StorefrontThemeManifestDto> manifests = new LinkedHashMap<>();
+    private final Map<String, String> aliasIndex = new LinkedHashMap<>();
 
     @PostConstruct
     public void loadManifests() {
         manifests.clear();
+        aliasIndex.clear();
         PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
         try {
             Resource[] resources = resolver.getResources(MANIFEST_PATTERN);
@@ -49,7 +51,16 @@ public class StorefrontThemeRegistry {
                         continue;
                     }
                     manifests.put(manifest.getKey(), manifest);
-                    logger.info("Loaded storefront theme manifest: {} v{}", manifest.getKey(), manifest.getVersion());
+                    if (manifest.getAliases() != null) {
+                        for (String alias : manifest.getAliases()) {
+                            if (alias != null && !alias.isBlank()) {
+                                aliasIndex.put(alias, manifest.getKey());
+                            }
+                        }
+                    }
+                    logger.info("Loaded storefront theme manifest: {} v{}{}", manifest.getKey(), manifest.getVersion(),
+                            manifest.getAliases() != null && !manifest.getAliases().isEmpty()
+                                    ? " (aliases: " + manifest.getAliases() + ")" : "");
                 } catch (Exception ex) {
                     logger.error("Failed to load storefront theme manifest from {}: {}", resource.getDescription(), ex.getMessage(), ex);
                 }
@@ -70,7 +81,16 @@ public class StorefrontThemeRegistry {
         if (key == null) {
             return Optional.empty();
         }
-        return Optional.ofNullable(manifests.get(key));
+        StorefrontThemeManifestDto direct = manifests.get(key);
+        if (direct != null) return Optional.of(direct);
+        String aliased = aliasIndex.get(key);
+        return aliased != null ? Optional.ofNullable(manifests.get(aliased)) : Optional.empty();
+    }
+
+    public String resolveCanonicalKey(String key) {
+        if (key == null) return null;
+        if (manifests.containsKey(key)) return key;
+        return aliasIndex.getOrDefault(key, key);
     }
 
     public boolean hasTheme(String key) {
