@@ -189,7 +189,16 @@ public class StorefrontServiceImpl implements StorefrontService {
 
         StorefrontConfigDto updated = new StorefrontConfigDto(site, theme, navigationItems, banners, headerPage, homePage, footerPage, current.getDomains());
         persistConfig(updated);
-        persistDraftThemeDocument(migrateLegacyConfigToThemeDocument(updated));
+        // Patch the legacy site/theme/banners fields into the active draft document,
+        // leaving sections/blocks untouched. Older PUT /storefront/config callers
+        // only touch brand-level fields; the section editor uses /admin/theme/draft.
+        StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
+        if (draft.getSettings() == null) draft.setSettings(new LinkedHashMap<>());
+        draft.getSettings().put("site", objectMapper.convertValue(site, new TypeReference<Map<String, Object>>() {}));
+        draft.getSettings().put("theme", objectMapper.convertValue(theme, new TypeReference<Map<String, Object>>() {}));
+        draft.getSettings().put("banners", objectMapper.convertValue(banners, new TypeReference<List<Map<String, Object>>>() {}));
+        if (site.getTemplateKey() != null) draft.setTemplateKey(site.getTemplateKey());
+        persistDraftThemeDocument(draft);
         return enrichWithDomains(deriveLegacyConfig(loadDraftThemeDocument()));
     }
 
@@ -1055,18 +1064,9 @@ public class StorefrontServiceImpl implements StorefrontService {
         if (themeDocument.isPresent()) {
             return enrichWithDomains(deriveLegacyConfig(themeDocument.get()));
         }
-        StorefrontConfigDto legacy = new StorefrontConfigDto(
-                readSetting(SITE_KEY, new TypeReference<>() {}, defaultSite()),
-                readSetting(THEME_KEY, new TypeReference<>() {}, defaultTheme()),
-                readSetting(NAVIGATION_KEY, new TypeReference<>() {}, defaultNavigation()),
-                readSetting(BANNERS_KEY, new TypeReference<>() {}, defaultBanners()),
-                defaultHeaderPage(),
-                readSetting(HOMEPAGE_KEY, new TypeReference<>() {}, defaultHomePage()),
-                defaultFooterPage(),
-                storefrontDomainService.getDomainContextForCurrentTenant()
-        );
-        persistDraftThemeDocument(migrateLegacyConfigToThemeDocument(legacy));
-        return legacy;
+        StorefrontThemeDocumentDto fresh = buildDefaultThemeDocument();
+        persistDraftThemeDocument(fresh);
+        return enrichWithDomains(deriveLegacyConfig(fresh));
     }
 
     private void requireAdminStorefrontAccess() {
@@ -1253,16 +1253,7 @@ public class StorefrontServiceImpl implements StorefrontService {
 
     private StorefrontThemeDocumentDto loadDraftThemeDocument() {
         return readThemeDocumentSetting(DRAFT_THEME_DOCUMENT_KEY)
-                .orElseGet(() -> migrateLegacyConfigToThemeDocument(new StorefrontConfigDto(
-                        readSetting(SITE_KEY, new TypeReference<>() {}, defaultSite()),
-                        readSetting(THEME_KEY, new TypeReference<>() {}, defaultTheme()),
-                        readSetting(NAVIGATION_KEY, new TypeReference<>() {}, defaultNavigation()),
-                        readSetting(BANNERS_KEY, new TypeReference<>() {}, defaultBanners()),
-                        defaultHeaderPage(),
-                        readSetting(HOMEPAGE_KEY, new TypeReference<>() {}, defaultHomePage()),
-                        defaultFooterPage(),
-                        storefrontDomainService.getDomainContextForCurrentTenant()
-                )));
+                .orElseGet(this::buildDefaultThemeDocument);
     }
 
     private Optional<StorefrontThemeDocumentDto> loadPublishedThemeDocument() {
@@ -1287,8 +1278,8 @@ public class StorefrontServiceImpl implements StorefrontService {
     private StorefrontThemeSnapshotDto readThemeSnapshot(StorefrontPublishVersion version) {
         try {
             StorefrontThemeSnapshotDto snapshot = objectMapper.readValue(version.getSnapshotJson(), StorefrontThemeSnapshotDto.class);
-            if (snapshot.getThemeDocument() == null && snapshot.getConfig() != null) {
-                snapshot.setThemeDocument(migrateLegacyConfigToThemeDocument(snapshot.getConfig()));
+            if (snapshot.getThemeDocument() == null) {
+                snapshot.setThemeDocument(buildDefaultThemeDocument());
             }
             if (snapshot.getConfig() == null && snapshot.getThemeDocument() != null) {
                 snapshot.setConfig(deriveLegacyConfig(snapshot.getThemeDocument()));
@@ -1296,17 +1287,15 @@ public class StorefrontServiceImpl implements StorefrontService {
             snapshot.setSchemaVersion(snapshot.getSchemaVersion() != null ? snapshot.getSchemaVersion() : THEME_SCHEMA_VERSION);
             return snapshot;
         } catch (JsonProcessingException exception) {
-            try {
-                StorefrontConfigDto legacy = objectMapper.readValue(version.getSnapshotJson(), StorefrontConfigDto.class);
-                return new StorefrontThemeSnapshotDto(
-                        THEME_SCHEMA_VERSION,
-                        version.getId().toString(),
-                        migrateLegacyConfigToThemeDocument(legacy),
-                        legacy
-                );
-            } catch (JsonProcessingException legacyException) {
-                throw new IllegalStateException("Failed to deserialize storefront snapshot", legacyException);
-            }
+            // Pre-V66 snapshots had a different shape — V66 wipes them, so this branch
+            // is dead in practice. Surface a clean fallback instead of crashing.
+            StorefrontThemeDocumentDto doc = buildDefaultThemeDocument();
+            return new StorefrontThemeSnapshotDto(
+                    THEME_SCHEMA_VERSION,
+                    version.getId().toString(),
+                    doc,
+                    deriveLegacyConfig(doc)
+            );
         }
     }
 
@@ -1325,30 +1314,81 @@ public class StorefrontServiceImpl implements StorefrontService {
     }
 
     private StorefrontThemeDocumentDto normalizeThemeDocument(StorefrontThemeDocumentDto document) {
-        StorefrontThemeDocumentDto fallback = migrateLegacyConfigToThemeDocument(new StorefrontConfigDto(
-                defaultSite(),
-                defaultTheme(),
-                defaultNavigation(),
-                defaultBanners(),
-                defaultHeaderPage(),
-                defaultHomePage(),
-                defaultFooterPage(),
-                storefrontDomainService.getDomainContextForCurrentTenant()
-        ));
-        if (document == null) {
-            return fallback;
+        if (document == null || document.getTemplates() == null || document.getTemplates().isEmpty()) {
+            return buildDefaultThemeDocument();
         }
-
+        StorefrontThemeDocumentDto fallback = buildDefaultThemeDocument();
         StorefrontThemeDocumentDto normalized = new StorefrontThemeDocumentDto();
         normalized.setTemplateKey(document.getTemplateKey() != null ? document.getTemplateKey() : fallback.getTemplateKey());
         normalized.setSchemaVersion(THEME_SCHEMA_VERSION);
         normalized.setSettings(document.getSettings() != null ? new LinkedHashMap<>(document.getSettings()) : new LinkedHashMap<>(fallback.getSettings()));
-        normalized.setTemplates(document.getTemplates() != null ? new LinkedHashMap<>(document.getTemplates()) : new LinkedHashMap<>(fallback.getTemplates()));
+        normalized.setTemplates(new LinkedHashMap<>(document.getTemplates()));
         normalized.getTemplates().computeIfAbsent("header", ignored -> fallback.getTemplates().get("header"));
         normalized.getTemplates().computeIfAbsent("home", ignored -> fallback.getTemplates().get("home"));
         normalized.getTemplates().computeIfAbsent("footer", ignored -> fallback.getTemplates().get("footer"));
         normalized.getTemplates().values().forEach(this::upgradeTemplateToSectionGroups);
         return normalized;
+    }
+
+    /**
+     * Construct a fresh theme document from the active manifest's templatePresets.
+     * One section per preset entry, with empty settings the admin fills in.
+     * Replaces the old migrateLegacyConfigToThemeDocument chain that mutated
+     * legacy v1 page structures.
+     */
+    private StorefrontThemeDocumentDto buildDefaultThemeDocument() {
+        StorefrontSiteDto site = defaultSite();
+        String templateKey = site.getTemplateKey();
+        StorefrontThemeManifestDto manifest = storefrontThemeRegistry.findByKey(templateKey)
+                .map(storefrontThemeRegistry::resolveWithInheritance)
+                .orElse(null);
+
+        Map<String, Object> settings = new LinkedHashMap<>();
+        settings.put("site", objectMapper.convertValue(site, new TypeReference<Map<String, Object>>() {}));
+        settings.put("theme", objectMapper.convertValue(defaultTheme(), new TypeReference<Map<String, Object>>() {}));
+        settings.put("banners", objectMapper.convertValue(defaultBanners(), new TypeReference<List<Map<String, Object>>>() {}));
+
+        Map<String, StorefrontThemeTemplateDto> templates = new LinkedHashMap<>();
+        templates.put("header", buildTemplateFromPresets("header", "Header", manifest));
+        templates.put("home", buildTemplateFromPresets("home", "Home page", manifest));
+        templates.put("footer", buildTemplateFromPresets("footer", "Footer", manifest));
+
+        StorefrontThemeDocumentDto doc = new StorefrontThemeDocumentDto(templateKey, THEME_SCHEMA_VERSION, settings, templates);
+        doc.getTemplates().values().forEach(this::upgradeTemplateToSectionGroups);
+        return doc;
+    }
+
+    private StorefrontThemeTemplateDto buildTemplateFromPresets(String templateId, String label, StorefrontThemeManifestDto manifest) {
+        StorefrontThemeTemplateDto template = new StorefrontThemeTemplateDto(templateId, label, new ArrayList<>(), new ArrayList<>());
+        if (manifest == null || manifest.getTemplatePresets() == null) return template;
+        Object presetsObj = manifest.getTemplatePresets().get(templateId);
+        if (!(presetsObj instanceof List<?> presets)) return template;
+        for (Object presetObj : presets) {
+            if (!(presetObj instanceof Map<?, ?> preset)) continue;
+            String type = String.valueOf(preset.get("type"));
+            Object labelObj = preset.get("label");
+            String sectionLabel = labelObj != null ? labelObj.toString() : type;
+            String group = lookupSectionGroupFromManifest(manifest, type);
+            template.getSections().add(new StorefrontThemeSectionDto(
+                    type + "-" + java.util.UUID.randomUUID().toString().substring(0, 8),
+                    type,
+                    sectionLabel,
+                    "default",
+                    true,
+                    group,
+                    new LinkedHashMap<>(),
+                    new ArrayList<>()
+            ));
+        }
+        return template;
+    }
+
+    private String lookupSectionGroupFromManifest(StorefrontThemeManifestDto manifest, String sectionType) {
+        if (manifest == null || manifest.getSectionDefinitions() == null || sectionType == null) return SECTION_GROUP_BODY;
+        Object def = manifest.getSectionDefinitions().get(sectionType);
+        if (!(def instanceof Map<?, ?> defMap)) return SECTION_GROUP_BODY;
+        Object group = defMap.get("group");
+        return group != null ? group.toString() : SECTION_GROUP_BODY;
     }
 
     /**
@@ -1423,239 +1463,9 @@ public class StorefrontServiceImpl implements StorefrontService {
         return SECTION_GROUP_BODY;
     }
 
-    /**
-     * Pulls the section type's declared group from the active theme manifest's
-     * sectionDefinitions[type].group. Falls back to "body" when the manifest is
-     * missing, the type isn't registered, or no group was declared.
-     *
-     * IMPORTANT: never call from any path that loads the draft document — that
-     * recurses into the migration helpers and stack-overflows. Pass the resolved
-     * templateKey in instead.
-     */
-    private String inferSectionGroupType(String sectionType, String templateKey) {
-        if (sectionType == null) return SECTION_GROUP_BODY;
-        if (templateKey == null) return SECTION_GROUP_BODY;
-        return storefrontThemeRegistry.findByKey(templateKey)
-                .map(manifest -> storefrontThemeRegistry.resolveWithInheritance(manifest))
-                .map(manifest -> manifest.getSectionDefinitions() != null ? manifest.getSectionDefinitions().get(sectionType) : null)
-                .filter(def -> def instanceof Map<?, ?>)
-                .map(def -> ((Map<?, ?>) def).get("group"))
-                .map(Object::toString)
-                .orElse(SECTION_GROUP_BODY);
-    }
-
     private String capitalize(String value) {
         if (value == null || value.isEmpty()) return value;
         return Character.toUpperCase(value.charAt(0)) + value.substring(1);
-    }
-
-    private StorefrontThemeDocumentDto migrateLegacyConfigToThemeDocument(StorefrontConfigDto config) {
-        StorefrontSiteDto site = config.getSite() != null ? config.getSite() : defaultSite();
-        StorefrontThemeDto theme = config.getTheme() != null ? config.getTheme() : defaultTheme();
-        List<StorefrontNavItemDto> navigationItems = config.getNavigationItems() != null ? config.getNavigationItems() : defaultNavigation();
-        List<StorefrontBannerDto> banners = config.getBanners() != null ? config.getBanners() : defaultBanners();
-        StorefrontPageDto homePage = config.getHomePage() != null ? config.getHomePage() : defaultHomePage();
-        StorefrontPageDto headerPage = config.getHeaderPage() != null ? config.getHeaderPage() : buildHeaderPage(site, navigationItems);
-        StorefrontPageDto footerPage = config.getFooterPage() != null ? config.getFooterPage() : buildFooterPage(site);
-
-        Map<String, Object> settings = new LinkedHashMap<>();
-        settings.put("site", objectMapper.convertValue(site, new TypeReference<Map<String, Object>>() {}));
-        settings.put("theme", objectMapper.convertValue(theme, new TypeReference<Map<String, Object>>() {}));
-        settings.put("banners", objectMapper.convertValue(banners, new TypeReference<List<Map<String, Object>>>() {}));
-
-        List<StorefrontThemeSectionDto> homeSections = (homePage.getSections() != null ? homePage.getSections() : List.<StorefrontSectionDto>of()).stream()
-                .map(this::migrateLegacySection)
-                .toList();
-        List<StorefrontThemeSectionDto> headerSections = migrateHeaderPageToThemeSections(headerPage, site, navigationItems);
-        List<StorefrontThemeSectionDto> footerSections = migrateFooterPageToThemeSections(footerPage, site);
-
-        Map<String, StorefrontThemeTemplateDto> templates = new LinkedHashMap<>();
-        templates.put("header", new StorefrontThemeTemplateDto("header", "Header", new ArrayList<>(headerSections), new ArrayList<>()));
-        templates.put("home", new StorefrontThemeTemplateDto("home", "Home page", new ArrayList<>(homeSections), new ArrayList<>()));
-        templates.put("footer", new StorefrontThemeTemplateDto("footer", "Footer", new ArrayList<>(footerSections), new ArrayList<>()));
-
-        return new StorefrontThemeDocumentDto(
-                site.getTemplateKey(),
-                THEME_SCHEMA_VERSION,
-                settings,
-                templates
-        );
-    }
-
-    private StorefrontThemeSectionDto migrateLegacySection(StorefrontSectionDto section) {
-        Map<String, Object> settings = section.getConfig() != null ? new LinkedHashMap<>(section.getConfig()) : new LinkedHashMap<>();
-        List<StorefrontThemeBlockDto> blocks = new ArrayList<>();
-
-        if ("hero_banner".equals(section.getType())) {
-            List<String> buttonBlockIds = new ArrayList<>();
-            if (settings.get("ctaLabel") != null || settings.get("ctaHref") != null) {
-                buttonBlockIds.add(section.getId() + "-primary");
-                blocks.add(new StorefrontThemeBlockDto(
-                        section.getId() + "-primary",
-                        "hero_button",
-                        "Primary button",
-                        true,
-                        new LinkedHashMap<>(Map.of(
-                                "label", settings.getOrDefault("ctaLabel", ""),
-                                "href", settings.getOrDefault("ctaHref", "")
-                        ))
-                ));
-            }
-            if (settings.get("secondaryCtaLabel") != null || settings.get("secondaryCtaHref") != null) {
-                buttonBlockIds.add(section.getId() + "-secondary");
-                blocks.add(new StorefrontThemeBlockDto(
-                        section.getId() + "-secondary",
-                        "hero_button",
-                        "Secondary button",
-                        true,
-                        new LinkedHashMap<>(Map.of(
-                                "label", settings.getOrDefault("secondaryCtaLabel", ""),
-                                "href", settings.getOrDefault("secondaryCtaHref", "")
-                        ))
-                ));
-            }
-            settings.remove("ctaLabel");
-            settings.remove("ctaHref");
-            settings.remove("secondaryCtaLabel");
-            settings.remove("secondaryCtaHref");
-            settings.put("buttonBlockIds", buttonBlockIds);
-        } else if ("promo_strip".equals(section.getType())) {
-            List<?> items = settings.get("items") instanceof List<?> list ? list : List.of();
-            List<String> itemBlockIds = new ArrayList<>();
-            for (int index = 0; index < items.size(); index++) {
-                itemBlockIds.add(section.getId() + "-promo-" + index);
-                blocks.add(new StorefrontThemeBlockDto(
-                        section.getId() + "-promo-" + index,
-                        "promo_item",
-                        "Promo item " + (index + 1),
-                        true,
-                        new LinkedHashMap<>(Map.of("text", items.get(index)))
-                ));
-            }
-            settings.remove("items");
-            settings.put("itemBlockIds", itemBlockIds);
-        } else if ("featured_products".equals(section.getType())) {
-            List<?> items = settings.get("productSlugs") instanceof List<?> list ? list : List.of();
-            List<String> productBlockIds = new ArrayList<>();
-            for (int index = 0; index < items.size(); index++) {
-                productBlockIds.add(section.getId() + "-product-" + index);
-                blocks.add(new StorefrontThemeBlockDto(
-                        section.getId() + "-product-" + index,
-                        "product_reference",
-                        "Product " + (index + 1),
-                        true,
-                        new LinkedHashMap<>(Map.of("productSlug", items.get(index)))
-                ));
-            }
-            settings.remove("productSlugs");
-            settings.put("productBlockIds", productBlockIds);
-        } else if ("featured_collections".equals(section.getType())) {
-            List<?> items = settings.get("collectionSlugs") instanceof List<?> list ? list : List.of();
-            List<String> collectionBlockIds = new ArrayList<>();
-            for (int index = 0; index < items.size(); index++) {
-                collectionBlockIds.add(section.getId() + "-collection-" + index);
-                blocks.add(new StorefrontThemeBlockDto(
-                        section.getId() + "-collection-" + index,
-                        "collection_reference",
-                        "Collection " + (index + 1),
-                        true,
-                        new LinkedHashMap<>(Map.of("collectionSlug", items.get(index)))
-                ));
-            }
-            settings.remove("collectionSlugs");
-            settings.put("collectionBlockIds", collectionBlockIds);
-        }
-
-        return new StorefrontThemeSectionDto(
-                section.getId(),
-                section.getType(),
-                section.getLabel(),
-                section.getVariant(),
-                section.isEnabled(),
-                // groupType filled in by upgradeTemplateToSectionGroups from the host
-                // template's default (body for the home page). Don't call
-                // inferSectionGroupType here — it loads the draft, which recurses
-                // into this migration helper on the fallback path.
-                null,
-                settings,
-                blocks
-        );
-    }
-
-    private List<StorefrontThemeSectionDto> migrateHeaderPageToThemeSections(StorefrontPageDto headerPage,
-                                                                             StorefrontSiteDto site,
-                                                                             List<StorefrontNavItemDto> navigationItems) {
-        Map<String, StorefrontSectionDto> sectionsByType = (headerPage.getSections() != null ? headerPage.getSections() : List.<StorefrontSectionDto>of()).stream()
-                .collect(Collectors.toMap(StorefrontSectionDto::getType, Function.identity(), (left, right) -> right, LinkedHashMap::new));
-
-        StorefrontSectionDto announcementSource = sectionsByType.getOrDefault("announcement_bar", buildHeaderPage(site, navigationItems).getSections().get(0));
-        StorefrontSectionDto navSource = sectionsByType.getOrDefault("header_nav", buildHeaderPage(site, navigationItems).getSections().get(1));
-
-        List<StorefrontThemeBlockDto> navBlocks = navigationItems.stream()
-                .map(item -> new StorefrontThemeBlockDto(
-                        item.getId(),
-                        "nav_link",
-                        item.getLabel(),
-                        true,
-                        new LinkedHashMap<>(Map.of(
-                                "label", item.getLabel(),
-                                "href", item.getHref()
-                        ))
-                ))
-                .toList();
-
-        List<StorefrontThemeSectionDto> sections = new ArrayList<>();
-        sections.add(new StorefrontThemeSectionDto(
-                announcementSource.getId(),
-                "announcement_bar",
-                announcementSource.getLabel(),
-                announcementSource.getVariant(),
-                announcementSource.isEnabled(),
-                SECTION_GROUP_HEADER,
-                announcementSource.getConfig() != null ? new LinkedHashMap<>(announcementSource.getConfig()) : new LinkedHashMap<>(),
-                new ArrayList<>()
-        ));
-        sections.add(new StorefrontThemeSectionDto(
-                navSource.getId(),
-                "header_nav",
-                navSource.getLabel(),
-                navSource.getVariant(),
-                navSource.isEnabled(),
-                SECTION_GROUP_HEADER,
-                navSource.getConfig() != null ? new LinkedHashMap<>(navSource.getConfig()) : new LinkedHashMap<>(),
-                new ArrayList<>(navBlocks)
-        ));
-        return sections;
-    }
-
-    private List<StorefrontThemeSectionDto> migrateFooterPageToThemeSections(StorefrontPageDto footerPage, StorefrontSiteDto site) {
-        StorefrontSectionDto footerSource = (footerPage.getSections() != null ? footerPage.getSections() : List.<StorefrontSectionDto>of()).stream()
-                .filter(section -> "footer_links".equals(section.getType()))
-                .findFirst()
-                .orElseGet(() -> buildFooterPage(site).getSections().get(0));
-
-        List<StorefrontThemeBlockDto> footerBlocks = new ArrayList<>();
-        footerBlocks.add(buildFooterLinkBlock("footer-link-catalog", site.getFooterCatalogLabel(), "/products"));
-        footerBlocks.add(buildFooterLinkBlock("footer-link-collections", site.getFooterCollectionsLabel(), "/collections"));
-        footerBlocks.add(buildFooterLinkBlock("footer-link-tracking", site.getFooterTrackingLabel(), "/orders/track"));
-
-        return List.of(new StorefrontThemeSectionDto(
-                footerSource.getId(),
-                "footer_links",
-                footerSource.getLabel(),
-                footerSource.getVariant(),
-                footerSource.isEnabled(),
-                SECTION_GROUP_FOOTER,
-                footerSource.getConfig() != null ? new LinkedHashMap<>(footerSource.getConfig()) : new LinkedHashMap<>(),
-                footerBlocks
-        ));
-    }
-
-    private StorefrontThemeBlockDto buildFooterLinkBlock(String id, String label, String href) {
-        LinkedHashMap<String, Object> config = new LinkedHashMap<>();
-        config.put("label", label);
-        config.put("href", href);
-        return new StorefrontThemeBlockDto(id, "footer_link", label, true, config);
     }
 
     private StorefrontConfigDto deriveLegacyConfig(StorefrontThemeDocumentDto document) {

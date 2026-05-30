@@ -2,10 +2,9 @@
   "key": "boutique",
   "name": "Boutique",
   "version": "2.0.0",
-  "description": "Editorial boutique storefront with rich hero, curated grids, and concierge feel. Successor to Marland Manor (existing tenants auto-upgrade via the `marland_manor` alias).",
+  "description": "Editorial boutique storefront with rich hero, curated grids, and concierge feel.",
   "author": "Pathfinder Tech",
   "screenshot": "/storefront-assets/themes/boutique/screenshot.png",
-  "aliases": ["marland_manor"],
   "tags": ["boutique", "editorial", "luxury"],
   "supportedSectionGroups": ["header", "body", "footer"],
   "defaultSettings": {
