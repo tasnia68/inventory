@@ -328,6 +328,16 @@ public class StorefrontServiceImpl implements StorefrontService {
         if (draft.getSettings() == null) {
             draft.setSettings(new LinkedHashMap<>());
         }
+        Map<String, Object> defaults = manifest.getDefaultSettings() != null
+                ? manifest.getDefaultSettings()
+                : new LinkedHashMap<>();
+        // Site group: preserve user values (brand name, domain, SEO) — only fill blanks.
+        mergeSettingsGroup(draft.getSettings(), defaults, "site");
+        // Theme tokens (colors / fonts / radius): switching themes should give the new
+        // theme's visual identity, so overwrite rather than merge.
+        if (defaults.get("theme") instanceof Map<?, ?>) {
+            draft.getSettings().put("theme", new LinkedHashMap<>((Map<String, Object>) defaults.get("theme")));
+        }
         Object siteObj = draft.getSettings().get("site");
         if (siteObj instanceof Map<?, ?>) {
             @SuppressWarnings("unchecked")
@@ -1788,6 +1798,33 @@ public class StorefrontServiceImpl implements StorefrontService {
                 config,
                 section.getBlocks() != null ? new ArrayList<>(section.getBlocks()) : new ArrayList<>()
         );
+    }
+
+    /**
+     * Overlay the manifest's default values for the given group key onto the
+     * draft. Existing user-set values WIN — defaults only fill in fields the
+     * tenant hasn't explicitly set, so switching themes doesn't wipe the
+     * tenant's brand name / domain / SEO config.
+     */
+    private void mergeSettingsGroup(Map<String, Object> draftSettings, Map<String, Object> manifestDefaults, String groupKey) {
+        Object defaultsObj = manifestDefaults != null ? manifestDefaults.get(groupKey) : null;
+        if (!(defaultsObj instanceof Map<?, ?> defaultsMap)) return;
+        Object existingObj = draftSettings.get(groupKey);
+        Map<String, Object> existing;
+        if (existingObj instanceof Map<?, ?>) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> cast = (Map<String, Object>) existingObj;
+            existing = cast;
+        } else {
+            existing = new LinkedHashMap<>();
+            draftSettings.put(groupKey, existing);
+        }
+        for (Map.Entry<?, ?> entry : defaultsMap.entrySet()) {
+            String key = String.valueOf(entry.getKey());
+            if (!existing.containsKey(key) || existing.get(key) == null || "".equals(existing.get(key))) {
+                existing.put(key, entry.getValue());
+            }
+        }
     }
 
     private void stampThemeMetadata(StorefrontPublishVersion version, StorefrontThemeDocumentDto themeDocument) {

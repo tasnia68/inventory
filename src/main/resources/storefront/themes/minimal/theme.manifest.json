@@ -1,0 +1,48 @@
+{
+  "key": "minimal",
+  "name": "Minimal",
+  "version": "1.0.0",
+  "description": "Clean monochrome storefront. Type-driven, lots of whitespace, restrained color. Built for brands where the product photography does the talking.",
+  "author": "Pathfinder Tech",
+  "screenshot": "/storefront-assets/themes/minimal/screenshot.png",
+  "extends": "marland_manor",
+  "tags": ["minimal", "monochrome", "type-driven"],
+  "defaultSettings": {
+    "site": {
+      "templateKey": "minimal",
+      "productCardHoverMode": "SECOND_IMAGE",
+      "productCardHoverZoom": false
+    },
+    "theme": {
+      "primary": "#0a0a0a",
+      "secondary": "#404040",
+      "accent": "#0a0a0a",
+      "surface": "#ffffff",
+      "surfaceMuted": "#f5f5f5",
+      "text": "#0a0a0a",
+      "textMuted": "#737373",
+      "radius": "4",
+      "shadow": "0 1px 2px rgba(10,10,10,0.04)",
+      "headingFont": "Inter, system-ui, sans-serif",
+      "bodyFont": "Inter, system-ui, sans-serif"
+    }
+  },
+  "templatePresets": {
+    "header": [
+      { "type": "header_nav", "label": "Header navigation" }
+    ],
+    "home": [
+      { "type": "hero_banner", "label": "Hero banner" },
+      { "type": "promo_strip", "label": "Promo strip" },
+      { "type": "image_with_text", "label": "Image with text" },
+      { "type": "featured_products", "label": "Featured products" },
+      { "type": "rich_text", "label": "Rich text" },
+      { "type": "featured_collections", "label": "Featured collections" },
+      { "type": "newsletter_signup", "label": "Newsletter signup" },
+      { "type": "logos_strip", "label": "Logos strip" }
+    ],
+    "footer": [
+      { "type": "footer_links", "label": "Footer links" }
+    ]
+  }
+}

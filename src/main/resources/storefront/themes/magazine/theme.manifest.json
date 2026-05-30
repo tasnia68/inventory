@@ -1,0 +1,49 @@
+{
+  "key": "magazine",
+  "name": "Magazine",
+  "version": "1.0.0",
+  "description": "Content-first editorial layout. Heavy on blog posts, lookbooks, and large editorial heroes. Best for brands with stories to tell beyond the product.",
+  "author": "Pathfinder Tech",
+  "screenshot": "/storefront-assets/themes/magazine/screenshot.png",
+  "extends": "marland_manor",
+  "tags": ["editorial", "magazine", "content-first", "blog-heavy"],
+  "defaultSettings": {
+    "site": {
+      "templateKey": "magazine",
+      "productCardHoverMode": "SECOND_IMAGE",
+      "productCardHoverZoom": true
+    },
+    "theme": {
+      "primary": "#2c1810",
+      "secondary": "#7a5c45",
+      "accent": "#c2853f",
+      "surface": "#faf6f0",
+      "surfaceMuted": "#efe7d8",
+      "text": "#2c1810",
+      "textMuted": "#7a5c45",
+      "radius": "12",
+      "shadow": "0 16px 40px -20px rgba(44,24,16,0.25)",
+      "headingFont": "Playfair Display, Georgia, serif",
+      "bodyFont": "Inter, system-ui, sans-serif"
+    }
+  },
+  "templatePresets": {
+    "header": [
+      { "type": "announcement_bar", "label": "Announcement bar" },
+      { "type": "header_nav", "label": "Header navigation" }
+    ],
+    "home": [
+      { "type": "hero_banner", "label": "Editorial hero" },
+      { "type": "blog_grid", "label": "Featured stories" },
+      { "type": "lookbook_grid", "label": "Lookbook" },
+      { "type": "featured_collections", "label": "Featured collections" },
+      { "type": "video_with_text", "label": "Brand story" },
+      { "type": "testimonials", "label": "Press & testimonials" },
+      { "type": "featured_products", "label": "Editor's picks" },
+      { "type": "newsletter_signup", "label": "Newsletter signup" }
+    ],
+    "footer": [
+      { "type": "footer_links", "label": "Footer links" }
+    ]
+  }
+}

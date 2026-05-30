@@ -20,6 +20,7 @@ public class StorefrontThemeManifestDto {
     private String description;
     private String author;
     private String screenshot;
+    private String extendsKey; // JSON key: "extends"
     private List<String> tags;
     private List<String> supportedSectionGroups;
     private Map<String, Object> defaultSettings = new LinkedHashMap<>();
@@ -29,4 +30,10 @@ public class StorefrontThemeManifestDto {
     private Map<String, Object> blockDefinitions = new LinkedHashMap<>();
     private Map<String, Object> templatePresets = new LinkedHashMap<>();
     private List<Map<String, Object>> migrations;
+
+    @com.fasterxml.jackson.annotation.JsonProperty("extends")
+    public String getExtendsKey() { return extendsKey; }
+
+    @com.fasterxml.jackson.annotation.JsonProperty("extends")
+    public void setExtendsKey(String extendsKey) { this.extendsKey = extendsKey; }
 }
