@@ -187,6 +187,251 @@
         { "id": "tagline", "label": "Tagline", "type": "textarea" }
       ],
       "blockTypes": ["footer_link"]
+    },
+    "rich_text": {
+      "label": "Rich text",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "body", "label": "Body", "type": "richtext" },
+        { "id": "alignment", "label": "Alignment", "type": "select", "options": [
+          { "value": "left", "label": "Left" },
+          { "value": "center", "label": "Center" },
+          { "value": "right", "label": "Right" }
+        ]},
+        { "id": "maxWidth", "label": "Max width (px)", "type": "number" }
+      ],
+      "blockTypes": []
+    },
+    "image_with_text": {
+      "label": "Image with text",
+      "group": "body",
+      "settings": [
+        { "id": "imageUrl", "label": "Image URL", "type": "image" },
+        { "id": "imageAlt", "label": "Image alt", "type": "text" },
+        { "id": "imagePosition", "label": "Image position", "type": "select", "options": [
+          { "value": "left", "label": "Left" },
+          { "value": "right", "label": "Right" }
+        ]},
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "body", "label": "Body", "type": "textarea" },
+        { "id": "ctaLabel", "label": "CTA label", "type": "text" },
+        { "id": "ctaHref", "label": "CTA link", "type": "url" }
+      ],
+      "blockTypes": []
+    },
+    "image_gallery": {
+      "label": "Image gallery",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "columns", "label": "Columns", "type": "select", "options": [
+          { "value": "2", "label": "2" },
+          { "value": "3", "label": "3" },
+          { "value": "4", "label": "4" }
+        ]},
+        { "id": "gap", "label": "Gap (px)", "type": "number" }
+      ],
+      "blockTypes": ["image_block"]
+    },
+    "accordion": {
+      "label": "Accordion",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "openFirst", "label": "Open first item by default", "type": "toggle" }
+      ],
+      "blockTypes": ["accordion_item"]
+    },
+    "tabs": {
+      "label": "Tabs",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" }
+      ],
+      "blockTypes": ["tab_item"]
+    },
+    "spacer": {
+      "label": "Spacer",
+      "group": "body",
+      "settings": [
+        { "id": "height", "label": "Height (px)", "type": "number" }
+      ],
+      "blockTypes": []
+    },
+    "divider": {
+      "label": "Divider",
+      "group": "body",
+      "settings": [
+        { "id": "style", "label": "Style", "type": "select", "options": [
+          { "value": "solid", "label": "Solid" },
+          { "value": "dashed", "label": "Dashed" },
+          { "value": "dotted", "label": "Dotted" }
+        ]},
+        { "id": "color", "label": "Color", "type": "color" }
+      ],
+      "blockTypes": []
+    },
+    "countdown_timer": {
+      "label": "Countdown timer",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "endsAt", "label": "Ends at (ISO datetime)", "type": "text" },
+        { "id": "expiredMessage", "label": "Expired message", "type": "text" }
+      ],
+      "blockTypes": []
+    },
+    "newsletter_signup": {
+      "label": "Newsletter signup",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "body", "label": "Body", "type": "textarea" },
+        { "id": "placeholder", "label": "Email placeholder", "type": "text" },
+        { "id": "ctaLabel", "label": "Submit label", "type": "text" },
+        { "id": "successMessage", "label": "Success message", "type": "text" }
+      ],
+      "blockTypes": []
+    },
+    "scrolling_text": {
+      "label": "Scrolling text",
+      "group": "body",
+      "settings": [
+        { "id": "speed", "label": "Speed (s per loop)", "type": "number" },
+        { "id": "background", "label": "Background", "type": "color" },
+        { "id": "color", "label": "Text color", "type": "color" }
+      ],
+      "blockTypes": ["text_item"]
+    },
+    "testimonials": {
+      "label": "Testimonials",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "layout", "label": "Layout", "type": "select", "options": [
+          { "value": "grid", "label": "Grid" },
+          { "value": "carousel", "label": "Carousel" }
+        ]}
+      ],
+      "blockTypes": ["testimonial_item"]
+    },
+    "logos_strip": {
+      "label": "Logos strip",
+      "group": "body",
+      "settings": [
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "grayscale", "label": "Grayscale logos", "type": "toggle" }
+      ],
+      "blockTypes": ["logo_item"]
+    },
+    "video_hero": {
+      "label": "Video hero",
+      "group": "body",
+      "settings": [
+        { "id": "videoUrl", "label": "Video URL (MP4 or YouTube)", "type": "url" },
+        { "id": "posterUrl", "label": "Poster image", "type": "image" },
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "headline", "label": "Headline", "type": "text" },
+        { "id": "subheadline", "label": "Subheadline", "type": "textarea" },
+        { "id": "ctaLabel", "label": "CTA label", "type": "text" },
+        { "id": "ctaHref", "label": "CTA link", "type": "url" },
+        { "id": "autoplay", "label": "Autoplay", "type": "toggle" },
+        { "id": "loop", "label": "Loop", "type": "toggle" }
+      ],
+      "blockTypes": []
+    },
+    "video_with_text": {
+      "label": "Video with text",
+      "group": "body",
+      "settings": [
+        { "id": "videoUrl", "label": "Video URL", "type": "url" },
+        { "id": "posterUrl", "label": "Poster image", "type": "image" },
+        { "id": "videoPosition", "label": "Video position", "type": "select", "options": [
+          { "value": "left", "label": "Left" },
+          { "value": "right", "label": "Right" }
+        ]},
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "body", "label": "Body", "type": "textarea" },
+        { "id": "ctaLabel", "label": "CTA label", "type": "text" },
+        { "id": "ctaHref", "label": "CTA link", "type": "url" }
+      ],
+      "blockTypes": []
+    },
+    "blog_grid": {
+      "label": "Blog grid",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "columns", "label": "Columns", "type": "select", "options": [
+          { "value": "2", "label": "2" },
+          { "value": "3", "label": "3" },
+          { "value": "4", "label": "4" }
+        ]}
+      ],
+      "blockTypes": ["blog_post"]
+    },
+    "lookbook_grid": {
+      "label": "Lookbook grid",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "layout", "label": "Layout", "type": "select", "options": [
+          { "value": "mosaic", "label": "Mosaic" },
+          { "value": "grid", "label": "Grid" }
+        ]}
+      ],
+      "blockTypes": ["lookbook_item"]
+    },
+    "comparison_table": {
+      "label": "Comparison table",
+      "group": "body",
+      "settings": [
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "highlightColumn", "label": "Highlight column (1-based)", "type": "number" }
+      ],
+      "blockTypes": ["comparison_column", "comparison_row"]
+    },
+    "contact_form": {
+      "label": "Contact form",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "body", "label": "Body", "type": "textarea" },
+        { "id": "submitLabel", "label": "Submit label", "type": "text" },
+        { "id": "successMessage", "label": "Success message", "type": "text" },
+        { "id": "destinationEmail", "label": "Destination email", "type": "text" }
+      ],
+      "blockTypes": ["form_field"]
+    },
+    "custom_html": {
+      "label": "Custom HTML",
+      "group": "body",
+      "settings": [
+        { "id": "html", "label": "HTML", "type": "textarea" }
+      ],
+      "blockTypes": []
+    },
+    "faq": {
+      "label": "FAQ",
+      "group": "body",
+      "settings": [
+        { "id": "eyebrow", "label": "Eyebrow", "type": "text" },
+        { "id": "title", "label": "Title", "type": "text" }
+      ],
+      "blockTypes": ["faq_item"]
     }
   },
   "blockDefinitions": {
@@ -228,6 +473,113 @@
         { "id": "label", "label": "Label", "type": "text" },
         { "id": "href", "label": "Link", "type": "text" }
       ]
+    },
+    "image_block": {
+      "label": "Image",
+      "settings": [
+        { "id": "imageUrl", "label": "Image", "type": "image" },
+        { "id": "alt", "label": "Alt text", "type": "text" },
+        { "id": "href", "label": "Link", "type": "url" }
+      ]
+    },
+    "accordion_item": {
+      "label": "Accordion item",
+      "settings": [
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "body", "label": "Body", "type": "richtext" }
+      ]
+    },
+    "tab_item": {
+      "label": "Tab",
+      "settings": [
+        { "id": "label", "label": "Label", "type": "text" },
+        { "id": "body", "label": "Body", "type": "richtext" }
+      ]
+    },
+    "text_item": {
+      "label": "Text item",
+      "settings": [
+        { "id": "text", "label": "Text", "type": "text" }
+      ]
+    },
+    "testimonial_item": {
+      "label": "Testimonial",
+      "settings": [
+        { "id": "quote", "label": "Quote", "type": "textarea" },
+        { "id": "author", "label": "Author", "type": "text" },
+        { "id": "role", "label": "Role / company", "type": "text" },
+        { "id": "avatarUrl", "label": "Avatar", "type": "image" },
+        { "id": "rating", "label": "Rating (0-5)", "type": "number" }
+      ]
+    },
+    "logo_item": {
+      "label": "Logo",
+      "settings": [
+        { "id": "imageUrl", "label": "Logo image", "type": "image" },
+        { "id": "alt", "label": "Alt text", "type": "text" },
+        { "id": "href", "label": "Link", "type": "url" }
+      ]
+    },
+    "blog_post": {
+      "label": "Blog post",
+      "settings": [
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "excerpt", "label": "Excerpt", "type": "textarea" },
+        { "id": "imageUrl", "label": "Image", "type": "image" },
+        { "id": "href", "label": "Link", "type": "url" },
+        { "id": "publishedAt", "label": "Published date", "type": "text" },
+        { "id": "author", "label": "Author", "type": "text" }
+      ]
+    },
+    "lookbook_item": {
+      "label": "Lookbook item",
+      "settings": [
+        { "id": "imageUrl", "label": "Image", "type": "image" },
+        { "id": "label", "label": "Label", "type": "text" },
+        { "id": "href", "label": "Link", "type": "url" },
+        { "id": "size", "label": "Tile size", "type": "select", "options": [
+          { "value": "small", "label": "Small" },
+          { "value": "medium", "label": "Medium" },
+          { "value": "large", "label": "Large" }
+        ]}
+      ]
+    },
+    "comparison_column": {
+      "label": "Comparison column",
+      "settings": [
+        { "id": "title", "label": "Title", "type": "text" },
+        { "id": "subtitle", "label": "Subtitle", "type": "text" }
+      ]
+    },
+    "comparison_row": {
+      "label": "Comparison row",
+      "settings": [
+        { "id": "label", "label": "Row label", "type": "text" },
+        { "id": "values", "label": "Values (comma-separated)", "type": "text" }
+      ]
+    },
+    "form_field": {
+      "label": "Form field",
+      "settings": [
+        { "id": "name", "label": "Field name", "type": "text" },
+        { "id": "label", "label": "Label", "type": "text" },
+        { "id": "type", "label": "Type", "type": "select", "options": [
+          { "value": "text", "label": "Text" },
+          { "value": "email", "label": "Email" },
+          { "value": "tel", "label": "Phone" },
+          { "value": "textarea", "label": "Textarea" },
+          { "value": "select", "label": "Select" }
+        ]},
+        { "id": "required", "label": "Required", "type": "toggle" },
+        { "id": "placeholder", "label": "Placeholder", "type": "text" }
+      ]
+    },
+    "faq_item": {
+      "label": "FAQ item",
+      "settings": [
+        { "id": "question", "label": "Question", "type": "text" },
+        { "id": "answer", "label": "Answer", "type": "richtext" }
+      ]
     }
   },
   "templatePresets": {
@@ -237,12 +589,33 @@
     ],
     "home": [
       { "type": "hero_banner", "label": "Hero banner" },
+      { "type": "video_hero", "label": "Video hero" },
       { "type": "promo_strip", "label": "Promo strip" },
+      { "type": "scrolling_text", "label": "Scrolling text" },
       { "type": "featured_products", "label": "Featured products" },
-      { "type": "featured_collections", "label": "Featured collections" }
+      { "type": "featured_collections", "label": "Featured collections" },
+      { "type": "image_with_text", "label": "Image with text" },
+      { "type": "video_with_text", "label": "Video with text" },
+      { "type": "rich_text", "label": "Rich text" },
+      { "type": "image_gallery", "label": "Image gallery" },
+      { "type": "lookbook_grid", "label": "Lookbook grid" },
+      { "type": "testimonials", "label": "Testimonials" },
+      { "type": "logos_strip", "label": "Logos strip" },
+      { "type": "blog_grid", "label": "Blog grid" },
+      { "type": "comparison_table", "label": "Comparison table" },
+      { "type": "accordion", "label": "Accordion" },
+      { "type": "tabs", "label": "Tabs" },
+      { "type": "faq", "label": "FAQ" },
+      { "type": "countdown_timer", "label": "Countdown timer" },
+      { "type": "newsletter_signup", "label": "Newsletter signup" },
+      { "type": "contact_form", "label": "Contact form" },
+      { "type": "custom_html", "label": "Custom HTML" },
+      { "type": "spacer", "label": "Spacer" },
+      { "type": "divider", "label": "Divider" }
     ],
     "footer": [
-      { "type": "footer_links", "label": "Footer links" }
+      { "type": "footer_links", "label": "Footer links" },
+      { "type": "newsletter_signup", "label": "Newsletter signup" }
     ]
   }
 }
