@@ -65,6 +65,7 @@ import com.inventory.system.payload.StorefrontThemeDocumentDto;
 import com.inventory.system.payload.StorefrontThemeEditorDto;
 import com.inventory.system.payload.StorefrontThemeManifestDto;
 import com.inventory.system.payload.StorefrontThemeSectionDto;
+import com.inventory.system.payload.StorefrontThemeSectionGroupDto;
 import com.inventory.system.payload.StorefrontThemeSnapshotDto;
 import com.inventory.system.payload.StorefrontThemeTemplateDto;
 import com.inventory.system.payload.StorefrontVariantOptionDto;
@@ -132,7 +133,10 @@ public class StorefrontServiceImpl implements StorefrontService {
     private static final String ACTIVE_REVISION_ID_KEY = "storefront.activeRevisionId";
     private static final String PUBLIC_BASE_URL_KEY = "storefront.publicBaseUrl";
     private static final String CATEGORY = "STOREFRONT";
-    private static final String THEME_SCHEMA_VERSION = "v1";
+    private static final String THEME_SCHEMA_VERSION = "v2";
+    private static final String SECTION_GROUP_HEADER = "header";
+    private static final String SECTION_GROUP_BODY = "body";
+    private static final String SECTION_GROUP_FOOTER = "footer";
     private static final Pattern SLUG_NON_ALNUM = Pattern.compile("[^a-z0-9]+");
 
     private final TenantSettingService tenantSettingService;
@@ -1291,7 +1295,52 @@ public class StorefrontServiceImpl implements StorefrontService {
         normalized.getTemplates().computeIfAbsent("header", ignored -> fallback.getTemplates().get("header"));
         normalized.getTemplates().computeIfAbsent("home", ignored -> fallback.getTemplates().get("home"));
         normalized.getTemplates().computeIfAbsent("footer", ignored -> fallback.getTemplates().get("footer"));
+        normalized.getTemplates().values().forEach(this::upgradeTemplateToSectionGroups);
         return normalized;
+    }
+
+    /**
+     * Schema v2 upgrader: ensures every template carries a sectionGroups list.
+     * v1 templates have only a flat `sections` list — wrap them into a single
+     * "body" group so renderers and the admin editor can speak the new shape.
+     * Flat `sections` are kept in sync (sectionGroups[*].sections.flatMap) for
+     * backward compat with consumers that haven't been migrated to groups yet.
+     */
+    private void upgradeTemplateToSectionGroups(StorefrontThemeTemplateDto template) {
+        if (template == null) return;
+        if (template.getSectionGroups() == null) {
+            template.setSectionGroups(new ArrayList<>());
+        }
+        if (template.getSectionGroups().isEmpty()) {
+            String groupType = inferDefaultGroupType(template.getId());
+            String groupLabel = capitalize(groupType);
+            StorefrontThemeSectionGroupDto group = new StorefrontThemeSectionGroupDto(
+                    groupType,
+                    groupType,
+                    groupLabel,
+                    template.getSections() != null ? new ArrayList<>(template.getSections()) : new ArrayList<>()
+            );
+            template.getSectionGroups().add(group);
+        }
+        // Re-derive flat sections from groups so legacy consumers stay in sync.
+        List<StorefrontThemeSectionDto> flat = new ArrayList<>();
+        for (StorefrontThemeSectionGroupDto group : template.getSectionGroups()) {
+            if (group.getSections() != null) {
+                flat.addAll(group.getSections());
+            }
+        }
+        template.setSections(flat);
+    }
+
+    private String inferDefaultGroupType(String templateId) {
+        if (SECTION_GROUP_HEADER.equals(templateId)) return SECTION_GROUP_HEADER;
+        if (SECTION_GROUP_FOOTER.equals(templateId)) return SECTION_GROUP_FOOTER;
+        return SECTION_GROUP_BODY;
+    }
+
+    private String capitalize(String value) {
+        if (value == null || value.isEmpty()) return value;
+        return Character.toUpperCase(value.charAt(0)) + value.substring(1);
     }
 
     private StorefrontThemeDocumentDto migrateLegacyConfigToThemeDocument(StorefrontConfigDto config) {
@@ -1315,9 +1364,9 @@ public class StorefrontServiceImpl implements StorefrontService {
         List<StorefrontThemeSectionDto> footerSections = migrateFooterPageToThemeSections(footerPage, site);
 
         Map<String, StorefrontThemeTemplateDto> templates = new LinkedHashMap<>();
-        templates.put("header", new StorefrontThemeTemplateDto("header", "Header", new ArrayList<>(headerSections)));
-        templates.put("home", new StorefrontThemeTemplateDto("home", "Home page", new ArrayList<>(homeSections)));
-        templates.put("footer", new StorefrontThemeTemplateDto("footer", "Footer", new ArrayList<>(footerSections)));
+        templates.put("header", new StorefrontThemeTemplateDto("header", "Header", new ArrayList<>(headerSections), new ArrayList<>()));
+        templates.put("home", new StorefrontThemeTemplateDto("home", "Home page", new ArrayList<>(homeSections), new ArrayList<>()));
+        templates.put("footer", new StorefrontThemeTemplateDto("footer", "Footer", new ArrayList<>(footerSections), new ArrayList<>()));
 
         return new StorefrontThemeDocumentDto(
                 site.getTemplateKey(),
