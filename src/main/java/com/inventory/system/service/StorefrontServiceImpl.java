@@ -1427,11 +1427,14 @@ public class StorefrontServiceImpl implements StorefrontService {
      * Pulls the section type's declared group from the active theme manifest's
      * sectionDefinitions[type].group. Falls back to "body" when the manifest is
      * missing, the type isn't registered, or no group was declared.
+     *
+     * IMPORTANT: never call from any path that loads the draft document — that
+     * recurses into the migration helpers and stack-overflows. Pass the resolved
+     * templateKey in instead.
      */
-    private String inferSectionGroupType(String sectionType) {
+    private String inferSectionGroupType(String sectionType, String templateKey) {
         if (sectionType == null) return SECTION_GROUP_BODY;
-        StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
-        String templateKey = draft != null && draft.getTemplateKey() != null ? draft.getTemplateKey() : defaultSite().getTemplateKey();
+        if (templateKey == null) return SECTION_GROUP_BODY;
         return storefrontThemeRegistry.findByKey(templateKey)
                 .map(manifest -> storefrontThemeRegistry.resolveWithInheritance(manifest))
                 .map(manifest -> manifest.getSectionDefinitions() != null ? manifest.getSectionDefinitions().get(sectionType) : null)
@@ -1569,7 +1572,11 @@ public class StorefrontServiceImpl implements StorefrontService {
                 section.getLabel(),
                 section.getVariant(),
                 section.isEnabled(),
-                inferSectionGroupType(section.getType()),
+                // groupType filled in by upgradeTemplateToSectionGroups from the host
+                // template's default (body for the home page). Don't call
+                // inferSectionGroupType here — it loads the draft, which recurses
+                // into this migration helper on the fallback path.
+                null,
                 settings,
                 blocks
         );
