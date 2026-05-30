@@ -1363,31 +1363,82 @@ public class StorefrontServiceImpl implements StorefrontService {
         if (template.getSectionGroups() == null) {
             template.setSectionGroups(new ArrayList<>());
         }
-        if (template.getSectionGroups().isEmpty()) {
-            String groupType = inferDefaultGroupType(template.getId());
-            String groupLabel = capitalize(groupType);
-            StorefrontThemeSectionGroupDto group = new StorefrontThemeSectionGroupDto(
-                    groupType,
-                    groupType,
-                    groupLabel,
-                    template.getSections() != null ? new ArrayList<>(template.getSections()) : new ArrayList<>()
-            );
-            template.getSectionGroups().add(group);
-        }
-        // Re-derive flat sections from groups so legacy consumers stay in sync.
-        List<StorefrontThemeSectionDto> flat = new ArrayList<>();
+
+        // Collect every section from both representations, then re-bucket by groupType.
+        List<StorefrontThemeSectionDto> allSections = new ArrayList<>();
+        if (template.getSections() != null) allSections.addAll(template.getSections());
         for (StorefrontThemeSectionGroupDto group : template.getSectionGroups()) {
             if (group.getSections() != null) {
-                flat.addAll(group.getSections());
+                for (StorefrontThemeSectionDto section : group.getSections()) {
+                    if (section.getGroupType() == null || section.getGroupType().isBlank()) {
+                        section.setGroupType(group.getType());
+                    }
+                    if (!containsById(allSections, section)) {
+                        allSections.add(section);
+                    }
+                }
             }
         }
+
+        String templateDefaultGroup = inferDefaultGroupType(template.getId());
+        Map<String, List<StorefrontThemeSectionDto>> buckets = new LinkedHashMap<>();
+        for (String groupType : List.of(SECTION_GROUP_HEADER, SECTION_GROUP_BODY, SECTION_GROUP_FOOTER, "aside")) {
+            buckets.put(groupType, new ArrayList<>());
+        }
+        for (StorefrontThemeSectionDto section : allSections) {
+            String groupType = section.getGroupType();
+            if (groupType == null || groupType.isBlank()) {
+                groupType = templateDefaultGroup;
+                section.setGroupType(groupType);
+            }
+            buckets.computeIfAbsent(groupType, k -> new ArrayList<>()).add(section);
+        }
+
+        List<StorefrontThemeSectionGroupDto> groups = new ArrayList<>();
+        for (Map.Entry<String, List<StorefrontThemeSectionDto>> entry : buckets.entrySet()) {
+            if (entry.getValue().isEmpty()) continue;
+            groups.add(new StorefrontThemeSectionGroupDto(entry.getKey(), entry.getKey(), capitalize(entry.getKey()), entry.getValue()));
+        }
+        template.setSectionGroups(groups);
+
+        // Flat list mirrors groups in declared group order for backward compat.
+        List<StorefrontThemeSectionDto> flat = new ArrayList<>();
+        for (StorefrontThemeSectionGroupDto group : groups) {
+            if (group.getSections() != null) flat.addAll(group.getSections());
+        }
         template.setSections(flat);
+    }
+
+    private boolean containsById(List<StorefrontThemeSectionDto> list, StorefrontThemeSectionDto candidate) {
+        if (candidate == null || candidate.getId() == null) return false;
+        for (StorefrontThemeSectionDto s : list) {
+            if (candidate.getId().equals(s.getId())) return true;
+        }
+        return false;
     }
 
     private String inferDefaultGroupType(String templateId) {
         if (SECTION_GROUP_HEADER.equals(templateId)) return SECTION_GROUP_HEADER;
         if (SECTION_GROUP_FOOTER.equals(templateId)) return SECTION_GROUP_FOOTER;
         return SECTION_GROUP_BODY;
+    }
+
+    /**
+     * Pulls the section type's declared group from the active theme manifest's
+     * sectionDefinitions[type].group. Falls back to "body" when the manifest is
+     * missing, the type isn't registered, or no group was declared.
+     */
+    private String inferSectionGroupType(String sectionType) {
+        if (sectionType == null) return SECTION_GROUP_BODY;
+        StorefrontThemeDocumentDto draft = loadDraftThemeDocument();
+        String templateKey = draft != null && draft.getTemplateKey() != null ? draft.getTemplateKey() : defaultSite().getTemplateKey();
+        return storefrontThemeRegistry.findByKey(templateKey)
+                .map(manifest -> storefrontThemeRegistry.resolveWithInheritance(manifest))
+                .map(manifest -> manifest.getSectionDefinitions() != null ? manifest.getSectionDefinitions().get(sectionType) : null)
+                .filter(def -> def instanceof Map<?, ?>)
+                .map(def -> ((Map<?, ?>) def).get("group"))
+                .map(Object::toString)
+                .orElse(SECTION_GROUP_BODY);
     }
 
     private String capitalize(String value) {
@@ -1518,6 +1569,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 section.getLabel(),
                 section.getVariant(),
                 section.isEnabled(),
+                inferSectionGroupType(section.getType()),
                 settings,
                 blocks
         );
@@ -1552,6 +1604,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 announcementSource.getLabel(),
                 announcementSource.getVariant(),
                 announcementSource.isEnabled(),
+                SECTION_GROUP_HEADER,
                 announcementSource.getConfig() != null ? new LinkedHashMap<>(announcementSource.getConfig()) : new LinkedHashMap<>(),
                 new ArrayList<>()
         ));
@@ -1561,6 +1614,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 navSource.getLabel(),
                 navSource.getVariant(),
                 navSource.isEnabled(),
+                SECTION_GROUP_HEADER,
                 navSource.getConfig() != null ? new LinkedHashMap<>(navSource.getConfig()) : new LinkedHashMap<>(),
                 new ArrayList<>(navBlocks)
         ));
@@ -1584,6 +1638,7 @@ public class StorefrontServiceImpl implements StorefrontService {
                 footerSource.getLabel(),
                 footerSource.getVariant(),
                 footerSource.isEnabled(),
+                SECTION_GROUP_FOOTER,
                 footerSource.getConfig() != null ? new LinkedHashMap<>(footerSource.getConfig()) : new LinkedHashMap<>(),
                 footerBlocks
         ));

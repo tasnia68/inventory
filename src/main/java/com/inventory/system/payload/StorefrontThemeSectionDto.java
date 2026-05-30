@@ -18,6 +18,7 @@ public class StorefrontThemeSectionDto {
     private String label;
     private String variant;
     private Boolean enabled;
+    private String groupType; // "header" | "body" | "footer" | "aside" — drives section-groups bucketing
     private Map<String, Object> settings = new LinkedHashMap<>();
     private List<StorefrontThemeBlockDto> blocks = new ArrayList<>();
 }
