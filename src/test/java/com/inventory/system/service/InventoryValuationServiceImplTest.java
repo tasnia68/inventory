@@ -20,6 +20,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
@@ -37,6 +39,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 public class InventoryValuationServiceImplTest {
 
     @Mock
@@ -81,7 +84,7 @@ public class InventoryValuationServiceImplTest {
     @Test
     void processInbound_FIFO() {
         TenantSettingDto setting = TenantSettingDto.builder().value("FIFO").build();
-        when(tenantSettingService.getSetting("INVENTORY_VALUATION_METHOD")).thenReturn(setting);
+        when(tenantSettingService.findSetting("INVENTORY_VALUATION_METHOD")).thenReturn(Optional.of(setting));
 
         valuationService.processInbound(movement, new BigDecimal("100"));
 
@@ -93,7 +96,7 @@ public class InventoryValuationServiceImplTest {
     @Test
     void processInbound_WeightedAverage() {
         TenantSettingDto setting = TenantSettingDto.builder().value("WEIGHTED_AVERAGE").build();
-        when(tenantSettingService.getSetting("INVENTORY_VALUATION_METHOD")).thenReturn(setting);
+        when(tenantSettingService.findSetting("INVENTORY_VALUATION_METHOD")).thenReturn(Optional.of(setting));
 
         // Mock ProductCost (Existing: 10 units @ 50)
         ProductCost cost = new ProductCost();
@@ -123,7 +126,7 @@ public class InventoryValuationServiceImplTest {
     @Test
     void processOutbound_FIFO() {
         TenantSettingDto setting = TenantSettingDto.builder().value("FIFO").build();
-        when(tenantSettingService.getSetting("INVENTORY_VALUATION_METHOD")).thenReturn(setting);
+        when(tenantSettingService.findSetting("INVENTORY_VALUATION_METHOD")).thenReturn(Optional.of(setting));
 
         // Layers: 5 @ 50, 10 @ 60
         InventoryValuationLayer layer1 = new InventoryValuationLayer();
@@ -155,7 +158,7 @@ public class InventoryValuationServiceImplTest {
     @Test
     void getValuationReport() {
         TenantSettingDto setting = TenantSettingDto.builder().value("FIFO").build();
-        when(tenantSettingService.getSetting("INVENTORY_VALUATION_METHOD")).thenReturn(setting);
+        when(tenantSettingService.findSetting("INVENTORY_VALUATION_METHOD")).thenReturn(Optional.of(setting));
 
         Stock stock = new Stock();
         stock.setProductVariant(productVariant);

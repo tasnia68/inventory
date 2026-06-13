@@ -102,6 +102,9 @@ class StorefrontServiceImplFeatureGateTest {
     @Mock
     private ObjectMapper objectMapper;
 
+    @Mock
+    private StorefrontThemeRegistry storefrontThemeRegistry;
+
     @InjectMocks
     private StorefrontServiceImpl storefrontService;
 

@@ -98,7 +98,7 @@ public class CustomerControllerTest {
     @Test
     @WithMockUser
     void getAllCustomers() throws Exception {
-        when(customerService.getAllCustomers()).thenReturn(Collections.singletonList(customerDto));
+        when(customerService.getAllCustomers(null, null)).thenReturn(Collections.singletonList(customerDto));
 
         mockMvc.perform(get("/api/v1/customers")
                 .header("X-Tenant-ID", "test-tenant"))

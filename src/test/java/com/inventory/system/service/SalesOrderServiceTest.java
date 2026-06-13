@@ -1,7 +1,6 @@
 package com.inventory.system.service;
 
 import com.inventory.system.common.entity.*;
-import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.payload.SalesOrderDto;
 import com.inventory.system.payload.SalesOrderItemRequest;
 import com.inventory.system.payload.SalesOrderRequest;
@@ -35,6 +34,10 @@ public class SalesOrderServiceTest {
     private StockReservationService stockReservationService;
     @Mock
     private WarehouseRepository warehouseRepository;
+    @Mock
+    private PricingEngineService pricingEngineService;
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private SalesOrderServiceImpl salesOrderService;
@@ -76,6 +79,25 @@ public class SalesOrderServiceTest {
         when(customerRepository.findById(request.getCustomerId())).thenReturn(Optional.of(customer));
         when(warehouseRepository.findById(request.getWarehouseId())).thenReturn(Optional.of(warehouse));
         when(productVariantRepository.findAllById(any())).thenReturn(Collections.singletonList(productVariant));
+
+        PricingEvaluationLine line = PricingEvaluationLine.builder()
+                .productVariant(productVariant)
+                .productVariantId(productVariant.getId())
+                .quantity(new BigDecimal("10"))
+                .baseUnitPrice(new BigDecimal("50.00"))
+                .finalUnitPrice(new BigDecimal("50.00"))
+                .lineDiscountAmount(BigDecimal.ZERO)
+                .lineTotalAmount(new BigDecimal("500.00"))
+                .appliedPromotionCodes(Collections.emptyList())
+                .build();
+        PricingEvaluation evaluation = new PricingEvaluation();
+        evaluation.getLines().add(line);
+        evaluation.setBaseSubtotal(new BigDecimal("500.00"));
+        evaluation.setTotalDiscount(BigDecimal.ZERO);
+        evaluation.setNetSubtotal(new BigDecimal("500.00"));
+        when(pricingEngineService.evaluateSalesOrder(any(Customer.class), any(Warehouse.class), any(SalesOrderRequest.class)))
+                .thenReturn(evaluation);
+
         when(salesOrderRepository.save(any(SalesOrder.class))).thenAnswer(invocation -> {
             SalesOrder so = invocation.getArgument(0);
             so.setId(UUID.randomUUID());
@@ -122,13 +144,14 @@ public class SalesOrderServiceTest {
     }
 
     @Test
-    void updateSalesOrderStatus_Confirmed_InsufficientStock() {
+    void updateSalesOrderStatus_Confirmed_InsufficientStock_FlipsToBackordered() {
         UUID orderId = UUID.randomUUID();
         SalesOrder order = new SalesOrder();
         order.setId(orderId);
         order.setStatus(SalesOrderStatus.DRAFT);
         order.setWarehouse(warehouse);
         order.setCustomer(customer);
+        order.setSoNumber("SO-456");
 
         SalesOrderItem item = new SalesOrderItem();
         item.setProductVariant(productVariant);
@@ -138,12 +161,13 @@ public class SalesOrderServiceTest {
 
         when(salesOrderRepository.findById(orderId)).thenReturn(Optional.of(order));
         when(stockReservationService.getAvailableToPromise(productVariant.getId(), warehouse.getId()))
-                .thenReturn(new BigDecimal("5")); // Not enough stock
+                .thenReturn(new BigDecimal("5")); // Partial stock
+        when(salesOrderRepository.save(any(SalesOrder.class))).thenReturn(order);
 
-        assertThrows(BadRequestException.class, () ->
-            salesOrderService.updateSalesOrderStatus(orderId, SalesOrderStatus.CONFIRMED)
-        );
+        SalesOrderDto result = salesOrderService.updateSalesOrderStatus(orderId, SalesOrderStatus.CONFIRMED);
 
-        verify(stockReservationService, never()).reserveStock(any(StockReservationRequest.class));
+        // With partial stock the production code reserves what's available and marks the order as BACKORDERED
+        assertEquals(SalesOrderStatus.BACKORDERED, result.getStatus());
+        verify(stockReservationService, times(1)).reserveStock(any(StockReservationRequest.class));
     }
 }

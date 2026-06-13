@@ -6,6 +6,7 @@ import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.AuthResponse;
 import com.inventory.system.payload.LoginRequest;
 import com.inventory.system.repository.TenantRepository;
+import com.inventory.system.repository.UserRepository;
 import com.inventory.system.security.JwtService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -41,6 +42,8 @@ class AuthServiceTest {
     private JwtService jwtService;
     @Mock
     private TenantRepository tenantRepository;
+    @Mock
+    private UserRepository userRepository;
     @Mock
     private PasswordEncoder passwordEncoder;
 

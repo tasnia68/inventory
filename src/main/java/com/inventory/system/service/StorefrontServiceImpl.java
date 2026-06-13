@@ -703,7 +703,8 @@ public class StorefrontServiceImpl implements StorefrontService {
     public StorefrontConfigDto getPublicConfig() {
         requirePublicStorefrontAccess();
         try {
-            return storefrontPublishVersionRepository.findTopByOrderByVersionNumberDesc()
+            return storefrontPublishVersionRepository
+                    .findTopByTenantIdOrderByVersionNumberDesc(TenantContext.requireTenantId())
                     .map(this::readThemeSnapshot)
                     .map(StorefrontThemeSnapshotDto::getConfig)
                     .map(this::enrichWithDomains)

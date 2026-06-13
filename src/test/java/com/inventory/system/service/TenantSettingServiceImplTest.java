@@ -68,7 +68,7 @@ class TenantSettingServiceImplTest {
 
     @Test
     void updateSetting_UsesCurrentTenantContext() {
-        when(tenantSettingRepository.findByTenantIdAndSettingKey("tenant-123", "storefront.activeRevisionId"))
+        when(tenantSettingRepository.findEntityByTenantIdAndSettingKey("tenant-123", "storefront.activeRevisionId"))
                 .thenReturn(Optional.empty());
         when(tenantSettingRepository.save(any(TenantSetting.class))).thenAnswer(invocation -> invocation.getArgument(0));
 
@@ -80,7 +80,7 @@ class TenantSettingServiceImplTest {
 
         assertEquals("storefront.activeRevisionId", result.getKey());
         assertEquals("revision-7", result.getValue());
-        verify(tenantSettingRepository).findByTenantIdAndSettingKey("tenant-123", "storefront.activeRevisionId");
+        verify(tenantSettingRepository).findEntityByTenantIdAndSettingKey("tenant-123", "storefront.activeRevisionId");
     }
 
     @Test

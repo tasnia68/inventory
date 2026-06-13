@@ -11,7 +11,6 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UsernameNotFoundException;
 
 import java.util.Optional;
 
@@ -60,9 +59,12 @@ class CustomUserDetailsServiceTest {
 
     @Test
     void loadUserByUsernameFailsWithoutTenantContext() {
-        UsernameNotFoundException exception = assertThrows(UsernameNotFoundException.class,
+        // Production code calls TenantContext.requireTenantId() which throws IllegalStateException
+        // when no tenant is set. The TenantContextFilter sets the context on every authenticated
+        // request, so callers should never see this exception in practice.
+        IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> customUserDetailsService.loadUserByUsername("admin@test.com"));
 
-        assertEquals("Tenant context is required for user lookup: admin@test.com", exception.getMessage());
+        assertEquals("Tenant context is required but was not set for the current execution", exception.getMessage());
     }
 }

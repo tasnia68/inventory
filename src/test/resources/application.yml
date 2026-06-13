@@ -43,6 +43,11 @@ app:
       allowed-origins:
         - http://localhost:5173
 
+management:
+  health:
+    mail:
+      enabled: false
+
 # MinIO is not exercised in tests; provide dummy values so MinioConfig can construct
 # the placeholder bean without throwing during context startup.
 minio:
