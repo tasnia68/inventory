@@ -16,6 +16,12 @@ public class AccountsReceivableInvoiceDto {
     private UUID id;
     private String invoiceNumber;
     private String customerInvoiceNumber;
+    private String sourceSystem;
+    private String sourceDocumentType;
+    private String sourcePartyId;
+    private String sourcePartyName;
+    private String sourceDocumentId;
+    private String sourceDocumentNumber;
     private UUID customerId;
     private String customerName;
     private UUID salesOrderId;
@@ -24,6 +30,11 @@ public class AccountsReceivableInvoiceDto {
     private LocalDate dueDate;
     private String currency;
     private BigDecimal totalAmount;
+    private BigDecimal netAmount;
+    private BigDecimal taxAmount;
+    private UUID taxRateId;
+    private String taxRateCode;
+    private String taxRateName;
     private BigDecimal paidAmount;
     private BigDecimal balanceDue;
     private InvoiceStatus status;

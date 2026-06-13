@@ -6,6 +6,7 @@ import com.inventory.system.common.entity.FinancialEvent;
 import com.inventory.system.common.entity.FinancialEventType;
 import com.inventory.system.common.entity.GoodsReceiptNote;
 import com.inventory.system.common.entity.GoodsReceiptNoteItem;
+import com.inventory.system.common.entity.ChartOfAccount;
 import com.inventory.system.common.entity.PosSale;
 import com.inventory.system.common.entity.PosSalePayment;
 import com.inventory.system.common.entity.PostingStatus;
@@ -29,6 +30,7 @@ import com.inventory.system.repository.FinancialEventRepository;
 import com.inventory.system.repository.StockMovementRepository;
 import jakarta.persistence.criteria.Predicate;
 import lombok.RequiredArgsConstructor;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -50,6 +52,7 @@ import java.util.UUID;
 public class FinancialEventServiceImpl implements FinancialEventService {
 
     private static final String ACCOUNTING_POSTING_ENABLED_KEY = "accounting.posting.enabled";
+    private static final String ACCOUNTING_AUTO_POST_EVENTS_KEY = "accounting.auto_post_events";
     private static final String VALUATION_CURRENCY_KEY = "INVENTORY_VALUATION_CURRENCY";
     private static final String DEFAULT_CURRENCY_KEY = "DEFAULT_CURRENCY";
 
@@ -75,6 +78,49 @@ public class FinancialEventServiceImpl implements FinancialEventService {
     private final StockMovementRepository stockMovementRepository;
     private final TenantSettingService tenantSettingService;
     private final com.inventory.system.repository.ShippingRateCardRepository shippingRateCardRepository;
+    private final ApplicationEventPublisher applicationEventPublisher;
+
+    @Override
+    @Transactional
+    public FinancialEventDto recordFinancialEvent(com.inventory.system.accounting.api.event.FinancialEventDto event) {
+        if (event == null) {
+            throw new BadRequestException("Financial event is required");
+        }
+        if (!StringUtils.hasText(event.getEventType())
+                || !StringUtils.hasText(event.getSourceDocumentType())
+                || !StringUtils.hasText(event.getSourceDocumentId())
+                || !StringUtils.hasText(event.getSummary())) {
+            throw new BadRequestException("Event type, source document type, source document id, and summary are required");
+        }
+        if (event.getLines() == null || event.getLines().isEmpty()) {
+            throw new BadRequestException("Financial event must include at least one accounting line");
+        }
+
+        FinancialEventType eventType = parseEventType(event.getEventType());
+        List<LineDefinition> lines = event.getLines().stream()
+                .map(line -> line(
+                        parseEntryType(line.getEntryType()),
+                        requiredText(line.getAccountCode(), "Line account code is required"),
+                        requiredText(line.getAccountName(), "Line account name is required"),
+                        line.getAmount(),
+                        StringUtils.hasText(line.getCurrency()) ? line.getCurrency() : event.getCurrency(),
+                        line.getDescription()
+                ))
+                .toList();
+
+        return upsertEvent(
+                eventType,
+                event.getSourceDocumentType(),
+                event.getSourceDocumentId(),
+                event.getSourceDocumentNumber(),
+                event.getExternalReference(),
+                event.getSummary(),
+                event.getTotalAmount(),
+                event.getCurrency(),
+                event.getMetadataJson(),
+                lines
+        );
+    }
 
     @Override
     @Transactional
@@ -151,6 +197,8 @@ public class FinancialEventServiceImpl implements FinancialEventService {
     @Transactional
     public FinancialEventDto recordPosSale(PosSale posSale) {
         BigDecimal revenueAmount = scale(posSale.getTotalAmount());
+        BigDecimal taxAmount = scale(posSale.getTaxAmount());
+        BigDecimal netRevenue = revenueAmount.subtract(taxAmount).max(BigDecimal.ZERO).setScale(6, RoundingMode.HALF_UP);
         BigDecimal costAmount = posSale.getStockTransaction() == null ? BigDecimal.ZERO : posSale.getStockTransaction().getItems().stream()
                 .map(this::stockTransactionItemCost)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
@@ -164,7 +212,18 @@ public class FinancialEventServiceImpl implements FinancialEventService {
 
         List<LineDefinition> lines = new ArrayList<>();
         lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_CASH_CLEARING, "Cash and Payment Clearing", paymentAmount, posSale.getCurrency(), "POS tender captured"));
-        lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_SALES_REVENUE, "Sales Revenue", revenueAmount, posSale.getCurrency(), "POS sale revenue"));
+        lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_SALES_REVENUE, "Sales Revenue", netRevenue, posSale.getCurrency(), "POS sale revenue net of tax"));
+        if (taxAmount.compareTo(BigDecimal.ZERO) > 0) {
+            ChartOfAccount outputTaxAccount = posSale.getTaxRate() == null ? null : posSale.getTaxRate().getOutputAccount();
+            lines.add(line(
+                    SubledgerEntryType.CREDIT,
+                    outputTaxAccount == null ? ACCOUNT_TAX_PAYABLE : outputTaxAccount.getAccountCode(),
+                    outputTaxAccount == null ? "Tax Payable" : outputTaxAccount.getAccountName(),
+                    taxAmount,
+                    posSale.getCurrency(),
+                    posSale.getTaxRate() == null ? "POS output tax" : "POS output tax " + posSale.getTaxRate().getCode()
+            ));
+        }
         if (costAmount.compareTo(BigDecimal.ZERO) > 0) {
             lines.add(line(SubledgerEntryType.DEBIT, ACCOUNT_COGS, "Cost of Goods Sold", costAmount, posSale.getCurrency(), "Cost of goods sold for POS sale"));
             lines.add(line(SubledgerEntryType.CREDIT, ACCOUNT_INVENTORY_ASSET, "Inventory Asset", costAmount, posSale.getCurrency(), "Inventory relieved for POS sale"));
@@ -174,8 +233,9 @@ public class FinancialEventServiceImpl implements FinancialEventService {
                 posSale.getSalesOrder() == null ? posSale.getReceiptNumber() : posSale.getSalesOrder().getSoNumber(),
                 "POS sale completed for receipt " + posSale.getReceiptNumber(), revenueAmount, posSale.getCurrency(),
                 """
-                        {"warehouseId":"%s","terminalId":"%s","paymentMethod":"%s"}
-                        """.formatted(posSale.getWarehouse().getId(), posSale.getTerminal().getId(), posSale.getPaymentMethod()).trim(),
+                        {"warehouseId":"%s","terminalId":"%s","paymentMethod":"%s","taxRateId":"%s"}
+                        """.formatted(posSale.getWarehouse().getId(), posSale.getTerminal().getId(), posSale.getPaymentMethod(),
+                        posSale.getTaxRate() == null ? "" : posSale.getTaxRate().getId()).trim(),
                 lines);
     }
 
@@ -631,7 +691,11 @@ public class FinancialEventServiceImpl implements FinancialEventService {
         event.setPostingStatus(PostingStatus.PENDING);
         event.setFailureReason(null);
         event.getSubledgerEntries().forEach(entry -> entry.setPostingStatus(PostingStatus.PENDING));
-        return mapToDto(financialEventRepository.save(event));
+        FinancialEvent saved = financialEventRepository.save(event);
+        if (saved.getPostingStatus() == PostingStatus.PENDING && isAutoPostEnabled()) {
+            applicationEventPublisher.publishEvent(new FinancialEventRecordedEvent(saved.getId()));
+        }
+        return mapToDto(saved);
     }
 
     private FinancialEventDto upsertEvent(FinancialEventType eventType,
@@ -691,7 +755,11 @@ public class FinancialEventServiceImpl implements FinancialEventService {
             event.getSubledgerEntries().forEach(entry -> entry.setPostingStatus(PostingStatus.FAILED));
         }
 
-        return mapToDto(financialEventRepository.save(event));
+        FinancialEvent saved = financialEventRepository.save(event);
+        if (saved.getPostingStatus() == PostingStatus.PENDING && isAutoPostEnabled()) {
+            applicationEventPublisher.publishEvent(new FinancialEventRecordedEvent(saved.getId()));
+        }
+        return mapToDto(saved);
     }
 
     private String generateEventNumber(FinancialEventType eventType) {
@@ -704,6 +772,29 @@ public class FinancialEventServiceImpl implements FinancialEventService {
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String principal = authentication != null && authentication.isAuthenticated() ? authentication.getName() : "system";
         return TenantContext.getTenantId() + ":" + principal;
+    }
+
+    private FinancialEventType parseEventType(String value) {
+        try {
+            return FinancialEventType.valueOf(requiredText(value, "Event type is required").trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Unsupported financial event type: " + value);
+        }
+    }
+
+    private SubledgerEntryType parseEntryType(String value) {
+        try {
+            return SubledgerEntryType.valueOf(requiredText(value, "Line entry type is required").trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ex) {
+            throw new BadRequestException("Unsupported financial event line entry type: " + value);
+        }
+    }
+
+    private String requiredText(String value, String message) {
+        if (!StringUtils.hasText(value)) {
+            throw new BadRequestException(message);
+        }
+        return value.trim();
     }
 
     private BigDecimal sumGoodsReceiptAmount(List<GoodsReceiptNoteItem> items) {
@@ -806,6 +897,12 @@ public class FinancialEventServiceImpl implements FinancialEventService {
         return tenantSettingService.findSetting(ACCOUNTING_POSTING_ENABLED_KEY)
                 .map(setting -> Boolean.parseBoolean(setting.getValue()))
                 .orElse(true);
+    }
+
+    private boolean isAutoPostEnabled() {
+        return tenantSettingService.findSetting(ACCOUNTING_AUTO_POST_EVENTS_KEY)
+                .map(setting -> Boolean.parseBoolean(setting.getValue()))
+                .orElse(false);
     }
 
     private boolean isBalanced(List<LineDefinition> lines) {

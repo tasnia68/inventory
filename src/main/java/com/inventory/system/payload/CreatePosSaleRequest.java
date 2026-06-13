@@ -36,6 +36,8 @@ public class CreatePosSaleRequest {
     @DecimalMin(value = "0.0")
     private BigDecimal taxAmount = BigDecimal.ZERO;
 
+    private UUID taxRateId;
+
     @DecimalMin(value = "0.0")
     private BigDecimal tenderedAmount = BigDecimal.ZERO;
 

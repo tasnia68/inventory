@@ -18,6 +18,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "accounts_payable_invoices", uniqueConstraints = {
@@ -33,13 +34,35 @@ public class AccountsPayableInvoice extends BaseEntity {
     @Column(name = "supplier_invoice_number")
     private String supplierInvoiceNumber;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "supplier_id", nullable = false)
-    private Supplier supplier;
+    @Column(name = "source_system", nullable = false, length = 64)
+    private String sourceSystem = "INVENTORY";
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "purchase_order_id")
-    private PurchaseOrder purchaseOrder;
+    @Column(name = "source_document_type", nullable = false, length = 64)
+    private String sourceDocumentType;
+
+    @Column(name = "source_party_id", length = 128)
+    private String sourcePartyId;
+
+    @Column(name = "source_party_name")
+    private String sourcePartyName;
+
+    @Column(name = "source_document_id", length = 128)
+    private String sourceDocumentId;
+
+    @Column(name = "source_document_number")
+    private String sourceDocumentNumber;
+
+    @Column(name = "supplier_id")
+    private UUID supplierId;
+
+    @Column(name = "supplier_name")
+    private String supplierName;
+
+    @Column(name = "purchase_order_id")
+    private UUID purchaseOrderId;
+
+    @Column(name = "purchase_order_number")
+    private String purchaseOrderNumber;
 
     @Column(name = "invoice_date", nullable = false)
     private LocalDate invoiceDate;
@@ -52,6 +75,16 @@ public class AccountsPayableInvoice extends BaseEntity {
 
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 6)
     private BigDecimal totalAmount = BigDecimal.ZERO;
+
+    @Column(name = "net_amount", nullable = false, precision = 19, scale = 6)
+    private BigDecimal netAmount = BigDecimal.ZERO;
+
+    @Column(name = "tax_amount", nullable = false, precision = 19, scale = 6)
+    private BigDecimal taxAmount = BigDecimal.ZERO;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tax_rate_id")
+    private TaxRate taxRate;
 
     @Column(name = "paid_amount", nullable = false, precision = 19, scale = 6)
     private BigDecimal paidAmount = BigDecimal.ZERO;

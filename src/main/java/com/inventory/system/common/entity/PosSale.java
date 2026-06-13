@@ -86,6 +86,10 @@ public class PosSale extends BaseEntity {
     @Column(name = "tax_amount", nullable = false, precision = 19, scale = 6)
     private BigDecimal taxAmount = BigDecimal.ZERO;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "tax_rate_id")
+    private TaxRate taxRate;
+
     @Column(name = "total_amount", nullable = false, precision = 19, scale = 6)
     private BigDecimal totalAmount;
 

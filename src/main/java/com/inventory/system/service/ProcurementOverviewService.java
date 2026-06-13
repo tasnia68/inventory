@@ -88,7 +88,7 @@ public class ProcurementOverviewService {
                 .map(this::lineValue)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal billedTotal = accountsPayableInvoiceRepository.findAll().stream()
-                .filter(inv -> inv.getPurchaseOrder() != null)
+                .filter(inv -> inv.getPurchaseOrderId() != null)
                 .map(inv -> inv.getTotalAmount() != null ? inv.getTotalAmount() : BigDecimal.ZERO)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal grniBalance = grnTotal.subtract(billedTotal).setScale(2, RoundingMode.HALF_UP);

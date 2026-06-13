@@ -1,0 +1,612 @@
+openapi: 3.0.3
+info:
+  title: Master Inventory Accounting API
+  version: 1.0.0
+  description: REST contract for chart of accounts, journals, AP, AR, treasury, statements, tax, recurring journals, events, audit, and attachments.
+servers:
+  - url: /api/v1
+security:
+  - bearerAuth: []
+paths:
+  /accounting/audit:
+    get:
+      tags: [Audit]
+      summary: List accounting audit log entries
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/accounts:
+    get:
+      tags: [Chart of Accounts]
+      summary: List chart of accounts
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Chart of Accounts]
+      summary: Create a chart account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateChartOfAccountRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/accounts/{accountId}/ledger:
+    get:
+      tags: [Ledger]
+      summary: Get account ledger with opening, closing, and running balances
+      parameters:
+        - $ref: '#/components/parameters/AccountId'
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+        - $ref: '#/components/parameters/Page'
+        - $ref: '#/components/parameters/Size'
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/tax-rates:
+    get:
+      tags: [Tax]
+      summary: List tax rates
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Tax]
+      summary: Create a tax rate
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTaxRateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/reports/vat:
+    get:
+      tags: [Tax]
+      summary: VAT return summary for configured tax accounts
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/journals:
+    get:
+      tags: [Journals]
+      summary: List accounting journals
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Journals]
+      summary: Create an accounting journal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAccountingJournalRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/entries:
+    get:
+      tags: [Journal Entries]
+      summary: List journal entries
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/entries/manual:
+    post:
+      tags: [Journal Entries]
+      summary: Create and post a manual journal entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateManualJournalEntryRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/entries/{journalEntryId}/attachments:
+    get:
+      tags: [Attachments]
+      summary: List journal entry attachments
+      parameters:
+        - $ref: '#/components/parameters/JournalEntryId'
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Attachments]
+      summary: Upload a journal entry attachment
+      parameters:
+        - $ref: '#/components/parameters/JournalEntryId'
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                notes:
+                  type: string
+      responses:
+        '201': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/entries/attachments/{attachmentId}/file:
+    get:
+      tags: [Attachments]
+      summary: Download a journal entry attachment file
+      parameters:
+        - $ref: '#/components/parameters/AttachmentId'
+      responses:
+        '200':
+          description: Attachment stream
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+  /accounting/entries/attachments/{attachmentId}:
+    delete:
+      tags: [Attachments]
+      summary: Delete a journal entry attachment
+      parameters:
+        - $ref: '#/components/parameters/AttachmentId'
+      responses:
+        '204': { description: Deleted }
+  /accounting/entries/{journalEntryId}/reverse:
+    post:
+      tags: [Journal Entries]
+      summary: Reverse a posted journal entry
+      parameters:
+        - $ref: '#/components/parameters/JournalEntryId'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReverseJournalEntryRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/entries/post-financial-event/{financialEventId}:
+    post:
+      tags: [Financial Events]
+      summary: Post one financial event to the general ledger
+      parameters:
+        - $ref: '#/components/parameters/FinancialEventId'
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/entries/post-pending:
+    post:
+      tags: [Financial Events]
+      summary: Post all pending financial events
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/events/pending:
+    get:
+      tags: [Financial Events]
+      summary: List pending and failed financial events
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/events/{financialEventId}/preview:
+    get:
+      tags: [Financial Events]
+      summary: Preview the debit and credit lines for one financial event
+      parameters:
+        - $ref: '#/components/parameters/FinancialEventId'
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/events/post-selected:
+    post:
+      tags: [Financial Events]
+      summary: Post selected financial events
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: array
+              items:
+                type: string
+                format: uuid
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/recurring-templates:
+    get:
+      tags: [Recurring Journals]
+      summary: List recurring journal templates
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Recurring Journals]
+      summary: Create a recurring journal template
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateRecurringJournalTemplateRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/recurring-templates/run-due:
+    post:
+      tags: [Recurring Journals]
+      summary: Run due recurring journal templates
+      parameters:
+        - name: runDate
+          in: query
+          schema:
+            type: string
+            format: date
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/ap/invoices:
+    get:
+      tags: [Accounts Payable]
+      summary: List AP invoices
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Accounts Payable]
+      summary: Create an AP invoice and post the AP journal entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAccountsPayableInvoiceRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/ap/invoices/{invoiceId}/payments:
+    post:
+      tags: [Accounts Payable]
+      summary: Record an AP payment
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordPaymentRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/ap/aging:
+    get:
+      tags: [Accounts Payable]
+      summary: AP aging summary
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/ar/invoices:
+    get:
+      tags: [Accounts Receivable]
+      summary: List AR invoices
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Accounts Receivable]
+      summary: Create an AR invoice and post the AR journal entry
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateAccountsReceivableInvoiceRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/ar/invoices/{invoiceId}/payments:
+    post:
+      tags: [Accounts Receivable]
+      summary: Record an AR receipt
+      parameters:
+        - $ref: '#/components/parameters/InvoiceId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/RecordPaymentRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/ar/aging:
+    get:
+      tags: [Accounts Receivable]
+      summary: AR aging summary
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+  /accounting/treasury/accounts:
+    get:
+      tags: [Treasury]
+      summary: List treasury accounts
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Treasury]
+      summary: Create a treasury account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTreasuryAccountRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/treasury/reconciliations:
+    get:
+      tags: [Treasury]
+      summary: List treasury reconciliations
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+    post:
+      tags: [Treasury]
+      summary: Create a treasury reconciliation with suggested lines
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CreateTreasuryReconciliationRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/treasury/reconciliations/{reconciliationId}/complete:
+    post:
+      tags: [Treasury]
+      summary: Complete a treasury reconciliation
+      parameters:
+        - $ref: '#/components/parameters/ReconciliationId'
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CompleteTreasuryReconciliationRequest' }
+      responses:
+        '200': { $ref: '#/components/responses/ObjectResponse' }
+  /accounting/trial-balance:
+    get:
+      tags: [Statements]
+      summary: Trial balance report
+      parameters:
+        - $ref: '#/components/parameters/ExportFormat'
+      responses:
+        '200': { $ref: '#/components/responses/ReportOrFileResponse' }
+  /accounting/statements/profit-and-loss:
+    get:
+      tags: [Statements]
+      summary: Profit and loss report
+      parameters:
+        - $ref: '#/components/parameters/ExportFormat'
+      responses:
+        '200': { $ref: '#/components/responses/ReportOrFileResponse' }
+  /accounting/statements/balance-sheet:
+    get:
+      tags: [Statements]
+      summary: Balance sheet report
+      parameters:
+        - $ref: '#/components/parameters/ExportFormat'
+      responses:
+        '200': { $ref: '#/components/responses/ReportOrFileResponse' }
+  /accounting/statements/cash-flow:
+    get:
+      tags: [Statements]
+      summary: Direct-method cash flow report
+      parameters:
+        - $ref: '#/components/parameters/FromDate'
+        - $ref: '#/components/parameters/ToDate'
+      responses:
+        '200': { $ref: '#/components/responses/ListResponse' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    AccountId:
+      name: accountId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    AttachmentId:
+      name: attachmentId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    FinancialEventId:
+      name: financialEventId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    InvoiceId:
+      name: invoiceId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    JournalEntryId:
+      name: journalEntryId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    ReconciliationId:
+      name: reconciliationId
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    FromDate:
+      name: from
+      in: query
+      schema: { type: string, format: date }
+    ToDate:
+      name: to
+      in: query
+      schema: { type: string, format: date }
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, default: 0, minimum: 0 }
+    Size:
+      name: size
+      in: query
+      schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, default: 100, minimum: 1, maximum: 500 }
+    ExportFormat:
+      name: format
+      in: query
+      schema:
+        type: string
+        enum: [csv, xlsx]
+  responses:
+    ObjectResponse:
+      description: API response wrapping one resource
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiObjectResponse' }
+    ListResponse:
+      description: API response wrapping an array
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiListResponse' }
+    ReportOrFileResponse:
+      description: JSON report by default, CSV/XLSX file when format is supplied
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiListResponse' }
+        text/csv:
+          schema: { type: string }
+        application/vnd.openxmlformats-officedocument.spreadsheetml.sheet:
+          schema:
+            type: string
+            format: binary
+  schemas:
+    ApiObjectResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data: { type: object, additionalProperties: true }
+    ApiListResponse:
+      type: object
+      properties:
+        success: { type: boolean }
+        message: { type: string }
+        data:
+          type: array
+          items: { type: object, additionalProperties: true }
+    CreateChartOfAccountRequest:
+      type: object
+      properties:
+        accountCode: { type: string }
+        accountName: { type: string }
+        accountType: { type: string, enum: [ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE] }
+        parentAccountId: { type: string, format: uuid }
+        allowManualPosting: { type: boolean }
+        active: { type: boolean }
+        description: { type: string }
+    CreateTaxRateRequest:
+      type: object
+      properties:
+        code: { type: string }
+        name: { type: string }
+        rate: { type: number, format: decimal, example: 0.15 }
+        outputAccountId: { type: string, format: uuid }
+        inputAccountId: { type: string, format: uuid }
+        active: { type: boolean }
+    CreateAccountingJournalRequest:
+      type: object
+      properties:
+        journalCode: { type: string }
+        journalName: { type: string }
+        description: { type: string }
+        systemJournal: { type: boolean }
+        active: { type: boolean }
+    CreateManualJournalEntryRequest:
+      type: object
+      properties:
+        journalId: { type: string, format: uuid }
+        entryDate: { type: string, format: date-time }
+        memo: { type: string }
+        currency: { type: string, minLength: 3, maxLength: 3 }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/ManualJournalLineRequest' }
+    ManualJournalLineRequest:
+      type: object
+      properties:
+        accountId: { type: string, format: uuid }
+        description: { type: string }
+        debitAmount: { type: number, format: decimal }
+        creditAmount: { type: number, format: decimal }
+    CreateAccountsPayableInvoiceRequest:
+      type: object
+      properties:
+        sourceSystem: { type: string, default: INVENTORY }
+        sourceDocumentType: { type: string, enum: [SUPPLIER, PURCHASE_ORDER, EXTERNAL_PARTY, EXTERNAL_DOCUMENT] }
+        sourcePartyId: { type: string, description: External or non-inventory payable party identifier }
+        sourcePartyName: { type: string, description: External or non-inventory payable party display name }
+        sourceDocumentId: { type: string, description: External or non-inventory payable source document identifier }
+        sourceDocumentNumber: { type: string, description: External or non-inventory payable source document number }
+        supplierId: { type: string, format: uuid }
+        purchaseOrderId: { type: string, format: uuid }
+        supplierInvoiceNumber: { type: string }
+        invoiceDate: { type: string, format: date }
+        dueDate: { type: string, format: date }
+        currency: { type: string }
+        totalAmount: { type: number, format: decimal }
+        taxRateId: { type: string, format: uuid }
+        notes: { type: string }
+        force: { type: boolean, default: false }
+    CreateAccountsReceivableInvoiceRequest:
+      type: object
+      properties:
+        sourceSystem: { type: string, default: INVENTORY }
+        sourceDocumentType: { type: string, enum: [CUSTOMER, SALES_ORDER, EXTERNAL_PARTY, EXTERNAL_DOCUMENT] }
+        sourcePartyId: { type: string, description: External or non-inventory receivable party identifier }
+        sourcePartyName: { type: string, description: External or non-inventory receivable party display name }
+        sourceDocumentId: { type: string, description: External or non-inventory receivable source document identifier }
+        sourceDocumentNumber: { type: string, description: External or non-inventory receivable source document number }
+        customerId: { type: string, format: uuid }
+        salesOrderId: { type: string, format: uuid }
+        customerInvoiceNumber: { type: string }
+        invoiceDate: { type: string, format: date }
+        dueDate: { type: string, format: date }
+        currency: { type: string }
+        totalAmount: { type: number, format: decimal }
+        taxRateId: { type: string, format: uuid }
+        notes: { type: string }
+    RecordPaymentRequest:
+      type: object
+      properties:
+        amount: { type: number, format: decimal }
+        paymentDate: { type: string, format: date }
+        paymentMethod: { type: string }
+        paymentReference: { type: string }
+        notes: { type: string }
+    CreateTreasuryAccountRequest:
+      type: object
+      properties:
+        accountCode: { type: string }
+        accountName: { type: string }
+        accountType: { type: string, enum: [CASH, BANK, WALLET, CLEARING] }
+        currency: { type: string }
+        active: { type: boolean }
+        notes: { type: string }
+    CreateTreasuryReconciliationRequest:
+      type: object
+      properties:
+        treasuryAccountId: { type: string, format: uuid }
+        businessDate: { type: string, format: date }
+        statementReference: { type: string }
+        statementBalance: { type: number, format: decimal }
+        notes: { type: string }
+    CompleteTreasuryReconciliationRequest:
+      type: object
+      properties:
+        notes: { type: string }
+    CreateRecurringJournalTemplateRequest:
+      type: object
+      properties:
+        templateCode: { type: string }
+        templateName: { type: string }
+        journalId: { type: string, format: uuid }
+        memo: { type: string }
+        currency: { type: string }
+        cadence: { type: string, enum: [DAILY, WEEKLY, MONTHLY] }
+        nextRunDate: { type: string, format: date }
+        active: { type: boolean }
+        lines:
+          type: array
+          items: { $ref: '#/components/schemas/ManualJournalLineRequest' }
+    ReverseJournalEntryRequest:
+      type: object
+      properties:
+        memo: { type: string }

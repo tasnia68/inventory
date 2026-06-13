@@ -1,5 +1,6 @@
 package com.inventory.system.service;
 
+import com.inventory.system.accounting.api.event.FinancialEventSource;
 import com.inventory.system.common.entity.DamageRecord;
 import com.inventory.system.common.entity.FinancialEventType;
 import com.inventory.system.common.entity.GoodsReceiptNote;
@@ -14,7 +15,7 @@ import com.inventory.system.payload.FinancialEventDto;
 import java.util.List;
 import java.util.UUID;
 
-public interface FinancialEventService {
+public interface FinancialEventService extends FinancialEventSource {
     FinancialEventDto recordGoodsReceipt(GoodsReceiptNote goodsReceiptNote);
     FinancialEventDto recordStockTransaction(StockTransaction stockTransaction);
     FinancialEventDto recordPosSale(PosSale posSale);

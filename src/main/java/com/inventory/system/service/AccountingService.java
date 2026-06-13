@@ -1,32 +1,49 @@
 package com.inventory.system.service;
 
 import com.inventory.system.payload.AccountingJournalDto;
+import com.inventory.system.payload.AccountingAuditLogDto;
+import com.inventory.system.payload.AccountLedgerDto;
 import com.inventory.system.payload.AccountsPayableInvoiceDto;
 import com.inventory.system.payload.AccountsReceivableInvoiceDto;
 import com.inventory.system.payload.AgingSummaryRowDto;
 import com.inventory.system.payload.ChartOfAccountDto;
 import com.inventory.system.payload.CompleteTreasuryReconciliationRequest;
+import com.inventory.system.payload.CashFlowRowDto;
 import com.inventory.system.payload.CreateAccountsPayableInvoiceRequest;
 import com.inventory.system.payload.CreateAccountsReceivableInvoiceRequest;
 import com.inventory.system.payload.CreateAccountingJournalRequest;
 import com.inventory.system.payload.CreateChartOfAccountRequest;
 import com.inventory.system.payload.CreateManualJournalEntryRequest;
+import com.inventory.system.payload.CreateTaxRateRequest;
+import com.inventory.system.payload.CreateRecurringJournalTemplateRequest;
 import com.inventory.system.payload.CreateTreasuryAccountRequest;
 import com.inventory.system.payload.CreateTreasuryReconciliationRequest;
 import com.inventory.system.payload.FinancialStatementRowDto;
+import com.inventory.system.payload.FinancialEventDto;
+import com.inventory.system.payload.JournalEntryAttachmentDto;
 import com.inventory.system.payload.JournalEntryDto;
 import com.inventory.system.payload.RecordAccountsPayablePaymentRequest;
 import com.inventory.system.payload.RecordAccountsReceivablePaymentRequest;
+import com.inventory.system.payload.RecurringJournalTemplateDto;
+import com.inventory.system.payload.TaxRateDto;
 import com.inventory.system.payload.TreasuryAccountDto;
 import com.inventory.system.payload.TreasuryReconciliationDto;
 import com.inventory.system.payload.TrialBalanceRowDto;
+import com.inventory.system.payload.VatReturnRowDto;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.time.LocalDate;
 import java.util.UUID;
 
 public interface AccountingService {
     List<ChartOfAccountDto> getAccounts();
+    List<AccountingAuditLogDto> getAccountingAuditLog(int limit);
+    AccountLedgerDto getAccountLedger(UUID accountId, LocalDate from, LocalDate to, int page, int size);
     ChartOfAccountDto createAccount(CreateChartOfAccountRequest request);
+    List<TaxRateDto> getTaxRates();
+    TaxRateDto createTaxRate(CreateTaxRateRequest request);
+    List<VatReturnRowDto> getVatReturn(LocalDate from, LocalDate to);
     List<AccountingJournalDto> getJournals();
     AccountingJournalDto createJournal(CreateAccountingJournalRequest request);
     List<JournalEntryDto> getJournalEntries();
@@ -44,10 +61,21 @@ public interface AccountingService {
     TreasuryReconciliationDto createTreasuryReconciliation(CreateTreasuryReconciliationRequest request);
     TreasuryReconciliationDto completeTreasuryReconciliation(UUID reconciliationId, CompleteTreasuryReconciliationRequest request);
     JournalEntryDto createManualJournalEntry(CreateManualJournalEntryRequest request);
+    List<RecurringJournalTemplateDto> getRecurringJournalTemplates();
+    RecurringJournalTemplateDto createRecurringJournalTemplate(CreateRecurringJournalTemplateRequest request);
+    List<JournalEntryDto> runDueRecurringJournalTemplates(LocalDate runDate);
+    List<FinancialEventDto> getPendingFinancialEvents();
+    FinancialEventDto getFinancialEventPreview(UUID financialEventId);
+    List<JournalEntryDto> postFinancialEvents(List<UUID> financialEventIds);
+    List<JournalEntryAttachmentDto> getJournalEntryAttachments(UUID journalEntryId);
+    JournalEntryAttachmentDto uploadJournalEntryAttachment(UUID journalEntryId, MultipartFile file, String notes);
+    JournalEntryAttachmentDto getJournalEntryAttachment(UUID attachmentId);
+    void deleteJournalEntryAttachment(UUID attachmentId);
     JournalEntryDto postFinancialEvent(UUID financialEventId);
     List<JournalEntryDto> postPendingFinancialEvents();
     JournalEntryDto reverseJournalEntry(UUID journalEntryId, String memo);
     List<TrialBalanceRowDto> getTrialBalance();
     List<FinancialStatementRowDto> getProfitAndLoss();
     List<FinancialStatementRowDto> getBalanceSheet();
+    List<CashFlowRowDto> getCashFlow(LocalDate from, LocalDate to);
 }

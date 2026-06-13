@@ -34,6 +34,9 @@ public class PosSaleDto {
     private BigDecimal subtotal;
     private BigDecimal discountAmount;
     private BigDecimal taxAmount;
+    private UUID taxRateId;
+    private String taxRateCode;
+    private String taxRateName;
     private BigDecimal totalAmount;
     private BigDecimal tenderedAmount;
     private BigDecimal changeAmount;

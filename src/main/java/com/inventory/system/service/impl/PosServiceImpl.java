@@ -49,6 +49,7 @@ import com.inventory.system.repository.ProductVariantRepository;
 import com.inventory.system.repository.SalesOrderRepository;
 import com.inventory.system.repository.StockRepository;
 import com.inventory.system.repository.StockTransactionRepository;
+import com.inventory.system.repository.TaxRateRepository;
 import com.inventory.system.repository.UserRepository;
 import com.inventory.system.repository.WarehouseRepository;
 import com.inventory.system.service.PosService;
@@ -106,6 +107,7 @@ public class PosServiceImpl implements PosService {
     private final ProductVariantRepository productVariantRepository;
     private final StockRepository stockRepository;
     private final StockTransactionRepository stockTransactionRepository;
+    private final TaxRateRepository taxRateRepository;
     private final UserRepository userRepository;
     private final SalesOrderRepository salesOrderRepository;
     private final StockService stockService;
@@ -603,7 +605,10 @@ public class PosServiceImpl implements PosService {
             salesOrderItems.add(orderItem);
         }
 
-        BigDecimal tax = scale(request.getTaxAmount());
+        TaxRate taxRate = resolveTaxRate(request.getTaxRateId());
+        BigDecimal tax = taxRate == null
+                ? scale(request.getTaxAmount())
+                : pricingEvaluation.getNetSubtotal().multiply(taxRate.getRate()).setScale(6, RoundingMode.HALF_UP);
         BigDecimal subtotal = pricingEvaluation.getBaseSubtotal();
         BigDecimal discount = pricingEvaluation.getTotalDiscount();
         BigDecimal total = pricingEvaluation.getNetSubtotal().add(tax).setScale(6, RoundingMode.HALF_UP);
@@ -612,6 +617,7 @@ public class PosServiceImpl implements PosService {
         List<PosSalePaymentRequest> paymentRequests = normalizePaymentRequests(request, total);
         PosPaymentMethod resolvedPaymentMethod = derivePaymentMethod(request, paymentRequests);
         salesOrder.setNotes(buildSalesOrderNotes(request, terminal, shift, resolvedPaymentMethod));
+        salesOrder.setTaxAmount(tax);
 
         salesOrder.setItems(salesOrderItems);
         salesOrder.setTotalAmount(total);
@@ -646,6 +652,7 @@ public class PosServiceImpl implements PosService {
         sale.setSubtotal(subtotal);
         sale.setDiscountAmount(discount);
         sale.setTaxAmount(tax);
+        sale.setTaxRate(taxRate);
         sale.setTotalAmount(total);
         sale.setTenderedAmount(tendered);
         sale.setChangeAmount(change);
@@ -801,6 +808,21 @@ public class PosServiceImpl implements PosService {
                     shift.setOpeningFloat(ZERO);
                     return posShiftRepository.save(shift);
                 });
+    }
+
+    private TaxRate resolveTaxRate(UUID taxRateId) {
+        if (taxRateId == null) {
+            return null;
+        }
+        TaxRate taxRate = taxRateRepository.findById(taxRateId)
+                .orElseThrow(() -> new ResourceNotFoundException("Tax rate not found with ID: " + taxRateId));
+        if (!taxRate.isActive()) {
+            throw new BadRequestException("Selected tax rate is inactive");
+        }
+        if (taxRate.getOutputAccount() == null) {
+            throw new BadRequestException("Selected tax rate is missing an output tax account");
+        }
+        return taxRate;
     }
 
     private User getCurrentUser() {
@@ -1143,6 +1165,11 @@ public class PosServiceImpl implements PosService {
         dto.setSubtotal(sale.getSubtotal());
         dto.setDiscountAmount(sale.getDiscountAmount());
         dto.setTaxAmount(sale.getTaxAmount());
+        if (sale.getTaxRate() != null) {
+            dto.setTaxRateId(sale.getTaxRate().getId());
+            dto.setTaxRateCode(sale.getTaxRate().getCode());
+            dto.setTaxRateName(sale.getTaxRate().getName());
+        }
         dto.setTotalAmount(sale.getTotalAmount());
         dto.setTenderedAmount(sale.getTenderedAmount());
         dto.setChangeAmount(sale.getChangeAmount());
