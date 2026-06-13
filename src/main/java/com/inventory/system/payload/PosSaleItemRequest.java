@@ -5,6 +5,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -21,4 +22,10 @@ public class PosSaleItemRequest {
     private BigDecimal unitPrice;
 
     private BigDecimal lineDiscount = BigDecimal.ZERO;
+
+    /** Optional explicit batch pick. If null and product is batch-tracked, FEFO is applied automatically. */
+    private UUID batchId;
+
+    /** Required when product is serial-tracked; count must equal quantity. */
+    private List<String> serialNumbers;
 }

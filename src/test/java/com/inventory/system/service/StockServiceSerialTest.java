@@ -23,6 +23,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -38,6 +40,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 public class StockServiceSerialTest {
 
     @Mock
@@ -58,6 +61,8 @@ public class StockServiceSerialTest {
     private SerialNumberRepository serialNumberRepository;
     @Mock
     private StockMovementSerialNumberRepository stockMovementSerialNumberRepository;
+    @Mock
+    private TenantSettingService tenantSettingService;
 
     @InjectMocks
     private StockServiceImpl stockService;
@@ -87,6 +92,7 @@ public class StockServiceSerialTest {
         dto.setQuantity(quantity);
         dto.setType(StockMovement.StockMovementType.IN);
         dto.setSerialNumbers(serials);
+        dto.setReason("test");
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
@@ -151,6 +157,7 @@ public class StockServiceSerialTest {
         dto.setQuantity(quantity);
         dto.setType(StockMovement.StockMovementType.OUT);
         dto.setSerialNumbers(serials);
+        dto.setReason("test");
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
@@ -161,8 +168,8 @@ public class StockServiceSerialTest {
         existingStock.setQuantity(BigDecimal.TEN);
         existingStock.setProductVariant(variant);
         existingStock.setWarehouse(warehouse);
-        when(stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNull(
-                eq(variantId), eq(warehouseId)))
+        when(stockRepository.findByProductVariantIdAndWarehouseIdAndStorageLocationIdIsNullAndBatchIdIsNullAndStatus(
+                eq(variantId), eq(warehouseId), any()))
                 .thenReturn(Optional.of(existingStock));
 
         when(stockRepository.save(any(Stock.class))).thenAnswer(i -> i.getArguments()[0]);

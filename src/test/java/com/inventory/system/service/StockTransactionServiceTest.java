@@ -5,7 +5,6 @@ import com.inventory.system.common.entity.StockTransaction;
 import com.inventory.system.common.entity.StockTransactionStatus;
 import com.inventory.system.common.entity.StockTransactionType;
 import com.inventory.system.common.entity.Warehouse;
-import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.payload.CreateStockTransactionRequest;
 import com.inventory.system.payload.StockTransactionDto;
 import com.inventory.system.repository.ProductVariantRepository;
@@ -25,9 +24,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -47,6 +44,9 @@ public class StockTransactionServiceTest {
 
     @Mock
     private StockService stockService;
+
+    @Mock
+    private FinancialEventService financialEventService;
 
     @InjectMocks
     private StockTransactionServiceImpl stockTransactionService;
@@ -111,14 +111,16 @@ public class StockTransactionServiceTest {
     }
 
     @Test
-    void confirmTransaction_AlreadyCompleted_ThrowsException() {
+    void confirmTransaction_AlreadyCompleted_IsIdempotent() {
         UUID id = UUID.randomUUID();
         StockTransaction transaction = new StockTransaction();
         transaction.setId(id);
         transaction.setStatus(StockTransactionStatus.COMPLETED);
+        transaction.setType(StockTransactionType.INBOUND);
 
         when(stockTransactionRepository.findById(id)).thenReturn(Optional.of(transaction));
 
-        assertThrows(BadRequestException.class, () -> stockTransactionService.confirmTransaction(id));
+        StockTransactionDto dto = stockTransactionService.confirmTransaction(id);
+        assertEquals(StockTransactionStatus.COMPLETED, dto.getStatus());
     }
 }

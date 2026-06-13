@@ -1,6 +1,8 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    # NON_KEYWORDS=VALUE lets H2 accept the column name `value` used by Discount/DiscountTier
+    # (works under Postgres in prod but is a reserved word in H2).
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;NON_KEYWORDS=VALUE
     username: sa
     password: sa
     driver-class-name: org.h2.Driver
@@ -16,9 +18,22 @@ spring:
     enabled: false # Disable flyway for tests for now to avoid migration issues with H2
   cache:
     type: jcache
+  # JavaMailSender is constructed but not exercised in tests; localhost values keep
+  # the bean creatable without dialing out.
+  mail:
+    host: localhost
+    port: 25
+    username: test
+    password: test
+    properties:
+      mail:
+        smtp:
+          auth: false
 bucket4j:
   enabled: false
 app:
+  mail:
+    from: test@example.com
   security:
     jwt:
       secret: 404E635266556A586E3272357538782F413F4428472B4B6250645367566B5970
@@ -27,3 +42,13 @@ app:
     cors:
       allowed-origins:
         - http://localhost:5173
+
+# MinIO is not exercised in tests; provide dummy values so MinioConfig can construct
+# the placeholder bean without throwing during context startup.
+minio:
+  url: http://localhost:9000
+  access-key: test
+  secret-key: test
+  bucket: test-bucket
+  region: us-east-1
+  presigned-url-expiry: 3600

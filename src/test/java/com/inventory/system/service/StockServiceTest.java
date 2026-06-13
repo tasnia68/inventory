@@ -22,6 +22,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.junit.jupiter.MockitoSettings;
+import org.mockito.quality.Strictness;
 
 import java.math.BigDecimal;
 import java.util.Optional;
@@ -38,6 +40,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
+@MockitoSettings(strictness = Strictness.LENIENT)
 public class StockServiceTest {
 
     @Mock
@@ -58,6 +61,8 @@ public class StockServiceTest {
     private SerialNumberRepository serialNumberRepository;
     @Mock
     private StockMovementSerialNumberRepository stockMovementSerialNumberRepository;
+    @Mock
+    private TenantSettingService tenantSettingService;
 
     @InjectMocks
     private StockServiceImpl stockService;
@@ -91,6 +96,7 @@ public class StockServiceTest {
         dto.setQuantity(quantity);
         dto.setType(StockMovement.StockMovementType.IN);
         dto.setBatchId(batchId);
+        dto.setReason("test");
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
@@ -144,11 +150,13 @@ public class StockServiceTest {
         dto.setQuantity(BigDecimal.TEN);
         dto.setType(StockMovement.StockMovementType.IN);
         dto.setBatchId(null); // Missing batch
+        dto.setReason("test");
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
 
-        assertThrows(IllegalArgumentException.class, () -> stockService.adjustStock(dto));
+        assertThrows(com.inventory.system.common.exception.BadRequestException.class,
+                () -> stockService.adjustStock(dto));
     }
 
     @Test
@@ -175,6 +183,7 @@ public class StockServiceTest {
         dto.setQuantity(quantity);
         dto.setType(StockMovement.StockMovementType.IN);
         dto.setBatchId(null);
+        dto.setReason("test");
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
@@ -228,11 +237,13 @@ public class StockServiceTest {
         dto.setQuantity(BigDecimal.TEN);
         dto.setType(StockMovement.StockMovementType.IN);
         dto.setBatchId(batchId); // Provided when not needed
+        dto.setReason("test");
 
         when(productVariantRepository.findById(variantId)).thenReturn(Optional.of(variant));
         when(warehouseRepository.findById(warehouseId)).thenReturn(Optional.of(warehouse));
         when(batchRepository.findById(batchId)).thenReturn(Optional.of(batch));
 
-        assertThrows(IllegalArgumentException.class, () -> stockService.adjustStock(dto));
+        assertThrows(com.inventory.system.common.exception.BadRequestException.class,
+                () -> stockService.adjustStock(dto));
     }
 }

@@ -6,10 +6,13 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
+import jakarta.persistence.Transient;
 import lombok.Getter;
 import lombok.Setter;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 @Entity
 @Table(name = "stock_transaction_items")
@@ -38,4 +41,10 @@ public class StockTransactionItem extends BaseEntity {
 
     @Column(name = "unit_cost", precision = 19, scale = 6)
     private BigDecimal unitCost;
+
+    @Transient
+    private UUID pendingBatchId;
+
+    @Transient
+    private List<String> pendingSerialNumbers;
 }

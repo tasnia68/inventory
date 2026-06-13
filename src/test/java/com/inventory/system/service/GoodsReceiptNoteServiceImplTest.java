@@ -1,6 +1,7 @@
 package com.inventory.system.service;
 
 import com.inventory.system.common.entity.*;
+import com.inventory.system.common.exception.BadRequestException;
 import com.inventory.system.payload.*;
 import com.inventory.system.repository.*;
 import org.junit.jupiter.api.Test;
@@ -34,6 +35,10 @@ public class GoodsReceiptNoteServiceImplTest {
     private StockTransactionService stockTransactionService;
     @Mock
     private PurchaseOrderService purchaseOrderService;
+    @Mock
+    private FinancialEventService financialEventService;
+    @Mock
+    private BatchRepository batchRepository;
 
     @InjectMocks
     private GoodsReceiptNoteServiceImpl grnService;
@@ -102,7 +107,7 @@ public class GoodsReceiptNoteServiceImplTest {
 
         when(purchaseOrderRepository.findById(poId)).thenReturn(Optional.of(po));
 
-        assertThrows(IllegalArgumentException.class, () -> grnService.createGrn(request));
+        assertThrows(BadRequestException.class, () -> grnService.createGrn(request));
     }
 
     @Test
@@ -130,7 +135,7 @@ public class GoodsReceiptNoteServiceImplTest {
         GoodsReceiptNote grn = new GoodsReceiptNote();
         grn.setId(grnId);
         grn.setGrnNumber("GRN-001");
-        grn.setStatus(GoodsReceiptNoteStatus.DRAFT);
+        grn.setStatus(GoodsReceiptNoteStatus.VERIFIED);
         grn.setPurchaseOrder(po);
         grn.setWarehouse(warehouse);
         Supplier s = new Supplier();

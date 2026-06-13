@@ -18,8 +18,10 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -34,6 +36,7 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
     private final StockTransactionService stockTransactionService;
     private final PurchaseOrderService purchaseOrderService;
     private final FinancialEventService financialEventService;
+    private final BatchRepository batchRepository;
 
     @Override
     @Transactional
@@ -145,6 +148,10 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
                 if (req.getAcceptedQuantity() != null) item.setAcceptedQuantity(req.getAcceptedQuantity());
                 if (req.getRejectedQuantity() != null) item.setRejectedQuantity(req.getRejectedQuantity());
                 if (req.getRejectionReason() != null) item.setRejectionReason(req.getRejectionReason());
+                if (req.getBatchNumber() != null) item.setBatchNumber(blankToNull(req.getBatchNumber()));
+                if (req.getManufacturingDate() != null) item.setManufacturingDate(req.getManufacturingDate());
+                if (req.getExpiryDate() != null) item.setExpiryDate(req.getExpiryDate());
+                if (req.getSerialNumbers() != null) item.setSerialNumbers(joinSerials(req.getSerialNumbers()));
 
                 int remainingOpenQuantity = item.getPurchaseOrderItem().getQuantity() - item.getPurchaseOrderItem().getReceivedQuantity();
                 if (item.getReceivedQuantity() > remainingOpenQuantity) {
@@ -181,10 +188,33 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
             if (item.getAcceptedQuantity() + item.getRejectedQuantity() != item.getReceivedQuantity()) {
                 throw new BadRequestException("All GRN items must balance before verification");
             }
+            validateBatchAndSerialFields(item);
         }
 
         grn.setStatus(GoodsReceiptNoteStatus.VERIFIED);
         return mapToDto(grnRepository.save(grn));
+    }
+
+    private void validateBatchAndSerialFields(GoodsReceiptNoteItem item) {
+        ProductTemplate template = item.getProductVariant().getTemplate();
+        if (template == null || item.getAcceptedQuantity() == null || item.getAcceptedQuantity() <= 0) {
+            return;
+        }
+        if (Boolean.TRUE.equals(template.getIsBatchTracked())) {
+            if (item.getBatchNumber() == null || item.getBatchNumber().isBlank()) {
+                throw new BadRequestException(
+                    "Batch number is required for batch-tracked product " + item.getProductVariant().getSku());
+            }
+        }
+        if (Boolean.TRUE.equals(template.getIsSerialTracked())) {
+            List<String> serials = parseSerials(item.getSerialNumbers());
+            if (serials.size() != item.getAcceptedQuantity()) {
+                throw new BadRequestException(
+                    "Serial number count (" + serials.size() + ") must equal accepted quantity ("
+                        + item.getAcceptedQuantity() + ") for serial-tracked product "
+                        + item.getProductVariant().getSku());
+            }
+        }
     }
 
     @Override
@@ -212,10 +242,19 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
 
         for (GoodsReceiptNoteItem item : grn.getItems()) {
             if (item.getAcceptedQuantity() > 0) {
+                Batch batch = resolveOrCreateBatch(item);
+                if (batch != null) {
+                    item.setBatch(batch);
+                }
+
                 CreateStockTransactionRequest.ItemRequest trxItem = new CreateStockTransactionRequest.ItemRequest();
                 trxItem.setProductVariantId(item.getProductVariant().getId());
                 trxItem.setQuantity(BigDecimal.valueOf(item.getAcceptedQuantity()));
                 trxItem.setUnitCost(item.getPurchaseOrderItem().getUnitPrice()); // Use PO Unit Price as Cost
+                if (batch != null) {
+                    trxItem.setBatchId(batch.getId());
+                }
+                trxItem.setSerialNumbers(parseSerials(item.getSerialNumbers()));
                 trxItems.add(trxItem);
             }
 
@@ -250,6 +289,69 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
         financialEventService.recordGoodsReceipt(savedGrn);
 
         return mapToDto(savedGrn);
+    }
+
+    private Batch resolveOrCreateBatch(GoodsReceiptNoteItem item) {
+        ProductTemplate template = item.getProductVariant().getTemplate();
+        if (template == null || !Boolean.TRUE.equals(template.getIsBatchTracked())) {
+            return null;
+        }
+        String batchNumber = blankToNull(item.getBatchNumber());
+        if (batchNumber == null) {
+            throw new BadRequestException(
+                "Batch number is required for batch-tracked product " + item.getProductVariant().getSku());
+        }
+        UUID variantId = item.getProductVariant().getId();
+        Batch batch = batchRepository.findByBatchNumberAndProductVariantId(batchNumber, variantId)
+            .orElseGet(() -> {
+                Batch newBatch = new Batch();
+                newBatch.setBatchNumber(batchNumber);
+                newBatch.setProductVariant(item.getProductVariant());
+                newBatch.setManufacturingDate(item.getManufacturingDate());
+                newBatch.setExpiryDate(item.getExpiryDate());
+                return batchRepository.save(newBatch);
+            });
+        // Update expiry/manufacture if blank on existing batch but supplied this receive
+        boolean updated = false;
+        if (batch.getManufacturingDate() == null && item.getManufacturingDate() != null) {
+            batch.setManufacturingDate(item.getManufacturingDate());
+            updated = true;
+        }
+        if (batch.getExpiryDate() == null && item.getExpiryDate() != null) {
+            batch.setExpiryDate(item.getExpiryDate());
+            updated = true;
+        }
+        if (updated) {
+            batch = batchRepository.save(batch);
+        }
+        return batch;
+    }
+
+    private static List<String> parseSerials(String serialNumbers) {
+        if (serialNumbers == null || serialNumbers.isBlank()) {
+            return List.of();
+        }
+        return Arrays.stream(serialNumbers.split("[\\n,]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .distinct()
+            .collect(Collectors.toList());
+    }
+
+    private static String joinSerials(List<String> serials) {
+        if (serials == null || serials.isEmpty()) {
+            return null;
+        }
+        return serials.stream()
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .distinct()
+            .collect(Collectors.joining("\n"));
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     private String generateGrnNumber() {
@@ -291,6 +393,14 @@ public class GoodsReceiptNoteServiceImpl implements GoodsReceiptNoteService {
         dto.setRejectedQuantity(item.getRejectedQuantity());
         dto.setReturnedQuantity(item.getReturnedQuantity());
         dto.setRejectionReason(item.getRejectionReason());
+        ProductTemplate template = item.getProductVariant().getTemplate();
+        dto.setBatchTracked(template != null && Boolean.TRUE.equals(template.getIsBatchTracked()));
+        dto.setSerialTracked(template != null && Boolean.TRUE.equals(template.getIsSerialTracked()));
+        dto.setBatchNumber(item.getBatchNumber());
+        dto.setManufacturingDate(item.getManufacturingDate());
+        dto.setExpiryDate(item.getExpiryDate());
+        dto.setBatchId(item.getBatch() != null ? item.getBatch().getId() : null);
+        dto.setSerialNumbers(parseSerials(item.getSerialNumbers()));
         return dto;
     }
 }

@@ -7,6 +7,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
 
@@ -38,5 +39,11 @@ public class CreateStockTransactionRequest {
 
         private UUID sourceStorageLocationId;
         private UUID destinationStorageLocationId;
+
+        private UUID batchId;
+        private String batchNumber;
+        private LocalDate manufacturingDate;
+        private LocalDate expiryDate;
+        private List<String> serialNumbers;
     }
 }

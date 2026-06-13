@@ -92,6 +92,9 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                 item.setDestinationStorageLocation(loc);
             }
 
+            item.setPendingBatchId(itemRequest.getBatchId());
+            item.setPendingSerialNumbers(itemRequest.getSerialNumbers());
+
             items.add(item);
         }
         transaction.setItems(items);
@@ -270,6 +273,8 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                     inbound.setType(StockMovement.StockMovementType.IN);
                     inbound.setReason("Transaction: " + transaction.getTransactionNumber());
                     inbound.setReferenceId(transaction.getId().toString());
+                    inbound.setBatchId(item.getPendingBatchId());
+                    inbound.setSerialNumbers(item.getPendingSerialNumbers());
                     stockService.adjustStock(inbound);
                     break;
 
@@ -284,6 +289,8 @@ public class StockTransactionServiceImpl implements StockTransactionService {
                     outbound.setType(StockMovement.StockMovementType.OUT);
                     outbound.setReason("Transaction: " + transaction.getTransactionNumber());
                     outbound.setReferenceId(transaction.getId().toString());
+                    outbound.setBatchId(item.getPendingBatchId());
+                    outbound.setSerialNumbers(item.getPendingSerialNumbers());
                     StockMovementDto outboundResult = stockService.adjustStock(outbound);
                     item.setUnitCost(outboundResult.getUnitCost());
                     break;

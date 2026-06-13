@@ -45,4 +45,11 @@ public class PosSaleItem extends BaseEntity {
 
     @Column(name = "line_total", nullable = false, precision = 19, scale = 6)
     private BigDecimal lineTotal;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "batch_id")
+    private Batch batch;
+
+    @Column(name = "serial_numbers", columnDefinition = "TEXT")
+    private String serialNumbers;
 }

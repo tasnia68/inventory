@@ -35,6 +35,7 @@ import com.inventory.system.payload.SuspendedPosSaleItemDto;
 import com.inventory.system.payload.SuspendedPosSaleItemRequest;
 import com.inventory.system.payload.UpdatePosTerminalStatusRequest;
 import com.inventory.system.payload.WarehouseDto;
+import com.inventory.system.repository.BatchRepository;
 import com.inventory.system.repository.CategoryRepository;
 import com.inventory.system.repository.CustomerRepository;
 import com.inventory.system.repository.PosCashMovementRepository;
@@ -115,6 +116,7 @@ public class PosServiceImpl implements PosService {
     private final com.inventory.system.service.GiftCardService giftCardService;
     private final org.springframework.context.ApplicationEventPublisher salesEventPublisher;
     private final FinancialEventService financialEventService;
+    private final BatchRepository batchRepository;
 
     @Override
     @Transactional(readOnly = true)
@@ -576,6 +578,9 @@ public class PosServiceImpl implements PosService {
                 throw new BadRequestException("Insufficient stock for variant " + variant.getSku());
             }
 
+            Batch resolvedBatch = resolvePosBatch(variant, itemRequest, warehouse);
+            List<String> serials = validatePosSerials(variant, itemRequest, quantity);
+
             PosSaleItem saleItem = new PosSaleItem();
             saleItem.setProductVariant(variant);
             saleItem.setSkuSnapshot(variant.getSku());
@@ -585,11 +590,15 @@ public class PosServiceImpl implements PosService {
             saleItem.setUnitPrice(pricedLine.getBaseUnitPrice());
             saleItem.setLineDiscount(pricedLine.getLineDiscountAmount());
             saleItem.setLineTotal(pricedLine.getLineTotalAmount());
+            saleItem.setBatch(resolvedBatch);
+            saleItem.setSerialNumbers(serials.isEmpty() ? null : String.join("\n", serials));
             saleItems.add(saleItem);
 
             StockTransactionItem stockTransactionItem = new StockTransactionItem();
             stockTransactionItem.setProductVariant(variant);
             stockTransactionItem.setQuantity(quantity);
+            stockTransactionItem.setPendingBatchId(resolvedBatch != null ? resolvedBatch.getId() : null);
+            stockTransactionItem.setPendingSerialNumbers(serials.isEmpty() ? null : serials);
             stockTransactionItems.add(stockTransactionItem);
 
             SalesOrderItem orderItem = new SalesOrderItem();
@@ -674,6 +683,12 @@ public class PosServiceImpl implements PosService {
             outbound.setType(StockMovement.StockMovementType.OUT);
             outbound.setReason("POS sale " + sale.getReceiptNumber());
             outbound.setReferenceId(salesOrder.getId().toString());
+            if (saleItem.getBatch() != null) {
+                outbound.setBatchId(saleItem.getBatch().getId());
+            }
+            if (saleItem.getSerialNumbers() != null && !saleItem.getSerialNumbers().isBlank()) {
+                outbound.setSerialNumbers(splitPosSerials(saleItem.getSerialNumbers()));
+            }
             var movement = stockService.adjustStock(outbound);
             stockTransaction.getItems().get(itemIndex).setUnitCost(movement.getUnitCost());
             itemIndex += 1;
@@ -1314,7 +1329,83 @@ public class PosServiceImpl implements PosService {
         dto.setUnitPrice(item.getUnitPrice());
         dto.setLineDiscount(item.getLineDiscount());
         dto.setLineTotal(item.getLineTotal());
+        if (item.getBatch() != null) {
+            dto.setBatchId(item.getBatch().getId());
+            dto.setBatchNumber(item.getBatch().getBatchNumber());
+            dto.setBatchExpiryDate(item.getBatch().getExpiryDate());
+        }
+        dto.setSerialNumbers(splitPosSerials(item.getSerialNumbers()));
         return dto;
+    }
+
+    private Batch resolvePosBatch(ProductVariant variant, PosSaleItemRequest itemRequest, Warehouse warehouse) {
+        ProductTemplate template = variant.getTemplate();
+        if (!Boolean.TRUE.equals(template.getIsBatchTracked())) {
+            if (itemRequest.getBatchId() != null) {
+                throw new BadRequestException("Batch supplied for non-batch-tracked variant " + variant.getSku());
+            }
+            return null;
+        }
+
+        LocalDate today = LocalDate.now();
+        if (itemRequest.getBatchId() != null) {
+            Batch picked = batchRepository.findById(itemRequest.getBatchId())
+                .orElseThrow(() -> new ResourceNotFoundException("Batch", "id", itemRequest.getBatchId()));
+            if (!picked.getProductVariant().getId().equals(variant.getId())) {
+                throw new BadRequestException("Selected batch belongs to a different product");
+            }
+            if (picked.getExpiryDate() != null && picked.getExpiryDate().isBefore(today)) {
+                throw new BadRequestException("Cannot sell expired batch " + picked.getBatchNumber()
+                    + " (expired " + picked.getExpiryDate() + ")");
+            }
+            return picked;
+        }
+
+        // FEFO auto-pick
+        List<Batch> candidates = batchRepository.findAvailableForFefo(variant.getId(), warehouse.getId(), today);
+        if (candidates.isEmpty()) {
+            throw new BadRequestException("No available batch with stock for batch-tracked variant " + variant.getSku());
+        }
+        return candidates.get(0);
+    }
+
+    private List<String> validatePosSerials(ProductVariant variant, PosSaleItemRequest itemRequest, BigDecimal quantity) {
+        ProductTemplate template = variant.getTemplate();
+        List<String> raw = itemRequest.getSerialNumbers() == null ? List.of() : itemRequest.getSerialNumbers();
+        List<String> cleaned = raw.stream()
+            .filter(Objects::nonNull)
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .distinct()
+            .collect(Collectors.toList());
+
+        if (!Boolean.TRUE.equals(template.getIsSerialTracked())) {
+            if (!cleaned.isEmpty()) {
+                throw new BadRequestException("Serial numbers supplied for non-serial-tracked variant " + variant.getSku());
+            }
+            return List.of();
+        }
+
+        if (quantity.remainder(BigDecimal.ONE).compareTo(BigDecimal.ZERO) != 0) {
+            throw new BadRequestException("Quantity must be an integer for serial-tracked variant " + variant.getSku());
+        }
+        int expected = quantity.intValueExact();
+        if (cleaned.size() != expected) {
+            throw new BadRequestException("Serial count (" + cleaned.size()
+                + ") must equal quantity (" + expected + ") for variant " + variant.getSku());
+        }
+        return cleaned;
+    }
+
+    private static List<String> splitPosSerials(String serialNumbers) {
+        if (serialNumbers == null || serialNumbers.isBlank()) {
+            return List.of();
+        }
+        return java.util.Arrays.stream(serialNumbers.split("[\\n,]"))
+            .map(String::trim)
+            .filter(s -> !s.isEmpty())
+            .distinct()
+            .collect(Collectors.toList());
     }
 
     private WarehouseDto mapWarehouse(Warehouse warehouse) {
@@ -1361,10 +1452,35 @@ public class PosServiceImpl implements PosService {
         dto.setId(item.getId());
         dto.setSku(item.getSku());
         dto.setBarcode(item.getBarcode());
-        dto.setName(item.getTemplate() != null ? item.getTemplate().getName() : item.getSku());
-        dto.setDescription(item.getTemplate() != null ? item.getTemplate().getDescription() : item.getSku());
+        ProductTemplate template = item.getTemplate();
+        dto.setName(template != null ? template.getName() : item.getSku());
+        dto.setDescription(template != null ? template.getDescription() : item.getSku());
         dto.setPrice(item.getPrice());
         dto.setOnHand(warehouseId == null ? null : scale(stockRepository.countTotalQuantityByProductVariantAndWarehouse(item.getId(), warehouseId)));
+
+        boolean batchTracked = template != null && Boolean.TRUE.equals(template.getIsBatchTracked());
+        boolean serialTracked = template != null && Boolean.TRUE.equals(template.getIsSerialTracked());
+        dto.setBatchTracked(batchTracked);
+        dto.setSerialTracked(serialTracked);
+
+        if (batchTracked && warehouseId != null) {
+            List<Batch> batches = batchRepository.findAvailableForFefo(item.getId(), warehouseId, LocalDate.now());
+            List<PosCatalogItemDto.BatchOption> options = new ArrayList<>(batches.size());
+            for (Batch batch : batches) {
+                BigDecimal qty = stockRepository.countTotalQuantityByInventoryPosition(
+                    item.getId(), warehouseId, null, batch.getId());
+                if (qty == null || qty.compareTo(BigDecimal.ZERO) <= 0) {
+                    continue;
+                }
+                PosCatalogItemDto.BatchOption option = new PosCatalogItemDto.BatchOption();
+                option.setId(batch.getId());
+                option.setBatchNumber(batch.getBatchNumber());
+                option.setExpiryDate(batch.getExpiryDate());
+                option.setAvailableQuantity(scale(qty));
+                options.add(option);
+            }
+            dto.setAvailableBatches(options);
+        }
         return dto;
     }
 
