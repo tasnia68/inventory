@@ -143,6 +143,22 @@ public class StockReservationServiceImpl implements StockReservationService {
         return totalStock.subtract(reservedStock);
     }
 
+    @Override
+    @Transactional(readOnly = true)
+    public BigDecimal getAvailableToPromise(UUID productVariantId) {
+        BigDecimal totalStock = stockRepository.sumAvailableQuantityByProductVariant(productVariantId);
+        if (totalStock == null) {
+            totalStock = BigDecimal.ZERO;
+        }
+
+        BigDecimal reservedStock = stockReservationRepository.countTotalReservedQuantityByProductVariant(productVariantId);
+        if (reservedStock == null) {
+            reservedStock = BigDecimal.ZERO;
+        }
+
+        return totalStock.subtract(reservedStock);
+    }
+
     private BigDecimal getAvailableToPromise(UUID productVariantId, UUID warehouseId, UUID storageLocationId, UUID batchId) {
         if (storageLocationId == null && batchId == null) {
             return getAvailableToPromise(productVariantId, warehouseId);

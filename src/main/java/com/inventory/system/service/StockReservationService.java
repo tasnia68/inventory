@@ -14,6 +14,7 @@ public interface StockReservationService {
     void releaseReservationsByReference(String referenceId);
     void fulfillReservationsByReference(String referenceId);
     BigDecimal getAvailableToPromise(UUID productVariantId, UUID warehouseId);
+    BigDecimal getAvailableToPromise(UUID productVariantId);
     void cleanupExpiredReservations();
     Page<StockReservationDto> getReservations(UUID warehouseId, UUID productVariantId, Pageable pageable);
 }

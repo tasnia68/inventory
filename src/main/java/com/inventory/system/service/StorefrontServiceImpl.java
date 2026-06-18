@@ -2151,21 +2151,21 @@ public class StorefrontServiceImpl implements StorefrontService {
         if (configuredWarehouseId != null) {
             return warehouseRepository.findById(configuredWarehouseId).orElse(null);
         }
-        return resolveDefaultFulfillmentWarehouse();
+        // null => availability pools across all warehouses (see resolveAvailableToPromise).
+        return null;
     }
 
     /**
-     * Resolves the storefront's fulfilment warehouse when none is explicitly configured.
-     * Prefers the warehouse holding the most sellable (AVAILABLE) stock so that the
-     * availability shown to shoppers and the warehouse checkout deducts from line up —
-     * even when inventory was synced into a freshly created warehouse (e.g. a Shopify
-     * location) instead of the original default. Falls back to the oldest warehouse only
-     * when no stock exists anywhere yet.
+     * Resolves the warehouse storefront checkout deducts from when none is explicitly
+     * configured. Picks the warehouse that can fulfil the most distinct sellable variants
+     * (best coverage), so checkout succeeds for the widest range of products even when
+     * inventory was synced across several locations (e.g. multiple Shopify locations).
+     * Falls back to the oldest warehouse only when nothing is stocked yet.
      */
     private Warehouse resolveDefaultFulfillmentWarehouse() {
-        List<UUID> byStock = stockRepository.findWarehouseIdsByTotalAvailableStockDesc(PageRequest.of(0, 1));
-        if (!byStock.isEmpty()) {
-            Warehouse stocked = warehouseRepository.findById(byStock.get(0)).orElse(null);
+        List<UUID> byCoverage = stockRepository.findWarehouseIdsByAvailableVariantCoverageDesc(PageRequest.of(0, 1));
+        if (!byCoverage.isEmpty()) {
+            Warehouse stocked = warehouseRepository.findById(byCoverage.get(0)).orElse(null);
             if (stocked != null) {
                 return stocked;
             }
@@ -2300,7 +2300,11 @@ public class StorefrontServiceImpl implements StorefrontService {
 
     private BigDecimal resolveAvailableToPromise(ProductVariant variant, Warehouse storefrontWarehouse) {
         if (storefrontWarehouse == null) {
-            return BigDecimal.ZERO;
+            // No single storefront warehouse configured: pool sellable inventory across
+            // every warehouse (Shopify-style multi-location availability), so a product
+            // stocked in any location shows as available — not just the one a single
+            // heuristic happened to pick.
+            return stockReservationService.getAvailableToPromise(variant.getId());
         }
         return stockReservationService.getAvailableToPromise(variant.getId(), storefrontWarehouse.getId());
     }

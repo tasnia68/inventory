@@ -24,6 +24,9 @@ public interface StockReservationRepository extends JpaRepository<StockReservati
     @Query("SELECT SUM(r.quantity) FROM StockReservation r WHERE r.productVariant.id = :productVariantId AND r.warehouse.id = :warehouseId AND r.status IN ('ACTIVE', 'PENDING')")
     BigDecimal countTotalReservedQuantity(@Param("productVariantId") UUID productVariantId, @Param("warehouseId") UUID warehouseId);
 
+    @Query("SELECT SUM(r.quantity) FROM StockReservation r WHERE r.productVariant.id = :productVariantId AND r.status IN ('ACTIVE', 'PENDING')")
+    BigDecimal countTotalReservedQuantityByProductVariant(@Param("productVariantId") UUID productVariantId);
+
         @Query("""
             SELECT SUM(r.quantity)
             FROM StockReservation r
