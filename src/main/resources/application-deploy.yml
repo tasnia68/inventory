@@ -18,6 +18,15 @@ spring:
   flyway:
     enabled: true
     baseline-on-migrate: true
+  data:
+    redis:
+      host: ${REDIS_HOST:redis}
+      port: ${REDIS_PORT:6379}
+  rabbitmq:
+    host: ${RABBITMQ_HOST:rabbitmq}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:masterinventory}
+    password: ${RABBITMQ_PASSWORD:masterinventory}
   mail:
     host: ${MAIL_HOST:localhost}
     port: ${MAIL_PORT:25}
@@ -31,6 +40,8 @@ spring:
             enable: ${MAIL_SMTP_STARTTLS_ENABLE:false}
 
 app:
+  scaling:
+    enabled: ${APP_SCALING_ENABLED:true}
   bootstrap:
     admin:
       email: ${APP_BOOTSTRAP_ADMIN_EMAIL:admin@example.com}
@@ -60,6 +71,13 @@ debug: false
 
 server:
   port: ${SERVER_PORT:8080}
+
+management:
+  health:
+    redis:
+      enabled: ${MANAGEMENT_HEALTH_REDIS_ENABLED:true}
+    rabbit:
+      enabled: ${MANAGEMENT_HEALTH_RABBIT_ENABLED:true}
 
 minio:
   url: ${MINIO_URL}

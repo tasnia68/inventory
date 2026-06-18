@@ -6,6 +6,8 @@ import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.TenantSettingDto;
 import com.inventory.system.repository.TenantSettingRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -44,6 +46,9 @@ public class TenantSettingServiceImpl implements TenantSettingService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "tenantSettings",
+            key = "T(com.inventory.system.config.tenant.TenantContext).getTenantId() + '::' + #key",
+            unless = "#result == null")
     public java.util.Optional<TenantSettingDto> findSetting(String key) {
         String tenantId = TenantContext.getTenantId();
         return tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, key)
@@ -52,6 +57,8 @@ public class TenantSettingServiceImpl implements TenantSettingService {
 
     @Override
     @Transactional(readOnly = true)
+    @Cacheable(value = "tenantSettings", key = "#tenantId + '::' + #key",
+            unless = "#result == null")
     public java.util.Optional<TenantSettingDto> findSettingForTenant(String tenantId, String key) {
         return tenantSettingRepository.findByTenantIdAndSettingKey(tenantId, key)
                 .map(this::mapToDto);
@@ -59,12 +66,15 @@ public class TenantSettingServiceImpl implements TenantSettingService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "tenantSettings",
+            key = "T(com.inventory.system.config.tenant.TenantContext).getTenantId() + '::' + #key")
     public TenantSettingDto updateSetting(String key, String value, String type, String category) {
         return updateSettingForTenant(TenantContext.getTenantId(), key, value, type, category);
     }
 
     @Override
     @Transactional
+    @CacheEvict(value = "tenantSettings", key = "#tenantId + '::' + #key")
     public TenantSettingDto updateSettingForTenant(String tenantId, String key, String value, String type, String category) {
         // Native finder bypasses the Hibernate tenantFilter so super-admin
         // upserts targeting another tenant's row find the existing entity
@@ -90,6 +100,7 @@ public class TenantSettingServiceImpl implements TenantSettingService {
 
     @Override
     @Transactional
+    @CacheEvict(value = "tenantSettings", allEntries = true)
     public void updateSettings(List<TenantSettingDto> settings) {
         for (TenantSettingDto dto : settings) {
             updateSetting(dto.getKey(), dto.getValue(), dto.getType(), dto.getCategory());

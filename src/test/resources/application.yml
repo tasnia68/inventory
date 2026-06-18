@@ -1,4 +1,11 @@
 spring:
+  # Redis + RabbitMQ are deploy-only scaling infra; exclude their autoconfig in tests so
+  # no broker/cache connection or health probe is attempted on the H2 suite.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.data.redis.RedisAutoConfiguration
+      - org.springframework.boot.autoconfigure.data.redis.RedisRepositoriesAutoConfiguration
+      - org.springframework.boot.autoconfigure.amqp.RabbitAutoConfiguration
   datasource:
     # NON_KEYWORDS=VALUE lets H2 accept the column name `value` used by Discount/DiscountTier
     # (works under Postgres in prod but is a reserved word in H2).

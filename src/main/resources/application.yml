@@ -23,7 +23,30 @@ spring:
     enabled: true
     baseline-on-migrate: true
 
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      timeout: 3000ms
+      connect-timeout: 3000ms
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASSWORD:guest}
+    listener:
+      simple:
+        retry:
+          enabled: true
+          initial-interval: 2000ms
+          max-attempts: 3
+
 app:
+  # Scalability infra (Redis cache + distributed lock, RabbitMQ async sync worker).
+  # OFF in dev/test so the suite needs no Redis/RabbitMQ running; ON in deploy.
+  scaling:
+    enabled: ${APP_SCALING_ENABLED:false}
   storefront:
     domains:
       platform-base-domain: ${APP_STOREFRONT_BASE_DOMAIN:localhost}
@@ -68,6 +91,10 @@ management:
       enabled: true
     readinessstate:
       enabled: true
+    redis:
+      enabled: ${MANAGEMENT_HEALTH_REDIS_ENABLED:false}
+    rabbit:
+      enabled: ${MANAGEMENT_HEALTH_RABBIT_ENABLED:false}
 
 logging:
   pattern:
