@@ -98,4 +98,28 @@ public class SmtpEmailService implements EmailService {
             logger.error("Failed to send order confirmation email to {}: {}", to, e.getMessage());
         }
     }
+
+    @Override
+    public void sendTrackingEmail(String to, String customerName, String orderNumber, String trackingUrl, String courier) {
+        try {
+            SimpleMailMessage message = new SimpleMailMessage();
+            message.setFrom(fromEmail);
+            message.setTo(to);
+            message.setSubject("Your order " + orderNumber + " has shipped — track it");
+            message.setText(
+                    "Hello " + (customerName != null ? customerName : "") + ",\n\n" +
+                            "Good news — your order " + orderNumber + " is on its way" +
+                            (courier != null && !courier.isBlank() ? " with " + courier : "") + ".\n\n" +
+                            "Track your delivery here:\n\n" +
+                            trackingUrl + "\n\n" +
+                            "Thank you for shopping with us.\n\n" +
+                            "Best regards,\n" +
+                            "The Storefront Team");
+
+            mailSender.send(message);
+            logger.info("Tracking email sent successfully to: {}", to);
+        } catch (Exception e) {
+            logger.error("Failed to send tracking email to {}: {}", to, e.getMessage());
+        }
+    }
 }

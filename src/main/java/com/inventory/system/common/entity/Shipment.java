@@ -114,6 +114,9 @@ public class Shipment extends BaseEntity {
     @Column(name = "last_courier_sync_at")
     private LocalDateTime lastCourierSyncAt;
 
+    @Column(name = "tracking_notified_at")
+    private LocalDateTime trackingNotifiedAt;
+
     @Column(name = "delivery_note", columnDefinition = "TEXT")
     private String deliveryNote;
 

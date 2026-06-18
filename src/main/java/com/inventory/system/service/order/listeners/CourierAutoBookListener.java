@@ -35,6 +35,7 @@ public class CourierAutoBookListener {
     private final ShipmentRepository shipmentRepository;
     private final CourierProviderRegistry providerRegistry;
     private final TenantSettingService tenantSettingService;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT)
     @Transactional(propagation = Propagation.REQUIRES_NEW)
@@ -73,6 +74,10 @@ public class CourierAutoBookListener {
             shipment.setLastCourierEvent(booking.lastCourierEvent());
             shipment.setLastCourierSyncAt(booking.bookedAt());
             shipmentRepository.save(shipment);
+            if (shipment.getTrackingUrl() != null && !shipment.getTrackingUrl().isBlank()) {
+                eventPublisher.publishEvent(new com.inventory.system.service.order.events.ShipmentTrackingUpdatedEvent(
+                        shipment.getId(), salesOrder.getId(), java.time.Instant.now()));
+            }
         } catch (Exception e) {
             log.error("Auto-book failed for order {}: {}", salesOrder.getSoNumber(), e.getMessage(), e);
         }

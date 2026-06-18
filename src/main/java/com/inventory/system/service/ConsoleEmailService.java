@@ -29,4 +29,11 @@ public class ConsoleEmailService implements EmailService {
         logger.info("Customer: {}, Order: {}, Total: {} {}", customerName, orderNumber, currency, orderTotal);
         logger.info("--------------------------------------------------");
     }
+
+    @Override
+    public void sendTrackingEmail(String to, String customerName, String orderNumber, String trackingUrl, String courier) {
+        logger.info("Sending tracking email to: {}", to);
+        logger.info("Customer: {}, Order: {}, Courier: {}, Tracking: {}", customerName, orderNumber, courier, trackingUrl);
+        logger.info("--------------------------------------------------");
+    }
 }

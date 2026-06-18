@@ -19,6 +19,8 @@ import java.util.UUID;
 public interface ShipmentRepository extends JpaRepository<Shipment, UUID>, JpaSpecificationExecutor<Shipment> {
     boolean existsByShipmentNumber(String shipmentNumber);
     List<Shipment> findBySalesOrderId(UUID salesOrderId);
+    java.util.Optional<Shipment> findFirstByCourierProviderIgnoreCaseAndCourierReference(String courierProvider, String courierReference);
+    java.util.Optional<Shipment> findFirstByTrackingNumber(String trackingNumber);
     List<Shipment> findBySalesOrderIdIn(Collection<UUID> salesOrderIds);
 
     @Query("""

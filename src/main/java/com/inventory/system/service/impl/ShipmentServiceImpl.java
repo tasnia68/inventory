@@ -74,6 +74,7 @@ public class ShipmentServiceImpl implements ShipmentService {
     private final ShipmentItemRepository shipmentItemRepository;
     private final ReturnMerchandiseItemRepository returnMerchandiseItemRepository;
     private final TenantSettingService tenantSettingService;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @Override
     public ShipmentDto createShipment(CreateShipmentRequest request) {
@@ -310,6 +311,12 @@ public class ShipmentServiceImpl implements ShipmentService {
 
         Shipment saved = shipmentRepository.save(shipment);
         synchronizeSalesOrderDeliveryStatus(saved.getSalesOrder());
+        if (saved.getTrackingUrl() != null && !saved.getTrackingUrl().isBlank()) {
+            eventPublisher.publishEvent(new com.inventory.system.service.order.events.ShipmentTrackingUpdatedEvent(
+                    saved.getId(),
+                    saved.getSalesOrder() != null ? saved.getSalesOrder().getId() : null,
+                    java.time.Instant.now()));
+        }
         return mapShipmentToDto(saved);
     }
 

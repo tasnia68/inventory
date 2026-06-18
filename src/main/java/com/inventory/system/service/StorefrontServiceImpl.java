@@ -154,6 +154,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     private final org.springframework.context.ApplicationEventPublisher salesEventPublisher;
     private final StockReservationService stockReservationService;
     private final StockRepository stockRepository;
+    private final com.inventory.system.repository.ShipmentRepository shipmentRepository;
     private final StorefrontPublishVersionRepository storefrontPublishVersionRepository;
     private final TenantSettingRepository tenantSettingRepository;
     private final FileStorageService fileStorageService;
@@ -952,8 +953,28 @@ public class StorefrontServiceImpl implements StorefrontService {
                 salesOrder.getTotalAmount(),
                 salesOrder.getCurrency(),
                 salesOrder.getItems().stream().map(this::mapSalesOrderItem).toList(),
-                java.util.List.of()
+                shipmentRepository.findBySalesOrderId(salesOrder.getId()).stream()
+                        .map(this::mapShipmentForTracking).toList()
         );
+    }
+
+    private com.inventory.system.payload.StorefrontShipmentDto mapShipmentForTracking(com.inventory.system.common.entity.Shipment s) {
+        com.inventory.system.payload.StorefrontShipmentDto dto = new com.inventory.system.payload.StorefrontShipmentDto();
+        dto.setShipmentNumber(s.getShipmentNumber());
+        dto.setShipmentStatus(s.getStatus() != null ? s.getStatus().name() : null);
+        dto.setCourierProvider(s.getCourierProvider());
+        dto.setCourierService(s.getCourierService());
+        dto.setCourierDispatchStatus(s.getCourierDispatchStatus() != null ? s.getCourierDispatchStatus().name() : null);
+        dto.setCourierReference(s.getCourierReference());
+        dto.setTrackingNumber(s.getTrackingNumber());
+        dto.setTrackingUrl(s.getTrackingUrl());
+        dto.setShippedDate(s.getShippedDate());
+        dto.setDeliveredDate(s.getDeliveredDate());
+        dto.setPickupRequestedAt(s.getPickupRequestedAt());
+        dto.setPickedUpAt(s.getPickedUpAt());
+        dto.setOutForDeliveryAt(s.getOutForDeliveryAt());
+        dto.setLastCourierEvent(s.getLastCourierEvent());
+        return dto;
     }
 
     @Override
