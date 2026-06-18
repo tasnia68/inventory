@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.UUID;
 
@@ -45,6 +46,31 @@ public class MinioFileStorageService implements FileStorageService {
         } catch (Exception e) {
             log.error("Error uploading file to MinIO", e);
             throw new RuntimeException("Could not upload file " + file.getOriginalFilename(), e);
+        }
+    }
+
+    @Override
+    public String uploadBytes(byte[] content, String originalFilename, String contentType, String folder) {
+        String safeName = (originalFilename == null || originalFilename.isBlank()) ? "image" : originalFilename;
+        String filename = folder + "/" + UUID.randomUUID() + "-" + safeName;
+        try {
+            boolean found = minioClient.bucketExists(BucketExistsArgs.builder().bucket(bucketName).build());
+            if (!found) {
+                minioClient.makeBucket(MakeBucketArgs.builder().bucket(bucketName).build());
+            }
+            try (InputStream stream = new ByteArrayInputStream(content)) {
+                minioClient.putObject(
+                        PutObjectArgs.builder()
+                                .bucket(bucketName)
+                                .object(filename)
+                                .stream(stream, content.length, -1)
+                                .contentType(contentType == null || contentType.isBlank() ? "application/octet-stream" : contentType)
+                                .build());
+            }
+            return filename;
+        } catch (Exception e) {
+            log.error("Error uploading bytes to MinIO", e);
+            throw new RuntimeException("Could not upload bytes " + safeName, e);
         }
     }
 

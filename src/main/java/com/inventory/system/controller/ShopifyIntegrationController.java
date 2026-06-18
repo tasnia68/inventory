@@ -72,6 +72,30 @@ public class ShopifyIntegrationController {
         return ResponseEntity.ok(ApiResponse.success(result, result.getMessage()));
     }
 
+    @PostMapping("/sync/locations")
+    public ResponseEntity<ApiResponse<ShopifySyncResultDto>> syncLocations() {
+        ShopifySyncResultDto result = shopifyIntegrationService.syncLocations();
+        return ResponseEntity.ok(ApiResponse.success(result, result.getMessage()));
+    }
+
+    @PostMapping("/sync/inventory")
+    public ResponseEntity<ApiResponse<ShopifySyncResultDto>> syncInventoryLevels() {
+        ShopifySyncResultDto result = shopifyIntegrationService.syncInventoryLevels();
+        return ResponseEntity.ok(ApiResponse.success(result, result.getMessage()));
+    }
+
+    @PostMapping("/push/catalog")
+    public ResponseEntity<ApiResponse<ShopifySyncResultDto>> pushCatalog() {
+        ShopifySyncResultDto result = shopifyIntegrationService.pushCatalog();
+        return ResponseEntity.ok(ApiResponse.success(result, result.getMessage()));
+    }
+
+    @PostMapping("/push/inventory")
+    public ResponseEntity<ApiResponse<ShopifySyncResultDto>> pushInventory() {
+        ShopifySyncResultDto result = shopifyIntegrationService.pushInventory();
+        return ResponseEntity.ok(ApiResponse.success(result, result.getMessage()));
+    }
+
     private String publicBaseUrl(HttpServletRequest request) {
         return ServletUriComponentsBuilder.fromRequestUri(request)
                 .replacePath(null)

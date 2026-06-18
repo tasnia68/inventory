@@ -25,6 +25,14 @@ public class ShopifySyncResultDto {
     private int ordersSeen;
     private int ordersImported;
     private int ordersDuplicate;
+    private int locationsSeen;
+    private int locationsCreated;
+    private int locationsMatched;
+    private int stockLevelsSeen;
+    private int stockLevelsApplied;
+    private int productsPushed;
+    private int variantsPushed;
+    private int inventoryAdjustmentsPushed;
 
     @Builder.Default
     private List<String> warnings = new ArrayList<>();
