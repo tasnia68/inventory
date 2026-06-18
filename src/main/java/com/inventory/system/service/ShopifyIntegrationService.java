@@ -793,6 +793,130 @@ public class ShopifyIntegrationService {
         return result;
     }
 
+    /**
+     * Pushes a single variant's on-hand for one warehouse to its mapped Shopify location.
+     * No-ops when Shopify isn't configured, the variant isn't mapped to a Shopify
+     * inventory item, or the warehouse has no Shopify location mapping. Best-effort —
+     * never throws (callers run it as a side effect of a local stock change).
+     */
+    public void pushInventoryForVariant(UUID variantId, UUID warehouseId) {
+        if (variantId == null || warehouseId == null) {
+            return;
+        }
+        ShopifyConnectionDto connection = buildConnection(null, true, true);
+        if (!isConfigured(connection)) {
+            return;
+        }
+        String inventoryItemGid = null;
+        String wantedKey = MAP_INVENTORY_ITEM_PREFIX + variantId;
+        for (TenantSetting setting : tenantSettingRepository.findByCategory(CATEGORY)) {
+            if (wantedKey.equals(setting.getSettingKey())) {
+                inventoryItemGid = setting.getSettingValue();
+                break;
+            }
+        }
+        if (!StringUtils.hasText(inventoryItemGid)) {
+            return; // variant not linked to Shopify
+        }
+        String locationGid = null;
+        for (Map.Entry<String, UUID> entry : locationMap().entrySet()) {
+            if (warehouseId.equals(entry.getValue())) {
+                locationGid = entry.getKey();
+                break;
+            }
+        }
+        if (!StringUtils.hasText(locationGid)) {
+            return; // warehouse not mapped to a Shopify location
+        }
+        BigDecimal onHand = productVariantQuantitySum(variantId, warehouseId);
+        try {
+            JsonNode response = pushInventoryMutation(connection, inventoryItemGid, locationGid, onHand.intValue());
+            JsonNode errs = response.path("userErrors");
+            if (errs.isArray() && !errs.isEmpty()) {
+                log.warn("Shopify inventory push userErrors for variant {}: {}", variantId, errs);
+            } else {
+                log.debug("Pushed inventory to Shopify for variant {} (onHand={})", variantId, onHand);
+            }
+        } catch (RuntimeException ex) {
+            log.warn("Shopify inventory push failed for variant {}: {}", variantId, ex.getMessage());
+        }
+    }
+
+    /**
+     * Pushes a fulfillment (with tracking) back to Shopify for a Shopify-origin order and
+     * asks Shopify to notify the customer. Fulfils every open fulfillment order on the
+     * order. Accepts either a numeric order id or a GID. No-ops when Shopify isn't
+     * configured; best-effort — never throws.
+     */
+    public void pushFulfillment(String externalOrderId, String trackingNumber, String trackingUrl, String carrier) {
+        if (!StringUtils.hasText(externalOrderId)) {
+            return;
+        }
+        ShopifyConnectionDto connection = buildConnection(null, true, true);
+        if (!isConfigured(connection)) {
+            return;
+        }
+        String orderGid = externalOrderId.startsWith("gid://")
+                ? externalOrderId
+                : "gid://shopify/Order/" + externalOrderId;
+        try {
+            JsonNode data = shopifyGraphQL(connection, FULFILLMENT_ORDERS_QUERY, Map.of("id", orderGid));
+            JsonNode edges = data.path("order").path("fulfillmentOrders").path("edges");
+            if (!edges.isArray() || edges.isEmpty()) {
+                log.info("Shopify fulfillment skipped: no fulfillment orders for {}", orderGid);
+                return;
+            }
+            Map<String, Object> trackingInfo = new HashMap<>();
+            if (StringUtils.hasText(trackingNumber)) trackingInfo.put("number", trackingNumber);
+            if (StringUtils.hasText(trackingUrl)) trackingInfo.put("url", trackingUrl);
+            if (StringUtils.hasText(carrier)) trackingInfo.put("company", carrier);
+
+            for (JsonNode edge : edges) {
+                JsonNode fo = edge.path("node");
+                String foId = text(fo.get("id"));
+                String status = text(fo.get("status"));
+                if (!StringUtils.hasText(foId)) continue;
+                if (status != null && !"OPEN".equalsIgnoreCase(status) && !"IN_PROGRESS".equalsIgnoreCase(status)) {
+                    continue; // already closed / cancelled
+                }
+                Map<String, Object> fulfillment = new HashMap<>();
+                fulfillment.put("notifyCustomer", true);
+                if (!trackingInfo.isEmpty()) {
+                    fulfillment.put("trackingInfo", trackingInfo);
+                }
+                fulfillment.put("lineItemsByFulfillmentOrder", List.of(Map.of("fulfillmentOrderId", foId)));
+                JsonNode result = shopifyGraphQL(connection, FULFILLMENT_CREATE_MUTATION,
+                        Map.of("fulfillment", fulfillment)).path("fulfillmentCreate");
+                JsonNode errs = result.path("userErrors");
+                if (errs.isArray() && !errs.isEmpty()) {
+                    log.warn("Shopify fulfillmentCreate userErrors for {}: {}", orderGid, errs);
+                } else {
+                    log.info("Pushed fulfillment to Shopify for order {} (fulfillmentOrder {})", orderGid, foId);
+                }
+            }
+        } catch (RuntimeException ex) {
+            log.warn("Shopify fulfillment push failed for {}: {}", orderGid, ex.getMessage());
+        }
+    }
+
+    private static final String FULFILLMENT_ORDERS_QUERY =
+            "query FulfillmentOrders($id: ID!) {\n" +
+            "  order(id: $id) {\n" +
+            "    id\n" +
+            "    fulfillmentOrders(first: 20) {\n" +
+            "      edges { node { id status } }\n" +
+            "    }\n" +
+            "  }\n" +
+            "}";
+
+    private static final String FULFILLMENT_CREATE_MUTATION =
+            "mutation fulfillmentCreate($fulfillment: FulfillmentInput!) {\n" +
+            "  fulfillmentCreate(fulfillment: $fulfillment) {\n" +
+            "    fulfillment { id status }\n" +
+            "    userErrors { field message }\n" +
+            "  }\n" +
+            "}";
+
     private BigDecimal productVariantQuantitySum(UUID variantId, UUID warehouseId) {
         BigDecimal total = stockRepository.countTotalQuantityByProductVariantAndWarehouse(variantId, warehouseId);
         return total == null ? BigDecimal.ZERO : total;

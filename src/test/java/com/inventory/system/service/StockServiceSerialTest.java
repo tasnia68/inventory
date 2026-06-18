@@ -63,6 +63,8 @@ public class StockServiceSerialTest {
     private StockMovementSerialNumberRepository stockMovementSerialNumberRepository;
     @Mock
     private TenantSettingService tenantSettingService;
+    @Mock
+    private org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private StockServiceImpl stockService;

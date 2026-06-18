@@ -53,6 +53,7 @@ public class StockServiceImpl implements StockService {
     private final SerialNumberRepository serialNumberRepository;
     private final StockMovementSerialNumberRepository stockMovementSerialNumberRepository;
     private final TenantSettingService tenantSettingService;
+    private final org.springframework.context.ApplicationEventPublisher eventPublisher;
 
     private static final String ALLOW_NEGATIVE_STOCK_KEY = "inventory.stock.allowNegativeStock";
     private static final String REQUIRE_MOVEMENT_REASON_KEY = "inventory.movements.requireReason";
@@ -212,6 +213,10 @@ public class StockServiceImpl implements StockService {
             processSerialNumbers(dto, variant, warehouse, location, batch, movement, stockStatus);
         }
 
+        // Single inventory chokepoint: announce the change so it can propagate to
+        // other channels (e.g. Shopify). referenceId carries origin for echo-suppression.
+        eventPublisher.publishEvent(new com.inventory.system.service.inventory.events.InventoryChangedEvent(
+                variant.getId(), warehouse.getId(), dto.getReferenceId(), java.time.Instant.now()));
         return mapToDto(movement);
     }
 
