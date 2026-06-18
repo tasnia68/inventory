@@ -201,7 +201,7 @@ public class PricingEngineServiceImpl implements PricingEngineService {
                 line.categoryId = variant.getTemplate() != null && variant.getTemplate().getCategory() != null
                         ? variant.getTemplate().getCategory().getId() : null;
                 line.quantity = nz(it.quantity());
-                line.baseUnitPrice = nz(it.unitPrice());
+                line.baseUnitPrice = it.unitPrice() != null ? it.unitPrice() : nz(variant.getPrice());
                 evalLines.add(line);
             }
         }
@@ -805,7 +805,10 @@ public class PricingEngineServiceImpl implements PricingEngineService {
             l.categoryId = v.getTemplate() != null && v.getTemplate().getCategory() != null
                     ? v.getTemplate().getCategory().getId() : null;
             l.quantity = nz(it.getQuantity());
-            l.baseUnitPrice = nz(it.getUnitPrice());
+            // Fall back to the variant's catalog price when the caller didn't pin an
+            // explicit unit price (e.g. storefront cart/checkout passes null and expects
+            // the engine to price from the catalog). An explicit value, including 0, wins.
+            l.baseUnitPrice = it.getUnitPrice() != null ? it.getUnitPrice() : nz(v.getPrice());
             out.add(l);
         }
         return out;
