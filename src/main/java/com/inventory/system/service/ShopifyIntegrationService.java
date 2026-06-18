@@ -10,25 +10,37 @@ import com.inventory.system.common.entity.ProductAttributeValue;
 import com.inventory.system.common.entity.ProductImage;
 import com.inventory.system.common.entity.ProductTemplate;
 import com.inventory.system.common.entity.ProductVariant;
+import com.inventory.system.common.entity.ShopifySyncRun;
 import com.inventory.system.common.entity.StockMovement.StockMovementType;
 import com.inventory.system.common.entity.StockStatus;
 import com.inventory.system.common.entity.TenantSetting;
 import com.inventory.system.common.entity.Warehouse;
+import com.inventory.system.config.scaling.DistributedLockService;
+import com.inventory.system.config.scaling.RabbitConfig;
 import com.inventory.system.config.tenant.TenantContext;
 import com.inventory.system.payload.ShopifyConnectionDto;
+import com.inventory.system.payload.ShopifySyncJob;
 import com.inventory.system.payload.ShopifySyncResultDto;
+import com.inventory.system.payload.ShopifySyncRunDto;
 import com.inventory.system.payload.StockAdjustmentDto;
 import com.inventory.system.repository.CategoryRepository;
 import com.inventory.system.repository.ProductAttributeRepository;
 import com.inventory.system.repository.ProductAttributeValueRepository;
 import com.inventory.system.repository.ProductTemplateRepository;
 import com.inventory.system.repository.ProductVariantRepository;
+import com.inventory.system.repository.ShopifySyncRunRepository;
 import com.inventory.system.repository.StockRepository;
 import com.inventory.system.repository.TenantSettingRepository;
 import com.inventory.system.repository.WarehouseRepository;
 import com.inventory.system.service.ingestion.ExternalOrderIngestionService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -42,6 +54,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -54,6 +68,7 @@ import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ShopifyIntegrationService {
@@ -91,10 +106,21 @@ public class ShopifyIntegrationService {
     private final ProductAttributeValueRepository productAttributeValueRepository;
     private final WarehouseRepository warehouseRepository;
     private final StockRepository stockRepository;
+    private final ShopifySyncRunRepository shopifySyncRunRepository;
     private final ExternalOrderIngestionService externalOrderIngestionService;
     private final FileStorageService fileStorageService;
     private final ObjectMapper objectMapper;
     private final StockService stockService;
+    private final DistributedLockService lockService;
+    private final ObjectProvider<RabbitTemplate> rabbitTemplateProvider;
+    // Self-reference so internal calls to @Transactional methods go through the Spring
+    // proxy (transaction + TenantFilterAspect fire) instead of being self-invoked.
+    private final ObjectProvider<ShopifyIntegrationService> selfProvider;
+
+    @Value("${app.scaling.enabled:false}")
+    private boolean scalingEnabled;
+
+    private static final Duration SYNC_LOCK_TTL = Duration.ofMinutes(15);
 
     private final HttpClient httpClient = HttpClient.newHttpClient();
 
@@ -213,27 +239,36 @@ public class ShopifyIntegrationService {
             return failResult("Shopify store domain and Admin API token are required before catalog sync.");
         }
         ShopifySyncResultDto result = okResult("Shopify catalog sync completed.");
-
         String cursor = null;
         int pageGuard = 0;
-        while (pageGuard++ < 100) {
-            Map<String, Object> vars = cursor == null ? Map.of() : Map.of("after", cursor);
-            JsonNode data = shopifyGraphQL(current, PRODUCTS_QUERY, vars);
-            JsonNode products = data.path("products");
-            for (JsonNode edge : products.path("edges")) {
-                importProductGql(edge.path("node"), result);
-            }
-            if (!products.path("pageInfo").path("hasNextPage").asBoolean(false)) {
+        while (pageGuard++ < 1000) {
+            ShopifyPageOutcome outcome = processProductsPage(current, cursor, null, result);
+            if (!outcome.hasNext()) {
                 break;
             }
-            cursor = products.path("pageInfo").path("endCursor").asText(null);
-            if (cursor == null) {
-                break;
-            }
+            cursor = outcome.nextCursor();
         }
         save(LAST_SYNC_AT, LocalDateTime.now().toString(), "STRING");
         save(HEALTH, "CONNECTED", "STRING");
         return result;
+    }
+
+    /** Process one page of products from the given cursor, accumulating into {@code acc}. */
+    private ShopifyPageOutcome processProductsPage(ShopifyConnectionDto conn, String cursor,
+                                                   String queryFilter, ShopifySyncResultDto acc) {
+        Map<String, Object> vars = new HashMap<>();
+        if (StringUtils.hasText(cursor)) {
+            vars.put("after", cursor);
+        }
+        vars.put("query", StringUtils.hasText(queryFilter) ? queryFilter : null);
+        JsonNode data = shopifyGraphQL(conn, PRODUCTS_QUERY, vars);
+        JsonNode products = data.path("products");
+        for (JsonNode edge : products.path("edges")) {
+            importProductGql(edge.path("node"), acc);
+        }
+        boolean hasNext = products.path("pageInfo").path("hasNextPage").asBoolean(false);
+        String next = hasNext ? products.path("pageInfo").path("endCursor").asText(null) : null;
+        return new ShopifyPageOutcome(next, hasNext && next != null);
     }
 
     @Transactional
@@ -243,45 +278,54 @@ public class ShopifyIntegrationService {
             return failResult("Shopify store domain and Admin API token are required before order sync.");
         }
         ShopifySyncResultDto result = okResult("Shopify order sync completed.");
-
         String cursor = null;
         int pageGuard = 0;
-        while (pageGuard++ < 100) {
-            Map<String, Object> vars = cursor == null ? Map.of() : Map.of("after", cursor);
-            JsonNode data = shopifyGraphQL(current, ORDERS_QUERY, vars);
-            JsonNode orders = data.path("orders");
-            for (JsonNode edge : orders.path("edges")) {
-                JsonNode order = edge.path("node");
-                result.setOrdersSeen(result.getOrdersSeen() + 1);
-                try {
-                    String payload = objectMapper.writeValueAsString(order);
-                    ExternalOrderIngestionService.IngestionResult ingestionResult = externalOrderIngestionService.ingest(
-                            ExternalOrderSource.SHOPIFY,
-                            "orders/sync",
-                            payload,
-                            "manual-admin-sync");
-                    if (ingestionResult.status() == InboundWebhookStatus.DUPLICATE) {
-                        result.setOrdersDuplicate(result.getOrdersDuplicate() + 1);
-                    } else if (ingestionResult.status() != InboundWebhookStatus.FAILED) {
-                        result.setOrdersImported(result.getOrdersImported() + 1);
-                    } else if (ingestionResult.error() != null) {
-                        result.getWarnings().add(ingestionResult.error());
-                    }
-                } catch (Exception ex) {
-                    result.getWarnings().add("Order import failed: " + ex.getMessage());
-                }
-            }
-            if (!orders.path("pageInfo").path("hasNextPage").asBoolean(false)) {
+        while (pageGuard++ < 1000) {
+            ShopifyPageOutcome outcome = processOrdersPage(current, cursor, null, result);
+            if (!outcome.hasNext()) {
                 break;
             }
-            cursor = orders.path("pageInfo").path("endCursor").asText(null);
-            if (cursor == null) {
-                break;
-            }
+            cursor = outcome.nextCursor();
         }
         save(LAST_SYNC_AT, LocalDateTime.now().toString(), "STRING");
         save(HEALTH, "CONNECTED", "STRING");
         return result;
+    }
+
+    /** Process one page of orders from the given cursor, accumulating into {@code acc}. */
+    private ShopifyPageOutcome processOrdersPage(ShopifyConnectionDto conn, String cursor,
+                                                 String queryFilter, ShopifySyncResultDto acc) {
+        Map<String, Object> vars = new HashMap<>();
+        if (StringUtils.hasText(cursor)) {
+            vars.put("after", cursor);
+        }
+        vars.put("query", StringUtils.hasText(queryFilter) ? queryFilter : null);
+        JsonNode data = shopifyGraphQL(conn, ORDERS_QUERY, vars);
+        JsonNode orders = data.path("orders");
+        for (JsonNode edge : orders.path("edges")) {
+            JsonNode order = edge.path("node");
+            acc.setOrdersSeen(acc.getOrdersSeen() + 1);
+            try {
+                String payload = objectMapper.writeValueAsString(order);
+                ExternalOrderIngestionService.IngestionResult ingestionResult = externalOrderIngestionService.ingest(
+                        ExternalOrderSource.SHOPIFY,
+                        "orders/sync",
+                        payload,
+                        "manual-admin-sync");
+                if (ingestionResult.status() == InboundWebhookStatus.DUPLICATE) {
+                    acc.setOrdersDuplicate(acc.getOrdersDuplicate() + 1);
+                } else if (ingestionResult.status() != InboundWebhookStatus.FAILED) {
+                    acc.setOrdersImported(acc.getOrdersImported() + 1);
+                } else if (ingestionResult.error() != null) {
+                    acc.getWarnings().add(ingestionResult.error());
+                }
+            } catch (Exception ex) {
+                acc.getWarnings().add("Order import failed: " + ex.getMessage());
+            }
+        }
+        boolean hasNext = orders.path("pageInfo").path("hasNextPage").asBoolean(false);
+        String next = hasNext ? orders.path("pageInfo").path("endCursor").asText(null) : null;
+        return new ShopifyPageOutcome(next, hasNext && next != null);
     }
 
     @Transactional
@@ -291,11 +335,17 @@ public class ShopifyIntegrationService {
             return failResult("Shopify store domain and Admin API token are required before location sync.");
         }
         ShopifySyncResultDto result = okResult("Shopify location sync completed.");
+        processLocationsPage(current, result);
+        save(LAST_SYNC_AT, LocalDateTime.now().toString(), "STRING");
+        return result;
+    }
 
-        JsonNode data = shopifyGraphQL(current, LOCATIONS_QUERY, null);
+    /** Locations are few; processed in a single page (no cursor). Always returns hasNext=false. */
+    private ShopifyPageOutcome processLocationsPage(ShopifyConnectionDto conn, ShopifySyncResultDto acc) {
+        JsonNode data = shopifyGraphQL(conn, LOCATIONS_QUERY, null);
         for (JsonNode edge : data.path("locations").path("edges")) {
             JsonNode loc = edge.path("node");
-            result.setLocationsSeen(result.getLocationsSeen() + 1);
+            acc.setLocationsSeen(acc.getLocationsSeen() + 1);
             String gid = text(loc.get("id"));
             String name = firstText(loc.get("name"), "Shopify Location");
             String address1 = text(loc.path("address").get("address1"));
@@ -314,18 +364,17 @@ public class ShopifyIntegrationService {
                 wh.setLocation(StringUtils.hasText(addressLine) ? addressLine : "Imported from Shopify");
                 Warehouse saved = warehouseRepository.save(wh);
                 save(MAP_LOCATION_PREFIX + gid, saved.getId().toString(), "STRING");
-                result.setLocationsCreated(result.getLocationsCreated() + 1);
+                acc.setLocationsCreated(acc.getLocationsCreated() + 1);
             } else {
                 if (StringUtils.hasText(addressLine) && !addressLine.equals(existing.getLocation())) {
                     existing.setLocation(addressLine);
                     warehouseRepository.save(existing);
                 }
                 save(MAP_LOCATION_PREFIX + gid, existing.getId().toString(), "STRING");
-                result.setLocationsMatched(result.getLocationsMatched() + 1);
+                acc.setLocationsMatched(acc.getLocationsMatched() + 1);
             }
         }
-        save(LAST_SYNC_AT, LocalDateTime.now().toString(), "STRING");
-        return result;
+        return new ShopifyPageOutcome(null, false);
     }
 
     @Transactional
@@ -335,65 +384,305 @@ public class ShopifyIntegrationService {
             return failResult("Shopify store domain and Admin API token are required before inventory sync.");
         }
         ShopifySyncResultDto result = okResult("Shopify inventory sync completed.");
-
-        Map<String, UUID> locationMap = locationMap();
-        if (locationMap.isEmpty()) {
-            result.getWarnings().add("No location mapping found. Run \"Sync locations\" first to map Shopify locations to warehouses.");
-        }
-
         String cursor = null;
         int pageGuard = 0;
-        while (pageGuard++ < 100) {
-            Map<String, Object> vars = cursor == null ? Map.of() : Map.of("after", cursor);
-            JsonNode data = shopifyGraphQL(current, INVENTORY_QUERY, vars);
-            JsonNode variants = data.path("productVariants");
-            for (JsonNode edge : variants.path("edges")) {
-                JsonNode variant = edge.path("node");
-                String sku = text(variant.get("sku"));
-                if (!StringUtils.hasText(sku)) {
-                    continue;
-                }
-                Optional<ProductVariant> localVariant = productVariantRepository.findBySku(sku);
-                if (localVariant.isEmpty()) {
-                    continue;
-                }
-                String inventoryItemGid = text(variant.path("inventoryItem").get("id"));
-                if (StringUtils.hasText(inventoryItemGid)) {
-                    save(MAP_INVENTORY_ITEM_PREFIX + localVariant.get().getId(), inventoryItemGid, "STRING");
-                }
-
-                for (JsonNode lvlEdge : variant.path("inventoryItem").path("inventoryLevels").path("edges")) {
-                    JsonNode level = lvlEdge.path("node");
-                    String locationGid = text(level.path("location").get("id"));
-                    UUID warehouseId = locationMap.get(locationGid);
-                    if (warehouseId == null) {
-                        continue;
-                    }
-                    BigDecimal onHand = BigDecimal.ZERO;
-                    for (JsonNode q : level.path("quantities")) {
-                        if ("on_hand".equals(text(q.get("name")))) {
-                            onHand = decimal(q.get("quantity"));
-                        }
-                    }
-                    result.setStockLevelsSeen(result.getStockLevelsSeen() + 1);
-                    try {
-                        applyStockLevel(localVariant.get(), warehouseId, onHand);
-                        result.setStockLevelsApplied(result.getStockLevelsApplied() + 1);
-                    } catch (RuntimeException ex) {
-                        result.getWarnings().add("Inventory apply failed for " + sku + ": " + ex.getMessage());
-                    }
-                }
-            }
-            if (!variants.path("pageInfo").path("hasNextPage").asBoolean(false)) {
+        while (pageGuard++ < 1000) {
+            ShopifyPageOutcome outcome = processInventoryPage(current, cursor, result);
+            if (!outcome.hasNext()) {
                 break;
             }
-            cursor = variants.path("pageInfo").path("endCursor").asText(null);
-            if (cursor == null) {
-                break;
-            }
+            cursor = outcome.nextCursor();
         }
         save(LAST_SYNC_AT, LocalDateTime.now().toString(), "STRING");
         return result;
+    }
+
+    /** Process one page of inventory levels from the given cursor, accumulating into {@code acc}. */
+    private ShopifyPageOutcome processInventoryPage(ShopifyConnectionDto conn, String cursor, ShopifySyncResultDto acc) {
+        Map<String, UUID> locationMap = locationMap();
+        if (!StringUtils.hasText(cursor) && locationMap.isEmpty()) {
+            acc.getWarnings().add("No location mapping found. Run \"Sync locations\" first to map Shopify locations to warehouses.");
+        }
+        // Reverse maps (Shopify GID -> local variant id) built from the mappings the
+        // product sync persisted. This matches variants even when they have NO SKU — many
+        // default Shopify products (snowboards, gift card) don't, and matching by SKU alone
+        // silently skipped them.
+        Map<String, UUID> invItemToVariant = reverseMap(MAP_INVENTORY_ITEM_PREFIX);
+        Map<String, UUID> gidToVariant = reverseMap(MAP_VARIANT_PREFIX);
+
+        Map<String, Object> vars = new HashMap<>();
+        if (StringUtils.hasText(cursor)) {
+            vars.put("after", cursor);
+        }
+        JsonNode data = shopifyGraphQL(conn, INVENTORY_QUERY, vars);
+        JsonNode variants = data.path("productVariants");
+        for (JsonNode edge : variants.path("edges")) {
+            JsonNode variant = edge.path("node");
+            String sku = text(variant.get("sku"));
+            String variantGid = text(variant.get("id"));
+            String inventoryItemGid = text(variant.path("inventoryItem").get("id"));
+
+            UUID localVariantId = null;
+            if (StringUtils.hasText(inventoryItemGid)) {
+                localVariantId = invItemToVariant.get(inventoryItemGid);
+            }
+            if (localVariantId == null && StringUtils.hasText(variantGid)) {
+                localVariantId = gidToVariant.get(variantGid);
+            }
+            if (localVariantId == null && StringUtils.hasText(sku)) {
+                localVariantId = productVariantRepository.findBySku(sku).map(ProductVariant::getId).orElse(null);
+            }
+            if (localVariantId == null) {
+                acc.getWarnings().add("No local variant for Shopify "
+                        + (StringUtils.hasText(sku) ? "sku " + sku : "variant " + variantGid) + " (run product sync first)");
+                continue;
+            }
+            if (StringUtils.hasText(inventoryItemGid)) {
+                save(MAP_INVENTORY_ITEM_PREFIX + localVariantId, inventoryItemGid, "STRING");
+            }
+            for (JsonNode lvlEdge : variant.path("inventoryItem").path("inventoryLevels").path("edges")) {
+                JsonNode level = lvlEdge.path("node");
+                String locationGid = text(level.path("location").get("id"));
+                UUID warehouseId = locationMap.get(locationGid);
+                if (warehouseId == null) {
+                    continue;
+                }
+                BigDecimal onHand = BigDecimal.ZERO;
+                for (JsonNode q : level.path("quantities")) {
+                    if ("on_hand".equals(text(q.get("name")))) {
+                        onHand = decimal(q.get("quantity"));
+                    }
+                }
+                acc.setStockLevelsSeen(acc.getStockLevelsSeen() + 1);
+                try {
+                    // REQUIRES_NEW (via self proxy) isolates each apply: a single failing
+                    // variant rolls back only its own transaction instead of poisoning the
+                    // whole page transaction (which caused "marked rollback-only").
+                    selfProvider.getObject().applyStockLevel(localVariantId, warehouseId, onHand);
+                    acc.setStockLevelsApplied(acc.getStockLevelsApplied() + 1);
+                } catch (RuntimeException ex) {
+                    String cause = rootMessage(ex);
+                    acc.getWarnings().add("Inventory apply failed for variant " + localVariantId + ": " + cause);
+                    log.warn("Shopify inventory apply failed for variant {} (sku {}): {}", localVariantId, sku, cause);
+                }
+            }
+        }
+        boolean hasNext = variants.path("pageInfo").path("hasNextPage").asBoolean(false);
+        String next = hasNext ? variants.path("pageInfo").path("endCursor").asText(null) : null;
+        return new ShopifyPageOutcome(next, hasNext && next != null);
+    }
+
+    // ----------------------------------------------------------------------------------
+    // Chunked, resumable sync runs (one page per call) — for catalogs too large to pull
+    // in a single request. The frontend drives the page loop and can resume a FAILED run
+    // from its persisted cursor.
+    // ----------------------------------------------------------------------------------
+
+    private static final List<String> SYNC_TYPES = List.of("PRODUCTS", "ORDERS", "INVENTORY", "LOCATIONS");
+
+    @Transactional
+    public ShopifySyncRunDto startRun(String syncType, boolean incremental) {
+        String type = syncType == null ? "" : syncType.trim().toUpperCase(Locale.ROOT);
+        if (!SYNC_TYPES.contains(type)) {
+            throw new IllegalArgumentException("Unknown Shopify sync type: " + syncType);
+        }
+        boolean inc = incremental && supportsIncremental(type);
+
+        ShopifySyncRun run = new ShopifySyncRun();
+        run.setSyncType(type);
+        run.setStatus("RUNNING");
+        run.setIncremental(inc);
+        run.setPagesProcessed(0);
+        run.setStartedAt(LocalDateTime.now());
+        run.setResultJson(toJson(okResult(type + " sync running")));
+
+        if (inc) {
+            String since = setting(sinceSettingKey(type), null);
+            if (StringUtils.hasText(since)) {
+                run.setQueryFilter("updated_at:>'" + since + "'");
+            }
+            run.setNextWatermark(Instant.now().toString());
+        }
+
+        ShopifyConnectionDto current = buildConnection(null, true, true);
+        if (!isConfigured(current)) {
+            ShopifySyncResultDto failed = failResult("Shopify store domain and Admin API token are required.");
+            run.setStatus("FAILED");
+            run.setMessage(failed.getMessage());
+            run.setFinishedAt(LocalDateTime.now());
+            run.setResultJson(toJson(failed));
+            return toRunDto(shopifySyncRunRepository.save(run));
+        }
+
+        ShopifySyncRun saved = shopifySyncRunRepository.save(run);
+        // One active run per (tenant, type) across all backend instances.
+        if (!lockService.tryAcquire(syncLockKey(TenantContext.getTenantId(), type), saved.getId().toString(), SYNC_LOCK_TTL)) {
+            shopifySyncRunRepository.delete(saved);
+            throw new IllegalStateException("A " + type + " sync is already running for this tenant. Wait for it to finish or resume it.");
+        }
+        return toRunDto(saved);
+    }
+
+    /**
+     * Create a run and hand it to the RabbitMQ worker to process server-side (browser may
+     * close). When scaling is disabled, drives the run inline so the caller still gets a
+     * completed result.
+     */
+    public ShopifySyncRunDto enqueueRun(String syncType, boolean incremental) {
+        ShopifyIntegrationService self = selfProvider.getObject();
+        ShopifySyncRunDto run = self.startRun(syncType, incremental);
+        if (!"RUNNING".equals(run.getStatus())) {
+            return run; // not configured / failed to start
+        }
+        RabbitTemplate rabbit = scalingEnabled ? rabbitTemplateProvider.getIfAvailable() : null;
+        if (rabbit != null) {
+            rabbit.convertAndSend(RabbitConfig.EXCHANGE, RabbitConfig.SYNC_ROUTING_KEY,
+                    new ShopifySyncJob(TenantContext.getTenantId(), run.getId(), run.getSyncType()));
+            return run;
+        }
+        // No broker (dev / scaling off): run it inline.
+        return self.driveRunToCompletion(UUID.fromString(run.getId()));
+    }
+
+    /** Drive a run page-by-page until it leaves RUNNING. Each page is its own transaction. */
+    public ShopifySyncRunDto driveRunToCompletion(UUID runId) {
+        ShopifyIntegrationService self = selfProvider.getObject();
+        ShopifySyncRunDto run = self.processNextPage(runId);
+        int guard = 0;
+        while (run != null && "RUNNING".equals(run.getStatus()) && guard++ < 100000) {
+            run = self.processNextPage(runId);
+        }
+        return run;
+    }
+
+    @Transactional
+    public ShopifySyncRunDto processNextPage(UUID runId) {
+        ShopifySyncRun run = shopifySyncRunRepository.findById(runId)
+                .orElseThrow(() -> new IllegalArgumentException("Sync run not found: " + runId));
+        if (!"RUNNING".equals(run.getStatus())) {
+            return toRunDto(run);
+        }
+        ShopifyConnectionDto current = buildConnection(null, true, true);
+        ShopifySyncResultDto acc = fromJson(run.getResultJson());
+
+        if (!isConfigured(current)) {
+            acc.setSuccess(false);
+            acc.setMessage("Shopify store domain and Admin API token are required.");
+            run.setStatus("FAILED");
+            run.setMessage(acc.getMessage());
+            run.setResultJson(toJson(acc));
+            run.setFinishedAt(LocalDateTime.now());
+            return toRunDto(shopifySyncRunRepository.save(run));
+        }
+
+        try {
+            ShopifyPageOutcome outcome = switch (run.getSyncType()) {
+                case "PRODUCTS" -> processProductsPage(current, run.getCursor(), run.getQueryFilter(), acc);
+                case "ORDERS" -> processOrdersPage(current, run.getCursor(), run.getQueryFilter(), acc);
+                case "INVENTORY" -> processInventoryPage(current, run.getCursor(), acc);
+                case "LOCATIONS" -> processLocationsPage(current, acc);
+                default -> throw new IllegalStateException("Unknown sync type: " + run.getSyncType());
+            };
+            run.setPagesProcessed(run.getPagesProcessed() + 1);
+            run.setResultJson(toJson(acc));
+            run.setMessage(acc.getMessage());
+
+            String lockKey = syncLockKey(run.getTenantId(), run.getSyncType());
+            if (outcome.hasNext()) {
+                run.setCursor(outcome.nextCursor());
+                lockService.refresh(lockKey, SYNC_LOCK_TTL);
+            } else {
+                run.setCursor(null);
+                run.setStatus("COMPLETED");
+                run.setFinishedAt(LocalDateTime.now());
+                save(LAST_SYNC_AT, LocalDateTime.now().toString(), "STRING");
+                save(HEALTH, "CONNECTED", "STRING");
+                if (run.isIncremental() && StringUtils.hasText(run.getNextWatermark())) {
+                    save(sinceSettingKey(run.getSyncType()), run.getNextWatermark(), "STRING");
+                }
+                lockService.release(lockKey, run.getId().toString());
+            }
+        } catch (RuntimeException ex) {
+            acc.setSuccess(false);
+            run.setStatus("FAILED");
+            run.setMessage(truncate(ex.getMessage(), 1000));
+            run.setResultJson(toJson(acc));
+            lockService.release(syncLockKey(run.getTenantId(), run.getSyncType()), run.getId().toString());
+        }
+        return toRunDto(shopifySyncRunRepository.save(run));
+    }
+
+    @Transactional
+    public ShopifySyncRunDto resumeRun(UUID runId) {
+        ShopifySyncRun run = shopifySyncRunRepository.findById(runId)
+                .orElseThrow(() -> new IllegalArgumentException("Sync run not found: " + runId));
+        if ("FAILED".equals(run.getStatus())) {
+            if (!lockService.tryAcquire(syncLockKey(run.getTenantId(), run.getSyncType()), run.getId().toString(), SYNC_LOCK_TTL)) {
+                throw new IllegalStateException("A " + run.getSyncType() + " sync is already running for this tenant.");
+            }
+            run.setStatus("RUNNING");
+            run.setMessage("Resumed from cursor.");
+            run.setFinishedAt(null);
+            run = shopifySyncRunRepository.save(run);
+        }
+        return toRunDto(run);
+    }
+
+    @Transactional(readOnly = true)
+    public List<ShopifySyncRunDto> listRuns() {
+        return shopifySyncRunRepository
+                .findByTenantIdOrderByCreatedAtDesc(TenantContext.getTenantId(), PageRequest.of(0, 25))
+                .stream().map(this::toRunDto).toList();
+    }
+
+    private boolean supportsIncremental(String type) {
+        return "PRODUCTS".equals(type) || "ORDERS".equals(type);
+    }
+
+    private String sinceSettingKey(String type) {
+        return "shopify.sync." + type.toLowerCase(Locale.ROOT) + ".since";
+    }
+
+    private String syncLockKey(String tenantId, String type) {
+        return "shopify:sync:lock:" + tenantId + ":" + type;
+    }
+
+    private String toJson(ShopifySyncResultDto result) {
+        try {
+            return objectMapper.writeValueAsString(result);
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
+    private ShopifySyncResultDto fromJson(String json) {
+        if (!StringUtils.hasText(json)) {
+            return okResult("");
+        }
+        try {
+            return objectMapper.readValue(json, ShopifySyncResultDto.class);
+        } catch (Exception ex) {
+            return okResult("");
+        }
+    }
+
+    private ShopifySyncRunDto toRunDto(ShopifySyncRun run) {
+        return ShopifySyncRunDto.builder()
+                .id(run.getId() == null ? null : run.getId().toString())
+                .syncType(run.getSyncType())
+                .status(run.getStatus())
+                .hasMore("RUNNING".equals(run.getStatus()))
+                .incremental(run.isIncremental())
+                .queryFilter(run.getQueryFilter())
+                .pagesProcessed(run.getPagesProcessed())
+                .message(run.getMessage())
+                .result(fromJson(run.getResultJson()))
+                .startedAt(run.getStartedAt() == null ? null : run.getStartedAt().toString())
+                .finishedAt(run.getFinishedAt() == null ? null : run.getFinishedAt().toString())
+                .build();
+    }
+
+    private record ShopifyPageOutcome(String nextCursor, boolean hasNext) {
     }
 
     @Transactional
@@ -789,21 +1078,32 @@ public class ShopifyIntegrationService {
         }
     }
 
-    private void applyStockLevel(ProductVariant variant, UUID warehouseId, BigDecimal targetOnHand) {
-        BigDecimal current = productVariantQuantitySum(variant.getId(), warehouseId);
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void applyStockLevel(UUID variantId, UUID warehouseId, BigDecimal targetOnHand) {
+        BigDecimal current = productVariantQuantitySum(variantId, warehouseId);
         BigDecimal delta = targetOnHand.subtract(current);
         if (delta.compareTo(BigDecimal.ZERO) == 0) {
             return;
         }
         StockAdjustmentDto dto = new StockAdjustmentDto();
-        dto.setProductVariantId(variant.getId());
+        dto.setProductVariantId(variantId);
         dto.setWarehouseId(warehouseId);
-        dto.setQuantity(delta);
+        // adjustStock requires a positive quantity; direction is conveyed by the type.
+        dto.setQuantity(delta.abs());
         dto.setStockStatus(StockStatus.AVAILABLE);
         dto.setType(delta.compareTo(BigDecimal.ZERO) > 0 ? StockMovementType.IN : StockMovementType.OUT);
         dto.setReason("Shopify inventory sync (target=" + targetOnHand + ")");
-        dto.setReferenceId("shopify:" + LocalDateTime.now());
+        dto.setReferenceId("shopify-inv-sync");
         stockService.adjustStock(dto);
+    }
+
+    private String rootMessage(Throwable ex) {
+        Throwable cur = ex;
+        while (cur.getCause() != null && cur.getCause() != cur) {
+            cur = cur.getCause();
+        }
+        String msg = cur.getMessage();
+        return (msg == null || msg.isBlank() ? cur.getClass().getSimpleName() : msg);
     }
 
     private Optional<Warehouse> lookupWarehouseForShopifyLocation(String gid) {
@@ -827,6 +1127,26 @@ public class ShopifyIntegrationService {
             String gid = setting.getSettingKey().substring(MAP_LOCATION_PREFIX.length());
             try {
                 map.put(gid, UUID.fromString(setting.getSettingValue()));
+            } catch (IllegalArgumentException ignored) {
+            }
+        }
+        return map;
+    }
+
+    /**
+     * Build a reverse lookup of Shopify GID -> local entity id from settings stored under
+     * {@code prefix} (e.g. shopify.map.inventoryitem.{localId}={gid}). Used to resolve the
+     * local variant for an inventory level regardless of whether the Shopify variant has a SKU.
+     */
+    private Map<String, UUID> reverseMap(String prefix) {
+        Map<String, UUID> map = new HashMap<>();
+        for (TenantSetting setting : tenantSettingRepository.findByCategory(CATEGORY)) {
+            String key = setting.getSettingKey();
+            if (key == null || !key.startsWith(prefix) || !StringUtils.hasText(setting.getSettingValue())) {
+                continue;
+            }
+            try {
+                map.put(setting.getSettingValue(), UUID.fromString(key.substring(prefix.length())));
             } catch (IllegalArgumentException ignored) {
             }
         }
@@ -938,8 +1258,8 @@ public class ShopifyIntegrationService {
         }
     }
 
-    private static final String PRODUCTS_QUERY = "query ProductPage($after: String) {\n" +
-            "  products(first: 50, after: $after) {\n" +
+    private static final String PRODUCTS_QUERY = "query ProductPage($after: String, $query: String) {\n" +
+            "  products(first: 25, after: $after, query: $query) {\n" +
             "    pageInfo { hasNextPage endCursor }\n" +
             "    edges {\n" +
             "      node {\n" +
@@ -962,8 +1282,8 @@ public class ShopifyIntegrationService {
             "  }\n" +
             "}";
 
-    private static final String ORDERS_QUERY = "query OrderPage($after: String) {\n" +
-            "  orders(first: 50, after: $after) {\n" +
+    private static final String ORDERS_QUERY = "query OrderPage($after: String, $query: String) {\n" +
+            "  orders(first: 50, after: $after, query: $query) {\n" +
             "    pageInfo { hasNextPage endCursor }\n" +
             "    edges {\n" +
             "      node {\n" +

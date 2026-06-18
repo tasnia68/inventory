@@ -3,18 +3,24 @@ package com.inventory.system.controller;
 import com.inventory.system.payload.ApiResponse;
 import com.inventory.system.payload.ShopifyConnectionDto;
 import com.inventory.system.payload.ShopifySyncResultDto;
+import com.inventory.system.payload.ShopifySyncRunDto;
 import com.inventory.system.service.ShopifyIntegrationService;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 import org.springframework.web.servlet.view.RedirectView;
+
+import java.util.List;
+import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/v1/integrations/shopify")
@@ -94,6 +100,41 @@ public class ShopifyIntegrationController {
     public ResponseEntity<ApiResponse<ShopifySyncResultDto>> pushInventory() {
         ShopifySyncResultDto result = shopifyIntegrationService.pushInventory();
         return ResponseEntity.ok(ApiResponse.success(result, result.getMessage()));
+    }
+
+    // ---- Chunked, resumable sync runs (one page per call) ----
+
+    @PostMapping("/runs")
+    public ResponseEntity<ApiResponse<ShopifySyncRunDto>> startRun(
+            @RequestParam("type") String type,
+            @RequestParam(value = "incremental", defaultValue = "false") boolean incremental) {
+        ShopifySyncRunDto run = shopifyIntegrationService.startRun(type, incremental);
+        return ResponseEntity.ok(ApiResponse.success(run, "Shopify sync run started"));
+    }
+
+    @PostMapping("/runs/async")
+    public ResponseEntity<ApiResponse<ShopifySyncRunDto>> enqueueRun(
+            @RequestParam("type") String type,
+            @RequestParam(value = "incremental", defaultValue = "false") boolean incremental) {
+        ShopifySyncRunDto run = shopifyIntegrationService.enqueueRun(type, incremental);
+        return ResponseEntity.ok(ApiResponse.success(run, "Shopify sync run queued"));
+    }
+
+    @PostMapping("/runs/{runId}/page")
+    public ResponseEntity<ApiResponse<ShopifySyncRunDto>> processPage(@PathVariable UUID runId) {
+        ShopifySyncRunDto run = shopifyIntegrationService.processNextPage(runId);
+        return ResponseEntity.ok(ApiResponse.success(run, run.getMessage()));
+    }
+
+    @PostMapping("/runs/{runId}/resume")
+    public ResponseEntity<ApiResponse<ShopifySyncRunDto>> resumeRun(@PathVariable UUID runId) {
+        ShopifySyncRunDto run = shopifyIntegrationService.resumeRun(runId);
+        return ResponseEntity.ok(ApiResponse.success(run, "Shopify sync run resumed"));
+    }
+
+    @GetMapping("/runs")
+    public ResponseEntity<ApiResponse<List<ShopifySyncRunDto>>> listRuns() {
+        return ResponseEntity.ok(ApiResponse.success(shopifyIntegrationService.listRuns(), "Shopify sync runs"));
     }
 
     private String publicBaseUrl(HttpServletRequest request) {
