@@ -63,6 +63,10 @@ public interface StockRepository extends JpaRepository<Stock, UUID>, JpaSpecific
     @Query("SELECT COALESCE(SUM(s.quantity), 0) FROM Stock s WHERE s.warehouse.id = :warehouseId")
     BigDecimal sumTotalQuantityByWarehouse(@Param("warehouseId") UUID warehouseId);
 
+    @Query("SELECT s.warehouse.id FROM Stock s WHERE s.status = 'AVAILABLE' " +
+            "GROUP BY s.warehouse.id ORDER BY SUM(s.quantity) DESC")
+    List<UUID> findWarehouseIdsByTotalAvailableStockDesc(Pageable pageable);
+
     @Query("select s from Stock s join s.productVariant pv join s.warehouse w " +
             "where lower(pv.sku) like lower(concat('%', :q, '%')) " +
             "or lower(w.name) like lower(concat('%', :q, '%'))")

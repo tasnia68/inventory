@@ -80,6 +80,7 @@ import com.inventory.system.repository.CategoryRepository;
 import com.inventory.system.repository.CustomerRepository;
 import com.inventory.system.repository.ProductVariantRepository;
 import com.inventory.system.repository.SalesOrderRepository;
+import com.inventory.system.repository.StockRepository;
 import com.inventory.system.repository.StorefrontAccountRepository;
 import com.inventory.system.repository.StorefrontAccountSessionRepository;
 import com.inventory.system.repository.StorefrontLoginChallengeRepository;
@@ -152,6 +153,7 @@ public class StorefrontServiceImpl implements StorefrontService {
     private final GiftCardService giftCardService;
     private final org.springframework.context.ApplicationEventPublisher salesEventPublisher;
     private final StockReservationService stockReservationService;
+    private final StockRepository stockRepository;
     private final StorefrontPublishVersionRepository storefrontPublishVersionRepository;
     private final TenantSettingRepository tenantSettingRepository;
     private final FileStorageService fileStorageService;
@@ -2137,15 +2139,36 @@ public class StorefrontServiceImpl implements StorefrontService {
                     .orElseThrow(() -> new BadRequestException("Configured storefront warehouse not found with ID: " + configuredWarehouseId));
         }
 
-        return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
-                .findFirst()
-                .orElseThrow(() -> new BadRequestException("At least one warehouse is required before using storefront checkout"));
+        Warehouse fallback = resolveDefaultFulfillmentWarehouse();
+        if (fallback == null) {
+            throw new BadRequestException("At least one warehouse is required before using storefront checkout");
+        }
+        return fallback;
     }
 
     private Warehouse resolveStorefrontWarehouse() {
         UUID configuredWarehouseId = readConfiguredStorefrontWarehouseId();
         if (configuredWarehouseId != null) {
             return warehouseRepository.findById(configuredWarehouseId).orElse(null);
+        }
+        return resolveDefaultFulfillmentWarehouse();
+    }
+
+    /**
+     * Resolves the storefront's fulfilment warehouse when none is explicitly configured.
+     * Prefers the warehouse holding the most sellable (AVAILABLE) stock so that the
+     * availability shown to shoppers and the warehouse checkout deducts from line up —
+     * even when inventory was synced into a freshly created warehouse (e.g. a Shopify
+     * location) instead of the original default. Falls back to the oldest warehouse only
+     * when no stock exists anywhere yet.
+     */
+    private Warehouse resolveDefaultFulfillmentWarehouse() {
+        List<UUID> byStock = stockRepository.findWarehouseIdsByTotalAvailableStockDesc(PageRequest.of(0, 1));
+        if (!byStock.isEmpty()) {
+            Warehouse stocked = warehouseRepository.findById(byStock.get(0)).orElse(null);
+            if (stocked != null) {
+                return stocked;
+            }
         }
         return warehouseRepository.findAll(Sort.by(Sort.Direction.ASC, "createdAt")).stream()
                 .findFirst()
